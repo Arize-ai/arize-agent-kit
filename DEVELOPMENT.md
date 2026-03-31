@@ -2,6 +2,15 @@
 
 Contributor guide for adding new harness adapters and working with the shared core.
 
+## Architecture Overview
+
+The system has two layers:
+
+1. **Harness adapters** — build OpenInference spans from harness-specific events (hook payloads, session lifecycle, tool calls) and submit them locally.
+2. **Shared collector/exporter** — a background process at `http://127.0.0.1:4318` that receives spans from all harnesses and exports them to Phoenix or Arize AX.
+
+Harnesses are responsible for span construction and session state. The collector is responsible for backend export, credentials, retries, and logging. New harnesses should submit spans to the collector via `POST http://127.0.0.1:4318/v1/spans` rather than implementing direct export logic. See [COLLECTOR_ARCHITECTURE.md](COLLECTOR_ARCHITECTURE.md) for the full collector contract.
+
 ## Repo Structure
 
 ```
@@ -163,6 +172,8 @@ input=$(cat)
 # ... resolve session, build span, send span ...
 ```
 
+Hook scripts call `send_span` which submits the span payload to the shared collector at `http://127.0.0.1:4318/v1/spans`. New harnesses should not implement direct backend export — the collector handles Phoenix and Arize AX export for all harnesses.
+
 Include `ARIZE_USER_ID` in spans:
 
 ```bash
@@ -206,10 +217,10 @@ Follow the pattern in existing adapter READMEs: features, configuration table, q
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `send_span` | `span_json` | Route span to the configured target (Phoenix or Arize AX). Handles dry run and verbose modes. |
-| `send_to_phoenix` | `span_json` | Send directly to Phoenix REST API. Uses `$PHOENIX_ENDPOINT`, `$PHOENIX_API_KEY`. |
-| `send_to_arize` | `span_json` | Send to Arize AX via `core/send_arize.py`. Finds Python with opentelemetry automatically. |
-| `get_target` | (none) | Returns `"phoenix"`, `"arize"`, or `"none"` based on env vars. |
+| `send_span` | `span_json` | Submit span to the shared collector at `http://127.0.0.1:4318/v1/spans`. Handles dry run and verbose modes. The collector routes to the configured backend (Phoenix or Arize AX). |
+| `send_to_phoenix` | `span_json` | (Legacy) Send directly to Phoenix REST API. Uses `$PHOENIX_ENDPOINT`, `$PHOENIX_API_KEY`. Being moved into the collector. |
+| `send_to_arize` | `span_json` | (Legacy) Send to Arize AX via `core/send_arize.py`. Being moved into the collector. |
+| `get_target` | (none) | (Legacy) Returns `"phoenix"`, `"arize"`, or `"none"` based on env vars. Being replaced by collector config. |
 
 ### State Management
 

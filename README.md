@@ -49,17 +49,29 @@ All integrations share the same environment variables. Set them in your harness 
 
 ### Backend Requirements
 
-| Backend | Auth | Dependencies | Latency |
-|---------|------|--------------|---------|
+| Backend | Auth | Harness Dependencies | Latency |
+|---------|------|---------------------|---------|
 | **Phoenix** (self-hosted) | `PHOENIX_ENDPOINT` | `jq`, `curl` | ~local |
-| **Arize AX** (cloud) | `ARIZE_API_KEY` + `ARIZE_SPACE_ID` | `jq`, `curl`, Python, `opentelemetry-proto`, `grpcio` | ~remote |
+| **Arize AX** (cloud) | `ARIZE_API_KEY` + `ARIZE_SPACE_ID` | `jq`, `curl` | ~remote |
 
-Phoenix requires no Python — spans are sent via the REST API with bash and `jq`. Arize AX uses gRPC, which requires Python with `opentelemetry-proto` and `grpcio`.
+Both backends are served by the shared collector. Harnesses only need `jq` and `curl` to build and submit spans locally. The collector handles all backend-specific transport (HTTP for Phoenix, gRPC for Arize AX) — no Python, `grpcio`, or `opentelemetry-proto` required in the user environment.
+
+## Architecture
+
+Harness integrations build OpenInference spans locally and submit them to a shared background collector at `http://127.0.0.1:4318`. The collector owns backend export to Phoenix or Arize AX, including credentials, retries, and logging. Harnesses do not export directly to backends.
+
+```text
+Claude Code hooks ─┐
+Codex hooks       ─┼─> localhost collector ──> Phoenix / Arize AX
+Future harnesses  ─┘
+```
+
+See [COLLECTOR_ARCHITECTURE.md](COLLECTOR_ARCHITECTURE.md) for the full collector contract.
 
 ## Repository Layout
 
 ```
-core/                   Shared span building, state primitives, and gRPC sender
+core/                   Shared span building, state primitives, and sending
 claude-code-tracing/    Claude Code CLI and Agent SDK integration
 codex-tracing/          OpenAI Codex CLI integration
 install.sh              Curl-pipe installer for non-marketplace harnesses
