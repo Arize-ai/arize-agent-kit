@@ -271,6 +271,7 @@ start_shared_collector() {
 
   info "Starting shared collector..."
   nohup "$SHARED_COLLECTOR_BIN" >> "$SHARED_LOG_FILE" 2>&1 &
+  echo $! > "$SHARED_PID_FILE"
 
   # Wait for startup (up to 3 seconds)
   local attempts=0
@@ -681,19 +682,32 @@ uninstall() {
   rmdir "$SHARED_LOG_DIR" 2>/dev/null || true
 
   # 5. Prompt before removing shared config (contains user credentials)
+  local keep_config=false
   if [[ -f "$SHARED_CONFIG" ]]; then
     if confirm_optional_cleanup "  Remove shared config at ${SHARED_CONFIG}? (contains backend credentials) [y/N]: " "n"; then
       rm -f "$SHARED_CONFIG"
       info "Removed ${SHARED_CONFIG}"
     else
+      keep_config=true
       info "Left ${SHARED_CONFIG} in place"
     fi
   fi
 
   # 6. Remove the install directory (repo checkout)
+  #    If the user chose to keep config, back it up and restore after removal
   if [[ -d "$INSTALL_DIR" ]]; then
-    rm -rf "$INSTALL_DIR"
-    info "Removed ${INSTALL_DIR}"
+    if [[ "$keep_config" == true ]]; then
+      local tmp_config
+      tmp_config=$(mktemp)
+      cp "$SHARED_CONFIG" "$tmp_config"
+      rm -rf "$INSTALL_DIR"
+      mkdir -p "$INSTALL_DIR"
+      mv "$tmp_config" "$SHARED_CONFIG"
+      info "Removed ${INSTALL_DIR} (preserved ${SHARED_CONFIG})"
+    else
+      rm -rf "$INSTALL_DIR"
+      info "Removed ${INSTALL_DIR}"
+    fi
   else
     info "Repository checkout already absent at ${INSTALL_DIR}"
   fi
