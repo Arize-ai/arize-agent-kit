@@ -1,5 +1,5 @@
 {
-  "name": "arize-claude-plugin",
+  "name": "arize-agent-kit",
   "owner": {
     "name": "Arize AI",
     "email": "support@arize.com"
@@ -10,11 +10,11 @@
   "plugins": [
     {
       "name": "claude-code-tracing",
-      "source": "./plugins/claude-code-tracing",
+      "source": "./claude-code-tracing",
       "description": "Automatic tracing of Claude Code sessions to Arize AX or Phoenix with OpenInference spans",
       "version": "1.0.0",
       "homepage": "https://arize.com",
-      "repository": "https://github.com/Arize-ai/arize-claude-code-plugin",
+      "repository": "https://github.com/Arize-ai/arize-agent-kit",
       "license": "Apache-2.0",
       "keywords": [
         "tracing",
@@ -24,23 +24,6 @@
         "phoenix"
       ],
       "category": "observability"
-    },
-    {
-      "name": "arize-platform",
-      "source": "./plugins/arize-platform",
-      "description": "Skills for querying and analyzing data from the Arize AX platform",
-      "version": "1.0.0",
-      "homepage": "https://arize.com",
-      "repository": "https://github.com/Arize-ai/arize-claude-code-plugin",
-      "license": "Apache-2.0",
-      "keywords": [
-        "arize",
-        "analytics",
-        "traces",
-        "datasets",
-        "experiments"
-      ],
-      "category": "productivity"
     }
   ]
 }
