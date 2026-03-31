@@ -1,0 +1,473 @@
+#!/usr/bin/env python3
+"""
+Shared background collector/exporter for Arize Agent Kit.
+
+Accepts OTLP JSON span payloads on POST /v1/spans from any harness,
+exports to the configured backend (Phoenix REST or Arize AX gRPC),
+and reports health on GET /health.
+
+Reads configuration from ~/.arize-agent-kit/config.json.
+Writes PID to ~/.arize-agent-kit/run/collector.pid.
+Logs to ~/.arize-agent-kit/logs/collector.log.
+
+This is a stdlib-only runtime for the HTTP server and Phoenix export path.
+Arize AX gRPC export requires grpcio and opentelemetry-proto, which are
+expected to be bundled with the collector — not in the user's environment.
+"""
+
+import base64
+import json
+import os
+import signal
+import sys
+import threading
+import time
+import urllib.request
+import urllib.error
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+
+# --- Paths ---
+BASE_DIR = os.path.expanduser("~/.arize-agent-kit")
+CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+PID_DIR = os.path.join(BASE_DIR, "run")
+PID_FILE = os.path.join(PID_DIR, "collector.pid")
+LOG_DIR = os.path.join(BASE_DIR, "logs")
+LOG_FILE = os.path.join(LOG_DIR, "collector.log")
+
+# --- Limits ---
+MAX_BODY_BYTES = 4 * 1024 * 1024  # 4 MB
+SHUTDOWN_FLUSH_TIMEOUT = 5  # seconds
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF = [1, 2, 4]  # seconds
+
+# --- Global state ---
+_start_time = 0.0
+_config = {}
+_shutting_down = False
+_last_backend_error = ""
+_last_backend_error_lock = threading.Lock()
+_log_lock = threading.Lock()
+
+
+def _log(msg):
+    """Append a timestamped line to the collector log file."""
+    line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n"
+    with _log_lock:
+        try:
+            with open(LOG_FILE, "a") as f:
+                f.write(line)
+        except OSError:
+            pass
+    sys.stderr.write(f"[collector] {msg}\n")
+
+
+def _set_last_error(err):
+    global _last_backend_error
+    with _last_backend_error_lock:
+        _last_backend_error = str(err) if err else ""
+
+
+def _get_last_error():
+    with _last_backend_error_lock:
+        return _last_backend_error
+
+
+# --- Config ---
+
+def load_config():
+    """Load and validate ~/.arize-agent-kit/config.json."""
+    if not os.path.isfile(CONFIG_FILE):
+        raise FileNotFoundError(f"Config file not found: {CONFIG_FILE}")
+    with open(CONFIG_FILE, "r") as f:
+        cfg = json.load(f)
+
+    # Validate required keys
+    backend = cfg.get("backend", {})
+    target = backend.get("target", "")
+    if target not in ("phoenix", "arize"):
+        raise ValueError(
+            f"backend.target must be 'phoenix' or 'arize', got: {target!r}"
+        )
+
+    if target == "arize":
+        arize_cfg = backend.get("arize", {})
+        if not arize_cfg.get("api_key"):
+            raise ValueError("backend.arize.api_key is required when target is 'arize'")
+        if not arize_cfg.get("space_id"):
+            raise ValueError("backend.arize.space_id is required when target is 'arize'")
+
+    return cfg
+
+
+# --- Backend export ---
+
+def _export_to_phoenix(span_json, phoenix_cfg):
+    """Forward OTLP JSON spans to Phoenix via REST API with retries."""
+    endpoint = phoenix_cfg.get("endpoint", "http://localhost:6006")
+    api_key = phoenix_cfg.get("api_key", "")
+    url = f"{endpoint}/v1/traces"
+
+    body = json.dumps(span_json).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["api_key"] = api_key
+
+    last_err = None
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                resp.read()
+            _set_last_error("")
+            return True
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
+            last_err = e
+            if attempt < RETRY_ATTEMPTS - 1:
+                time.sleep(RETRY_BACKOFF[attempt])
+
+    _set_last_error(last_err)
+    _log(f"Phoenix export failed after {RETRY_ATTEMPTS} attempts: {last_err}")
+    return False
+
+
+def _export_to_arize(span_json, arize_cfg):
+    """Forward OTLP JSON spans to Arize AX via gRPC with retries."""
+    api_key = arize_cfg.get("api_key", "")
+    space_id = arize_cfg.get("space_id", "")
+    endpoint = arize_cfg.get("endpoint", "otlp.arize.com:443")
+    project_name = arize_cfg.get("project_name", "default")
+
+    try:
+        import grpc
+        from opentelemetry.proto.collector.trace.v1 import trace_service_pb2
+        from opentelemetry.proto.collector.trace.v1 import trace_service_pb2_grpc
+        from opentelemetry.proto.trace.v1 import trace_pb2
+        from opentelemetry.proto.common.v1 import common_pb2
+        from opentelemetry.proto.resource.v1 import resource_pb2
+    except ImportError as e:
+        err_msg = f"Arize gRPC dependencies not available: {e}"
+        _set_last_error(err_msg)
+        _log(err_msg)
+        return False
+
+    def any_value_from_json(value):
+        if not isinstance(value, dict):
+            return common_pb2.AnyValue(string_value=str(value))
+        if "stringValue" in value:
+            return common_pb2.AnyValue(string_value=str(value["stringValue"]))
+        if "intValue" in value:
+            try:
+                return common_pb2.AnyValue(int_value=int(value["intValue"]))
+            except (TypeError, ValueError):
+                pass
+        if "doubleValue" in value:
+            try:
+                return common_pb2.AnyValue(double_value=float(value["doubleValue"]))
+            except (TypeError, ValueError):
+                pass
+        if "boolValue" in value:
+            bool_val = value["boolValue"]
+            if isinstance(bool_val, str):
+                bool_val = bool_val.strip().lower() in ("true", "1", "yes")
+            else:
+                bool_val = bool(bool_val)
+            return common_pb2.AnyValue(bool_value=bool_val)
+        if "bytesValue" in value:
+            raw = value["bytesValue"]
+            try:
+                data = base64.b64decode(raw)
+            except Exception:
+                data = str(raw).encode("utf-8", errors="ignore")
+            return common_pb2.AnyValue(bytes_value=data)
+        if "arrayValue" in value:
+            serialized = json.dumps(value.get("arrayValue", {}).get("values", []))
+            return common_pb2.AnyValue(string_value=serialized)
+        if "kvlistValue" in value:
+            serialized = json.dumps(value.get("kvlistValue", {}).get("values", []))
+            return common_pb2.AnyValue(string_value=serialized)
+        return common_pb2.AnyValue(string_value=json.dumps(value))
+
+    last_err = None
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            resource_spans = []
+            status_ok = 1
+            try:
+                status_ok = trace_pb2.Status.StatusCode.STATUS_CODE_OK
+            except AttributeError:
+                status_ok = getattr(trace_pb2.Status, "STATUS_CODE_OK", 1)
+
+            for rs in span_json.get("resourceSpans", []):
+                resource_attrs = [
+                    common_pb2.KeyValue(
+                        key="arize.project.name",
+                        value=common_pb2.AnyValue(string_value=project_name),
+                    ),
+                ]
+                for attr in rs.get("resource", {}).get("attributes", []):
+                    key = attr.get("key", "")
+                    value = attr.get("value", {})
+                    if not key:
+                        continue
+                    resource_attrs.append(
+                        common_pb2.KeyValue(key=key, value=any_value_from_json(value))
+                    )
+                resource = resource_pb2.Resource(attributes=resource_attrs)
+
+                scope_spans = []
+                for ss in rs.get("scopeSpans", []):
+                    spans = []
+                    for s in ss.get("spans", []):
+                        trace_id = bytes.fromhex(s.get("traceId", "0" * 32))
+                        span_id = bytes.fromhex(s.get("spanId", "0" * 16))
+                        parent_span_id = (
+                            bytes.fromhex(s["parentSpanId"])
+                            if s.get("parentSpanId")
+                            else b""
+                        )
+                        attrs = [
+                            common_pb2.KeyValue(
+                                key="arize.project.name",
+                                value=common_pb2.AnyValue(string_value=project_name),
+                            ),
+                        ]
+                        for attr in s.get("attributes", []):
+                            key = attr.get("key", "")
+                            value = attr.get("value", {})
+                            if not key:
+                                continue
+                            attrs.append(
+                                common_pb2.KeyValue(
+                                    key=key, value=any_value_from_json(value)
+                                )
+                            )
+                        kind_value = s.get("kind", 1)
+                        try:
+                            kind_value = int(kind_value)
+                        except (TypeError, ValueError):
+                            kind_value = 1
+                        span = trace_pb2.Span(
+                            trace_id=trace_id,
+                            span_id=span_id,
+                            parent_span_id=parent_span_id,
+                            name=s.get("name", "span"),
+                            kind=kind_value,
+                            start_time_unix_nano=int(s.get("startTimeUnixNano", 0)),
+                            end_time_unix_nano=int(s.get("endTimeUnixNano", 0)),
+                            attributes=attrs,
+                            status=trace_pb2.Status(code=status_ok),
+                        )
+                        spans.append(span)
+
+                    scope_info = ss.get("scope", {}) or {}
+                    scope_kwargs = {}
+                    scope_name = scope_info.get("name")
+                    scope_version = scope_info.get("version")
+                    if scope_name:
+                        scope_kwargs["name"] = scope_name
+                    if scope_version:
+                        scope_kwargs["version"] = scope_version
+                    scope_args = {"spans": spans}
+                    if scope_kwargs:
+                        scope_args["scope"] = common_pb2.InstrumentationScope(
+                            **scope_kwargs
+                        )
+                    scope_spans.append(trace_pb2.ScopeSpans(**scope_args))
+
+                resource_spans.append(
+                    trace_pb2.ResourceSpans(
+                        resource=resource, scope_spans=scope_spans
+                    )
+                )
+
+            request = trace_service_pb2.ExportTraceServiceRequest(
+                resource_spans=resource_spans
+            )
+            credentials = grpc.ssl_channel_credentials()
+            channel = grpc.secure_channel(endpoint, credentials)
+            stub = trace_service_pb2_grpc.TraceServiceStub(channel)
+            metadata = [
+                ("authorization", f"Bearer {api_key}"),
+                ("space_id", space_id),
+            ]
+            stub.Export(request, metadata=metadata, timeout=10)
+            channel.close()
+            _set_last_error("")
+            return True
+        except Exception as e:
+            last_err = e
+            if attempt < RETRY_ATTEMPTS - 1:
+                time.sleep(RETRY_BACKOFF[attempt])
+
+    _set_last_error(last_err)
+    _log(f"Arize export failed after {RETRY_ATTEMPTS} attempts: {last_err}")
+    return False
+
+
+def export_spans(span_json, config):
+    """Route span payload to the configured backend."""
+    backend = config.get("backend", {})
+    target = backend.get("target", "")
+
+    if target == "phoenix":
+        phoenix_cfg = backend.get("phoenix", {})
+        return _export_to_phoenix(span_json, phoenix_cfg)
+    elif target == "arize":
+        arize_cfg = backend.get("arize", {})
+        return _export_to_arize(span_json, arize_cfg)
+    else:
+        _set_last_error(f"Unknown backend target: {target}")
+        return False
+
+
+# --- HTTP Handler ---
+
+class CollectorHandler(BaseHTTPRequestHandler):
+
+    def log_message(self, format, *args):
+        _log(format % args)
+
+    def _send_json(self, code, data):
+        body = json.dumps(data).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        if self.path.rstrip("/") != "/v1/spans":
+            self._send_json(404, {"status": "error", "message": "not found"})
+            return
+
+        if _shutting_down:
+            self._send_json(503, {"status": "error", "message": "shutting down"})
+            return
+
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length > MAX_BODY_BYTES:
+            self._send_json(413, {"status": "error", "message": "payload too large"})
+            return
+
+        if content_length == 0:
+            self._send_json(400, {"status": "error", "message": "empty body"})
+            return
+
+        raw = self.rfile.read(content_length)
+        try:
+            span_json = json.loads(raw)
+        except json.JSONDecodeError as e:
+            self._send_json(
+                400, {"status": "error", "message": f"malformed JSON: {e}"}
+            )
+            return
+
+        if "resourceSpans" not in span_json:
+            self._send_json(
+                400, {"status": "error", "message": "missing resourceSpans"}
+            )
+            return
+
+        # Accept the payload immediately, export in a background thread
+        self._send_json(202, {"status": "accepted"})
+
+        threading.Thread(
+            target=_background_export, args=(span_json,), daemon=True
+        ).start()
+
+    def do_GET(self):
+        if self.path.rstrip("/") == "/health":
+            last_err = _get_last_error()
+            backend_target = _config.get("backend", {}).get("target", "unknown")
+            if last_err:
+                self._send_json(
+                    503,
+                    {
+                        "status": "unhealthy",
+                        "backend": backend_target,
+                        "error": last_err,
+                    },
+                )
+            else:
+                self._send_json(
+                    200,
+                    {
+                        "status": "healthy",
+                        "backend": backend_target,
+                        "uptime_seconds": int(time.time() - _start_time),
+                    },
+                )
+        else:
+            self._send_json(404, {"status": "error", "message": "not found"})
+
+
+def _background_export(span_json):
+    """Export spans in a background thread."""
+    try:
+        export_spans(span_json, _config)
+    except Exception as e:
+        _set_last_error(e)
+        _log(f"Background export error: {e}")
+
+
+# --- Process lifecycle ---
+
+def _write_pid():
+    os.makedirs(PID_DIR, exist_ok=True)
+    with open(PID_FILE, "w") as f:
+        f.write(str(os.getpid()))
+
+
+def _remove_pid():
+    try:
+        os.remove(PID_FILE)
+    except OSError:
+        pass
+
+
+def main():
+    global _start_time, _config, _shutting_down
+
+    # Load config
+    try:
+        _config = load_config()
+    except (FileNotFoundError, ValueError, json.JSONDecodeError) as e:
+        sys.stderr.write(f"[collector] Config error: {e}\n")
+        sys.exit(1)
+
+    host = _config.get("collector", {}).get("host", "127.0.0.1")
+    port = _config.get("collector", {}).get("port", 4318)
+
+    # Ensure log directory exists
+    os.makedirs(LOG_DIR, exist_ok=True)
+
+    _start_time = time.time()
+    _write_pid()
+
+    server = ThreadingHTTPServer((host, port), CollectorHandler)
+
+    def _shutdown(signum, frame):
+        global _shutting_down
+        _shutting_down = True
+        _log("Received shutdown signal, stopping...")
+        # Stop accepting new requests
+        threading.Thread(target=server.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
+
+    backend_target = _config.get("backend", {}).get("target", "unknown")
+    _log(f"Listening on {host}:{port} (PID {os.getpid()}, backend={backend_target})")
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+        _remove_pid()
+        _log("Collector stopped")
+
+
+if __name__ == "__main__":
+    main()
