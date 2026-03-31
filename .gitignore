@@ -1,0 +1,4 @@
+.venv
+.workbench/
+.agents/
+.claude/
