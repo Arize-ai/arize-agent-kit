@@ -19,7 +19,9 @@ codex-tracing/       # OpenAI Codex CLI adapter
   hooks/common.sh    # Adapter: thread-id state, debug_dump, multi-span, sources core/common.sh
   hooks/notify.sh    # Single event handler (Codex uses one hook for all events)
   scripts/           # collector.py, collector_ctl.sh
+  skills/            # setup-codex-tracing/SKILL.md
   .claude-plugin/    # plugin.json
+  README.md          # Codex-specific setup and usage
 
 install.sh           # Curl-pipe installer for non-marketplace harnesses
 marketplace.json     # Claude Code marketplace listing
@@ -83,6 +85,11 @@ export STATE_DIR="${HOME}/.arize-<harness>"
 export ARIZE_LOG_FILE="${ARIZE_LOG_FILE:-/tmp/arize-<harness>.log}"
 
 # --- Source shared core ---
+# After sourcing, all core functions are available: build_span, send_span,
+# state primitives, logging, check_requirements, etc.
+# Hook scripts call check_requirements as their first action after sourcing
+# this adapter common.sh — it verifies tracing is enabled, jq exists, and
+# creates STATE_DIR. See Step 3 for the hook script pattern.
 source "$CORE_DIR/common.sh"
 
 # --- Session resolution (harness-specific) ---
@@ -132,6 +139,8 @@ gc_stale_state_files() {
   max_age_s=86400
   for f in "${STATE_DIR}"/state_*.json; do
     [[ -f "$f" ]] || continue
+    # Cross-platform: stat -f %m is macOS (BSD), stat -c %Y is Linux (GNU).
+    # The fallback to $now_s ensures the file is never GC'd if both fail.
     local file_age_s=$(( now_s - $(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo "$now_s") ))
     if (( file_age_s > max_age_s )); then
       rm -f "$f"
@@ -181,7 +190,7 @@ Follow the pattern in existing adapter READMEs: features, configuration table, q
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `build_span` | `name kind span_id trace_id [parent] start [end] [attrs_json]` | Build a single OTLP span JSON payload. Uses `$ARIZE_SERVICE_NAME` and `$ARIZE_SCOPE_NAME`. |
-| `build_multi_span` | `span1_json span2_json ...` | Merge multiple `build_span()` outputs into a single batch payload. Each input is a full `build_span()` output (already wrapped with resource and scope). `build_multi_span` extracts the inner span objects and re-wraps them under a single resource/scope envelope using the current `$ARIZE_SERVICE_NAME` and `$ARIZE_SCOPE_NAME`. |
+| `build_multi_span` | `full_payload1 full_payload2 ...` | Batch multiple spans into one OTLP request. Each input must be a complete `build_span()` output (already wrapped with resource/scope). The function unwraps each payload to extract the inner span objects, then re-wraps all spans under a single resource/scope envelope using the current `$ARIZE_SERVICE_NAME` and `$ARIZE_SCOPE_NAME`. Do **not** pass raw span objects — pass full `build_span()` outputs. |
 
 **`build_span` parameters:**
 
