@@ -123,13 +123,20 @@ ensure_session_initialized() {
 
 # --- Garbage collection (harness-specific) ---
 # Implement based on how stale sessions can be detected.
+# This is optional — leave as a no-op if the harness manages its own lifecycle.
+# Claude uses PID liveness checks; Codex uses file age with a 24h threshold.
 gc_stale_state_files() {
   # Example: remove state files older than 24 hours
-  local now_s
+  local now_s max_age_s
   now_s=$(date +%s)
+  max_age_s=86400
   for f in "${STATE_DIR}"/state_*.json; do
     [[ -f "$f" ]] || continue
-    # ... age check and cleanup ...
+    local file_age_s=$(( now_s - $(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo "$now_s") ))
+    if (( file_age_s > max_age_s )); then
+      rm -f "$f"
+      log "GC: removed stale state file $(basename "$f")"
+    fi
   done
 }
 ```
@@ -174,7 +181,7 @@ Follow the pattern in existing adapter READMEs: features, configuration table, q
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `build_span` | `name kind span_id trace_id [parent] start [end] [attrs_json]` | Build a single OTLP span JSON payload. Uses `$ARIZE_SERVICE_NAME` and `$ARIZE_SCOPE_NAME`. |
-| `build_multi_span` | `span1_json span2_json ...` | Merge multiple `build_span()` outputs into a single batch payload. |
+| `build_multi_span` | `span1_json span2_json ...` | Merge multiple `build_span()` outputs into a single batch payload. Each input is a full `build_span()` output (already wrapped with resource and scope). `build_multi_span` extracts the inner span objects and re-wraps them under a single resource/scope envelope using the current `$ARIZE_SERVICE_NAME` and `$ARIZE_SCOPE_NAME`. |
 
 **`build_span` parameters:**
 
