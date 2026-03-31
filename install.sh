@@ -35,6 +35,21 @@ command_exists() {
   command -v "$1" &>/dev/null
 }
 
+confirm_optional_cleanup() {
+  local prompt="$1"
+  local default="${2:-n}"
+  local reply
+
+  if [[ ! -t 0 ]]; then
+    [[ "$default" =~ ^[Yy]$ ]]
+    return
+  fi
+
+  read -rp "$prompt" reply
+  reply="${reply:-$default}"
+  [[ "$reply" =~ ^[Yy]$ ]]
+}
+
 # --- install_repo: clone or tarball fallback ---
 install_repo() {
   if [[ -d "${INSTALL_DIR}/.git" ]]; then
@@ -307,28 +322,143 @@ update_install() {
   info "Update complete! Re-run 'install.sh claude' or 'install.sh codex' to reconfigure."
 }
 
+cleanup_claude_config() {
+  local plugin_dir="${INSTALL_DIR}/claude-code-tracing"
+  local legacy_plugin_dir="${INSTALL_DIR}/plugins/claude-code-tracing"
+  local global_settings="${HOME}/.claude/settings.json"
+  local local_settings=".claude/settings.local.json"
+  local arize_env_keys='
+    del(
+      .ARIZE_TRACE_ENABLED,
+      .PHOENIX_ENDPOINT,
+      .PHOENIX_API_KEY,
+      .ARIZE_API_KEY,
+      .ARIZE_SPACE_ID,
+      .ARIZE_OTLP_ENDPOINT,
+      .ARIZE_PROJECT_NAME,
+      .ARIZE_USER_ID,
+      .ARIZE_DRY_RUN,
+      .ARIZE_VERBOSE,
+      .ARIZE_LOG_FILE
+    )
+  '
+
+  if [[ -f "$global_settings" ]] && command_exists jq; then
+    if jq -e --arg path "$plugin_dir" --arg legacy "$legacy_plugin_dir" '
+      (.plugins // []) | index($path) != null or index($legacy) != null
+    ' "$global_settings" >/dev/null 2>&1; then
+      if confirm_optional_cleanup "  Remove Arize Claude plugin path from ${global_settings}? [y/N]: " "n"; then
+        cp "$global_settings" "${global_settings}.bak"
+        jq --arg path "$plugin_dir" --arg legacy "$legacy_plugin_dir" '
+          .plugins = ((.plugins // []) | map(select(. != $path and . != $legacy)))
+        ' "$global_settings" > "${global_settings}.tmp" && mv "${global_settings}.tmp" "$global_settings"
+        info "Removed Arize Claude plugin path from ${global_settings}"
+      else
+        info "Left ${global_settings} unchanged"
+      fi
+    fi
+
+    if jq -e '
+      (.env // {}) as $env
+      | [
+          "ARIZE_TRACE_ENABLED",
+          "PHOENIX_ENDPOINT",
+          "PHOENIX_API_KEY",
+          "ARIZE_API_KEY",
+          "ARIZE_SPACE_ID",
+          "ARIZE_OTLP_ENDPOINT",
+          "ARIZE_PROJECT_NAME",
+          "ARIZE_USER_ID",
+          "ARIZE_DRY_RUN",
+          "ARIZE_VERBOSE",
+          "ARIZE_LOG_FILE"
+        ]
+      | any(. as $k | $env[$k] != null)
+    ' "$global_settings" >/dev/null 2>&1; then
+      if confirm_optional_cleanup "  Remove Arize env keys from ${global_settings}? [y/N]: " "n"; then
+        cp "$global_settings" "${global_settings}.bak"
+        jq "
+          .env = ((.env // {}) | ${arize_env_keys})
+        " "$global_settings" > "${global_settings}.tmp" && mv "${global_settings}.tmp" "$global_settings"
+        info "Removed Arize env keys from ${global_settings}"
+      else
+        info "Left ${global_settings} env unchanged"
+      fi
+    fi
+  fi
+
+  if [[ -f "$local_settings" ]] && command_exists jq; then
+    if jq -e '
+      (.env // {}) as $env
+      | [
+          "ARIZE_TRACE_ENABLED",
+          "PHOENIX_ENDPOINT",
+          "PHOENIX_API_KEY",
+          "ARIZE_API_KEY",
+          "ARIZE_SPACE_ID",
+          "ARIZE_OTLP_ENDPOINT",
+          "ARIZE_PROJECT_NAME",
+          "ARIZE_USER_ID",
+          "ARIZE_DRY_RUN",
+          "ARIZE_VERBOSE",
+          "ARIZE_LOG_FILE"
+        ]
+      | any(. as $k | $env[$k] != null)
+    ' "$local_settings" >/dev/null 2>&1; then
+      if confirm_optional_cleanup "  Remove Arize env keys from ${local_settings}? [y/N]: " "n"; then
+        cp "$local_settings" "${local_settings}.bak"
+        jq "
+          .env = ((.env // {}) | ${arize_env_keys})
+        " "$local_settings" > "${local_settings}.tmp" && mv "${local_settings}.tmp" "$local_settings"
+        info "Removed Arize env keys from ${local_settings}"
+      else
+        info "Left ${local_settings} unchanged"
+      fi
+    fi
+  fi
+
+  if [[ -d "${HOME}/.arize-claude-code" ]]; then
+    if confirm_optional_cleanup "  Remove Claude runtime state at ${HOME}/.arize-claude-code? [Y/n]: " "y"; then
+      rm -rf "${HOME}/.arize-claude-code"
+      info "Removed ${HOME}/.arize-claude-code"
+    else
+      info "Left ${HOME}/.arize-claude-code in place"
+    fi
+  fi
+}
+
 # --- uninstall ---
 uninstall() {
   header "Uninstalling arize-agent-kit"
 
-  if [[ ! -d "$INSTALL_DIR" ]]; then
-    info "Nothing to uninstall — ${INSTALL_DIR} does not exist"
-    exit 0
+  local codex_install="${INSTALL_DIR}/codex-tracing/install.sh"
+  if [[ ! -f "$codex_install" ]]; then
+    codex_install="${INSTALL_DIR}/plugins/codex-tracing/install.sh"
   fi
 
-  rm -rf "$INSTALL_DIR"
-  info "Removed ${INSTALL_DIR}"
+  if [[ -f "$codex_install" ]]; then
+    info "Removing Codex tracing configuration..."
+    bash "$codex_install" uninstall || warn "Codex uninstall encountered an issue; some manual cleanup may still be required"
+  fi
+
+  info "Checking Claude tracing configuration..."
+  cleanup_claude_config
+
+  if [[ -d "$INSTALL_DIR" ]]; then
+    rm -rf "$INSTALL_DIR"
+    info "Removed ${INSTALL_DIR}"
+  else
+    info "Repository checkout already absent at ${INSTALL_DIR}"
+  fi
 
   echo ""
   echo "  The following may need manual cleanup:"
   echo ""
-  echo "  - Claude Code: remove plugin path from ~/.claude/settings.json"
-  echo "  - Codex: remove 'notify' line from ~/.codex/config.toml"
-  echo "  - Codex: remove [otel] section from ~/.codex/config.toml (if added)"
-  echo "  - Codex: remove env file: ~/.codex/arize-env.sh"
-  echo "  - Codex: remove proxy wrapper: ~/.local/bin/codex (if installed)"
-  echo "  - Shell profile: remove 'source ~/.codex/arize-env.sh' lines"
-  echo "  - Shell profile: remove PATH modifications for ~/.local/bin"
+  echo "  - Claude Agent SDK: remove any hardcoded local plugin path from your application code"
+  echo "  - Claude Code marketplace installs are managed separately by Claude"
+  echo "  - Codex: verify ~/.codex/config.toml no longer references Arize"
+  echo "  - Codex: verify ~/.local/bin/codex and shell profile changes were restored if you had a custom wrapper"
+  echo "  - Shell profile: remove any manual 'source ~/.codex/arize-env.sh' lines you added"
   echo ""
   info "Uninstall complete."
 }

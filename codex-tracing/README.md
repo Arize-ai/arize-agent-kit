@@ -1,10 +1,10 @@
-# Codex CLI Tracing Plugin
+# Codex CLI Tracing
 
 Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for the **OpenAI Codex CLI**. Each agent turn is captured as an LLM span with tool calls, token usage, and API request details, then sent to [Arize AX](https://arize.com) or [Phoenix](https://github.com/Arize-ai/phoenix).
 
 ## Architecture
 
-The plugin has three components:
+This integration has three components:
 
 ```
 Codex CLI
@@ -164,15 +164,14 @@ The collector listens on `127.0.0.1:4318`, buffers events by thread ID, supports
 
 ## Directory Structure
 
-```
+``` 
 codex-tracing/
-  .claude-plugin/plugin.json   Plugin metadata
   hooks/common.sh              Adapter: thread-id state, debug dump, multi-span
   hooks/notify.sh              Notify hook (LLM spans with child span assembly)
   scripts/collector.py         OTLP event collector daemon
   scripts/collector_ctl.sh     Collector lifecycle management
   install.sh                   Interactive/non-interactive installer
-  skills/                      Claude Code skill for guided setup
+  skills/                      Codex setup skill
 ```
 
 Shared logic lives in `core/` at the repository root:

@@ -66,15 +66,28 @@ if [[ "${1:-}" == "uninstall" ]]; then
 
   if [[ -f "$CODEX_CONFIG" ]]; then
     # Remove notify line referencing our script
-    if grep -q "arize" "$CODEX_CONFIG" 2>/dev/null; then
+    if grep -qF "$NOTIFY_SCRIPT" "$CODEX_CONFIG" 2>/dev/null; then
       # Create backup
       cp "$CODEX_CONFIG" "${CODEX_CONFIG}.bak"
       # Remove notify line that references our script
-      sed -i.tmp '/notify.*arize.*notify\.sh/d' "$CODEX_CONFIG"
+      sed -i.tmp "\|$NOTIFY_SCRIPT|d" "$CODEX_CONFIG"
       rm -f "${CODEX_CONFIG}.tmp"
       info "Removed notify hook from config.toml (backup: config.toml.bak)"
     else
       info "No Arize notify hook found in config.toml"
+    fi
+
+    if grep -q "endpoint = \"http://127.0.0.1:${CODEX_COLLECTOR_PORT:-4318}/v1/logs\"" "$CODEX_CONFIG" 2>/dev/null; then
+      cp "$CODEX_CONFIG" "${CODEX_CONFIG}.bak"
+      awk '
+        BEGIN { skip=0 }
+        /^\[otel(\.|\])/ { skip=1; next }
+        skip && /^\[/ && $0 !~ /^\[otel(\.|\])/ { skip=0 }
+        !skip { print }
+      ' "${CODEX_CONFIG}.bak" > "$CODEX_CONFIG"
+      info "Removed Arize [otel] exporter from config.toml"
+    else
+      info "No Arize [otel] exporter found in config.toml"
     fi
   fi
 
@@ -119,7 +132,13 @@ if [[ "${1:-}" == "uninstall" ]]; then
   # Clean up state
   rm -rf "${HOME}/.arize-codex"
   info "Cleaned up state directory"
-  info "Uninstall complete. Native OTLP settings (if any) were left in config.toml."
+
+  if [[ -f "${CODEX_CONFIG_DIR}/arize-env.sh" ]]; then
+    rm -f "${CODEX_CONFIG_DIR}/arize-env.sh"
+    info "Removed ${CODEX_CONFIG_DIR}/arize-env.sh"
+  fi
+
+  info "Uninstall complete."
   exit 0
 fi
 

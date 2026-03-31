@@ -45,7 +45,14 @@ Run the interactive setup after installation:
 bash claude-code-tracing/scripts/setup.sh
 ```
 
-Or configure manually by adding environment variables to `.claude/settings.local.json`:
+The setup script will:
+
+1. Ask whether to store tracing env vars globally in `~/.claude/settings.json` or project-locally in `.claude/settings.local.json`
+2. Ask which backend to configure: Phoenix or Arize AX
+3. Write the required env vars into the selected Claude settings file
+4. Optionally add `ARIZE_USER_ID` for span attribution
+
+Or configure manually by adding environment variables to either `~/.claude/settings.json` or `.claude/settings.local.json`:
 
 ### Phoenix (self-hosted)
 

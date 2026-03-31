@@ -13,25 +13,54 @@ echo ""
 echo -e "${GREEN}▸ ARIZE${NC} Claude Code Tracing Setup"
 echo ""
 
-# Detect settings file location
-SETTINGS_FILE=".claude/settings.local.json"
+GLOBAL_SETTINGS_FILE="${HOME}/.claude/settings.json"
+LOCAL_SETTINGS_FILE=".claude/settings.local.json"
+SETTINGS_FILE=""
 
-# Check for existing configuration
-if [[ -f "$SETTINGS_FILE" ]]; then
-  existing_phoenix=$(jq -r '.env.PHOENIX_ENDPOINT // empty' "$SETTINGS_FILE" 2>/dev/null)
-  existing_arize=$(jq -r '.env.ARIZE_API_KEY // empty' "$SETTINGS_FILE" 2>/dev/null)
-  if [[ -n "$existing_phoenix" ]]; then
-    echo -e "${YELLOW}Existing config found:${NC} Phoenix at $existing_phoenix"
-    read -p "Overwrite? [y/N]: " overwrite
-    [[ "$overwrite" =~ ^[Yy]$ ]] || { echo "Setup cancelled."; exit 0; }
-    echo ""
-  elif [[ -n "$existing_arize" ]]; then
-    echo -e "${YELLOW}Existing config found:${NC} Arize AX"
-    read -p "Overwrite? [y/N]: " overwrite
-    [[ "$overwrite" =~ ^[Yy]$ ]] || { echo "Setup cancelled."; exit 0; }
-    echo ""
+ensure_settings_file() {
+  mkdir -p "$(dirname "$SETTINGS_FILE")"
+  [[ -f "$SETTINGS_FILE" ]] || echo '{}' > "$SETTINGS_FILE"
+}
+
+check_existing_configuration() {
+  if [[ -f "$SETTINGS_FILE" ]]; then
+    existing_phoenix=$(jq -r '.env.PHOENIX_ENDPOINT // empty' "$SETTINGS_FILE" 2>/dev/null)
+    existing_arize=$(jq -r '.env.ARIZE_API_KEY // empty' "$SETTINGS_FILE" 2>/dev/null)
+    if [[ -n "$existing_phoenix" ]]; then
+      echo -e "${YELLOW}Existing config found in ${SETTINGS_FILE}:${NC} Phoenix at $existing_phoenix"
+      read -p "Overwrite? [y/N]: " overwrite
+      [[ "$overwrite" =~ ^[Yy]$ ]] || { echo "Setup cancelled."; exit 0; }
+      echo ""
+    elif [[ -n "$existing_arize" ]]; then
+      echo -e "${YELLOW}Existing config found in ${SETTINGS_FILE}:${NC} Arize AX"
+      read -p "Overwrite? [y/N]: " overwrite
+      [[ "$overwrite" =~ ^[Yy]$ ]] || { echo "Setup cancelled."; exit 0; }
+      echo ""
+    fi
   fi
-fi
+}
+
+echo "Where should Claude tracing env vars be stored?"
+echo ""
+echo "  1) Project-local (.claude/settings.local.json)"
+echo "  2) Global (~/.claude/settings.json)"
+echo ""
+read -p "Enter choice [1/2]: " settings_choice
+
+case "$settings_choice" in
+  1|"")
+    SETTINGS_FILE="$LOCAL_SETTINGS_FILE"
+    ;;
+  2)
+    SETTINGS_FILE="$GLOBAL_SETTINGS_FILE"
+    ;;
+  *)
+    echo "Invalid choice. Run setup again."
+    exit 1
+    ;;
+esac
+
+check_existing_configuration
 
 # Ask for target
 echo "Which backend do you want to use?"
@@ -48,8 +77,7 @@ case "$choice" in
     phoenix_endpoint="${phoenix_endpoint:-http://localhost:6006}"
 
     # Merge into existing settings
-    mkdir -p .claude
-    [[ -f "$SETTINGS_FILE" ]] || echo '{}' > "$SETTINGS_FILE"
+    ensure_settings_file
     jq --arg endpoint "$phoenix_endpoint" \
       '.env = (.env // {}) + {"PHOENIX_ENDPOINT": $endpoint, "ARIZE_TRACE_ENABLED": "true"}' \
       "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
@@ -73,8 +101,7 @@ case "$choice" in
     otlp_endpoint="${otlp_endpoint:-otlp.arize.com:443}"
 
     # Merge into existing settings
-    mkdir -p .claude
-    [[ -f "$SETTINGS_FILE" ]] || echo '{}' > "$SETTINGS_FILE"
+    ensure_settings_file
     jq --arg key "$api_key" --arg space "$space_id" --arg endpoint "$otlp_endpoint" \
       '.env = (.env // {}) + {"ARIZE_API_KEY": $key, "ARIZE_SPACE_ID": $space, "ARIZE_OTLP_ENDPOINT": $endpoint, "ARIZE_TRACE_ENABLED": "true"}' \
       "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
@@ -96,6 +123,7 @@ echo ""
 echo -e "${BLUE}Optional:${NC} Set a user ID to identify your spans (useful for teams)."
 read -p "User ID (leave blank to skip): " user_id
 if [[ -n "$user_id" ]]; then
+  ensure_settings_file
   jq --arg uid "$user_id" \
     '.env = (.env // {}) + {"ARIZE_USER_ID": $uid}' \
     "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"

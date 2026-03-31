@@ -20,7 +20,6 @@ codex-tracing/       # OpenAI Codex CLI adapter
   hooks/notify.sh    # Single event handler (Codex uses one hook for all events)
   scripts/           # collector.py, collector_ctl.sh
   skills/            # setup-codex-tracing/SKILL.md
-  .claude-plugin/    # plugin.json
   README.md          # Codex-specific setup and usage
 
 install.sh           # Curl-pipe installer for non-marketplace harnesses

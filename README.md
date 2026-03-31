@@ -1,11 +1,11 @@
 # Arize Agent Kit
 
-Trace AI coding sessions to [Arize AX](https://arize.com) or [Phoenix](https://github.com/Arize-ai/phoenix) with [OpenInference](https://github.com/Arize-ai/openinference) spans. Each plugin hooks into a supported harness and emits spans for prompts, tool calls, model responses, and session lifecycle events.
+Trace AI coding sessions to [Arize AX](https://arize.com) or [Phoenix](https://github.com/Arize-ai/phoenix) with [OpenInference](https://github.com/Arize-ai/openinference) spans. Each harness integration emits spans for prompts, tool calls, model responses, and session lifecycle events.
 
 ## Supported Harnesses
 
-| Harness | Plugin | Install Method | Guide |
-|---------|--------|----------------|-------|
+| Harness | Integration | Install Method | Guide |
+|---------|-------------|----------------|-------|
 | Claude Code CLI | `claude-code-tracing` | Marketplace or curl | [claude-code-tracing/README.md](claude-code-tracing/README.md) |
 | Claude Agent SDK | `claude-code-tracing` | Local plugin path | [claude-code-tracing/README.md](claude-code-tracing/README.md) |
 | OpenAI Codex CLI | `codex-tracing` | `install.sh` or curl | [codex-tracing/README.md](codex-tracing/README.md) |
@@ -25,11 +25,11 @@ claude plugin install claude-code-tracing@arize-agent-kit
 curl -fsSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash
 ```
 
-The installer detects available harnesses and prompts you to choose which plugins to set up.
+The installer detects available harnesses and prompts you to choose which integrations to set up.
 
 ## Configuration
 
-All plugins share the same environment variables. Set them in your harness settings file or export them in your shell.
+All integrations share the same environment variables. Set them in your harness settings file or export them in your shell.
 
 ### Environment Variables
 
@@ -60,8 +60,8 @@ Phoenix requires no Python — spans are sent via the REST API with bash and `jq
 
 ```
 core/                   Shared span building, state primitives, and gRPC sender
-claude-code-tracing/    Claude Code CLI and Agent SDK plugin
-codex-tracing/          OpenAI Codex CLI plugin
+claude-code-tracing/    Claude Code CLI and Agent SDK integration
+codex-tracing/          OpenAI Codex CLI integration
 install.sh              Curl-pipe installer for non-marketplace harnesses
 DEVELOPMENT.md          Guide for adding new harness adapters
 ```

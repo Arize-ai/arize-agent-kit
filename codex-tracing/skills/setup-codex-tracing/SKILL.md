@@ -124,15 +124,15 @@ This section configures:
 3. **OTel collector** (auto-configured) — captures Codex events for rich span trees
 4. **Native OTLP export** in `~/.codex/config.toml` — routes to local collector
 
-### Determine the plugin path
+### Determine the integration path
 
-Ask the user: **"Where is the codex-tracing plugin located?"**
+Ask the user: **"Where is the codex-tracing directory located?"**
 
 Common locations:
 - If cloned: `./arize-agent-kit/codex-tracing`
-- If installed via Claude Code CLI: `~/.claude/plugins/cache/arize-claude-plugin/codex-tracing/1.0.0`
+- If installed via the curl installer: `~/.arize-agent-kit/codex-tracing`
 
-Store this as `PLUGIN_PATH` for the notify hook config.
+Store this as `INTEGRATION_PATH` for the notify hook config.
 
 ### Step 1: Write the environment file
 
