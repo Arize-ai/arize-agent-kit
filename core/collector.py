@@ -47,6 +47,8 @@ _shutting_down = False
 _last_backend_error = ""
 _last_backend_error_lock = threading.Lock()
 _log_lock = threading.Lock()
+_inflight_exports = []  # list of threading.Thread
+_inflight_lock = threading.Lock()
 
 
 def _log(msg):
@@ -102,15 +104,60 @@ def load_config():
 # --- Backend export ---
 
 def _export_to_phoenix(span_json, phoenix_cfg):
-    """Forward OTLP JSON spans to Phoenix via REST API with retries."""
+    """Forward spans to Phoenix via REST API with retries.
+
+    Transforms the OTLP JSON payload into the Phoenix /v1/projects/<project>/spans
+    format that the legacy direct sender used, so the collector sends the same
+    payload format Phoenix expects.
+    """
     endpoint = phoenix_cfg.get("endpoint", "http://localhost:6006")
     api_key = phoenix_cfg.get("api_key", "")
-    url = f"{endpoint}/v1/traces"
+    project = phoenix_cfg.get("project_name", "default")
+    url = f"{endpoint}/v1/projects/{project}/spans"
 
-    body = json.dumps(span_json).encode("utf-8")
+    # Transform OTLP JSON into Phoenix span format (matches legacy send_to_phoenix)
+    phoenix_spans = []
+    for rs in span_json.get("resourceSpans", []):
+        for ss in rs.get("scopeSpans", []):
+            for s in ss.get("spans", []):
+                attrs = {}
+                for a in s.get("attributes", []):
+                    key = a.get("key", "")
+                    val = a.get("value", {})
+                    if not key:
+                        continue
+                    for vtype in ("stringValue", "doubleValue", "intValue", "boolValue"):
+                        if vtype in val:
+                            attrs[key] = val[vtype]
+                            break
+                    else:
+                        attrs[key] = ""
+
+                start_nano = int(s.get("startTimeUnixNano", 0))
+                end_nano = int(s.get("endTimeUnixNano", 0))
+
+                phoenix_spans.append({
+                    "name": s.get("name", ""),
+                    "context": {
+                        "trace_id": s.get("traceId", ""),
+                        "span_id": s.get("spanId", ""),
+                    },
+                    "parent_id": s.get("parentSpanId", ""),
+                    "span_kind": "CHAIN",
+                    "start_time": time.strftime(
+                        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(start_nano / 1e9)
+                    ) if start_nano else "",
+                    "end_time": time.strftime(
+                        "%Y-%m-%dT%H:%M:%SZ", time.gmtime(end_nano / 1e9)
+                    ) if end_nano else "",
+                    "status_code": "OK",
+                    "attributes": attrs,
+                })
+
+    body = json.dumps({"data": phoenix_spans}).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     if api_key:
-        headers["api_key"] = api_key
+        headers["Authorization"] = f"Bearer {api_key}"
 
     last_err = None
     for attempt in range(RETRY_ATTEMPTS):
@@ -187,117 +234,139 @@ def _export_to_arize(span_json, arize_cfg):
             return common_pb2.AnyValue(string_value=serialized)
         return common_pb2.AnyValue(string_value=json.dumps(value))
 
-    last_err = None
-    for attempt in range(RETRY_ATTEMPTS):
-        try:
-            resource_spans = []
-            status_ok = 1
-            try:
-                status_ok = trace_pb2.Status.StatusCode.STATUS_CODE_OK
-            except AttributeError:
-                status_ok = getattr(trace_pb2.Status, "STATUS_CODE_OK", 1)
+    # Build the protobuf request once (doesn't depend on the channel)
+    resource_spans = []
+    status_ok = 1
+    try:
+        status_ok = trace_pb2.Status.StatusCode.STATUS_CODE_OK
+    except AttributeError:
+        status_ok = getattr(trace_pb2.Status, "STATUS_CODE_OK", 1)
+    status_error = 2
+    try:
+        status_error = trace_pb2.Status.StatusCode.STATUS_CODE_ERROR
+    except AttributeError:
+        status_error = getattr(trace_pb2.Status, "STATUS_CODE_ERROR", 2)
 
-            for rs in span_json.get("resourceSpans", []):
-                resource_attrs = [
+    for rs in span_json.get("resourceSpans", []):
+        resource_attrs = [
+            common_pb2.KeyValue(
+                key="arize.project.name",
+                value=common_pb2.AnyValue(string_value=project_name),
+            ),
+        ]
+        for attr in rs.get("resource", {}).get("attributes", []):
+            key = attr.get("key", "")
+            value = attr.get("value", {})
+            if not key:
+                continue
+            resource_attrs.append(
+                common_pb2.KeyValue(key=key, value=any_value_from_json(value))
+            )
+        resource = resource_pb2.Resource(attributes=resource_attrs)
+
+        scope_spans = []
+        for ss in rs.get("scopeSpans", []):
+            spans = []
+            for s in ss.get("spans", []):
+                trace_id = bytes.fromhex(s.get("traceId", "0" * 32))
+                span_id = bytes.fromhex(s.get("spanId", "0" * 16))
+                parent_span_id = (
+                    bytes.fromhex(s["parentSpanId"])
+                    if s.get("parentSpanId")
+                    else b""
+                )
+                attrs = [
                     common_pb2.KeyValue(
                         key="arize.project.name",
                         value=common_pb2.AnyValue(string_value=project_name),
                     ),
                 ]
-                for attr in rs.get("resource", {}).get("attributes", []):
+                for attr in s.get("attributes", []):
                     key = attr.get("key", "")
                     value = attr.get("value", {})
                     if not key:
                         continue
-                    resource_attrs.append(
-                        common_pb2.KeyValue(key=key, value=any_value_from_json(value))
+                    attrs.append(
+                        common_pb2.KeyValue(
+                            key=key, value=any_value_from_json(value)
+                        )
                     )
-                resource = resource_pb2.Resource(attributes=resource_attrs)
+                kind_value = s.get("kind", 1)
+                try:
+                    kind_value = int(kind_value)
+                except (TypeError, ValueError):
+                    kind_value = 1
 
-                scope_spans = []
-                for ss in rs.get("scopeSpans", []):
-                    spans = []
-                    for s in ss.get("spans", []):
-                        trace_id = bytes.fromhex(s.get("traceId", "0" * 32))
-                        span_id = bytes.fromhex(s.get("spanId", "0" * 16))
-                        parent_span_id = (
-                            bytes.fromhex(s["parentSpanId"])
-                            if s.get("parentSpanId")
-                            else b""
-                        )
-                        attrs = [
-                            common_pb2.KeyValue(
-                                key="arize.project.name",
-                                value=common_pb2.AnyValue(string_value=project_name),
-                            ),
-                        ]
-                        for attr in s.get("attributes", []):
-                            key = attr.get("key", "")
-                            value = attr.get("value", {})
-                            if not key:
-                                continue
-                            attrs.append(
-                                common_pb2.KeyValue(
-                                    key=key, value=any_value_from_json(value)
-                                )
-                            )
-                        kind_value = s.get("kind", 1)
-                        try:
-                            kind_value = int(kind_value)
-                        except (TypeError, ValueError):
-                            kind_value = 1
-                        span = trace_pb2.Span(
-                            trace_id=trace_id,
-                            span_id=span_id,
-                            parent_span_id=parent_span_id,
-                            name=s.get("name", "span"),
-                            kind=kind_value,
-                            start_time_unix_nano=int(s.get("startTimeUnixNano", 0)),
-                            end_time_unix_nano=int(s.get("endTimeUnixNano", 0)),
-                            attributes=attrs,
-                            status=trace_pb2.Status(code=status_ok),
-                        )
-                        spans.append(span)
+                # Preserve span status from payload instead of hardcoding OK
+                span_status = s.get("status", {})
+                span_status_code = span_status.get("code", status_ok)
+                try:
+                    span_status_code = int(span_status_code)
+                except (TypeError, ValueError):
+                    span_status_code = status_ok
+                span_status_msg = span_status.get("message", "")
+                status_kwargs = {"code": span_status_code}
+                if span_status_msg:
+                    status_kwargs["message"] = str(span_status_msg)
 
-                    scope_info = ss.get("scope", {}) or {}
-                    scope_kwargs = {}
-                    scope_name = scope_info.get("name")
-                    scope_version = scope_info.get("version")
-                    if scope_name:
-                        scope_kwargs["name"] = scope_name
-                    if scope_version:
-                        scope_kwargs["version"] = scope_version
-                    scope_args = {"spans": spans}
-                    if scope_kwargs:
-                        scope_args["scope"] = common_pb2.InstrumentationScope(
-                            **scope_kwargs
-                        )
-                    scope_spans.append(trace_pb2.ScopeSpans(**scope_args))
-
-                resource_spans.append(
-                    trace_pb2.ResourceSpans(
-                        resource=resource, scope_spans=scope_spans
-                    )
+                span = trace_pb2.Span(
+                    trace_id=trace_id,
+                    span_id=span_id,
+                    parent_span_id=parent_span_id,
+                    name=s.get("name", "span"),
+                    kind=kind_value,
+                    start_time_unix_nano=int(s.get("startTimeUnixNano", 0)),
+                    end_time_unix_nano=int(s.get("endTimeUnixNano", 0)),
+                    attributes=attrs,
+                    status=trace_pb2.Status(**status_kwargs),
                 )
+                spans.append(span)
 
-            request = trace_service_pb2.ExportTraceServiceRequest(
-                resource_spans=resource_spans
+            scope_info = ss.get("scope", {}) or {}
+            scope_kwargs = {}
+            scope_name = scope_info.get("name")
+            scope_version = scope_info.get("version")
+            if scope_name:
+                scope_kwargs["name"] = scope_name
+            if scope_version:
+                scope_kwargs["version"] = scope_version
+            scope_args = {"spans": spans}
+            if scope_kwargs:
+                scope_args["scope"] = common_pb2.InstrumentationScope(
+                    **scope_kwargs
+                )
+            scope_spans.append(trace_pb2.ScopeSpans(**scope_args))
+
+        resource_spans.append(
+            trace_pb2.ResourceSpans(
+                resource=resource, scope_spans=scope_spans
             )
-            credentials = grpc.ssl_channel_credentials()
-            channel = grpc.secure_channel(endpoint, credentials)
+        )
+
+    request = trace_service_pb2.ExportTraceServiceRequest(
+        resource_spans=resource_spans
+    )
+    metadata = [
+        ("authorization", f"Bearer {api_key}"),
+        ("space_id", space_id),
+    ]
+
+    # Retry loop with proper channel lifecycle
+    credentials = grpc.ssl_channel_credentials()
+    last_err = None
+    for attempt in range(RETRY_ATTEMPTS):
+        channel = grpc.secure_channel(endpoint, credentials)
+        try:
             stub = trace_service_pb2_grpc.TraceServiceStub(channel)
-            metadata = [
-                ("authorization", f"Bearer {api_key}"),
-                ("space_id", space_id),
-            ]
             stub.Export(request, metadata=metadata, timeout=10)
-            channel.close()
             _set_last_error("")
             return True
         except Exception as e:
             last_err = e
             if attempt < RETRY_ATTEMPTS - 1:
                 time.sleep(RETRY_BACKOFF[attempt])
+        finally:
+            channel.close()
 
     _set_last_error(last_err)
     _log(f"Arize export failed after {RETRY_ATTEMPTS} attempts: {last_err}")
@@ -344,7 +413,11 @@ class CollectorHandler(BaseHTTPRequestHandler):
             self._send_json(503, {"status": "error", "message": "shutting down"})
             return
 
-        content_length = int(self.headers.get("Content-Length", 0))
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+        except (TypeError, ValueError):
+            self._send_json(400, {"status": "error", "message": "invalid Content-Length"})
+            return
         if content_length > MAX_BODY_BYTES:
             self._send_json(413, {"status": "error", "message": "payload too large"})
             return
@@ -371,9 +444,14 @@ class CollectorHandler(BaseHTTPRequestHandler):
         # Accept the payload immediately, export in a background thread
         self._send_json(202, {"status": "accepted"})
 
-        threading.Thread(
+        t = threading.Thread(
             target=_background_export, args=(span_json,), daemon=True
-        ).start()
+        )
+        with _inflight_lock:
+            # Prune finished threads
+            _inflight_exports[:] = [th for th in _inflight_exports if th.is_alive()]
+            _inflight_exports.append(t)
+        t.start()
 
     def do_GET(self):
         if self.path.rstrip("/") == "/health":
@@ -408,6 +486,24 @@ def _background_export(span_json):
     except Exception as e:
         _set_last_error(e)
         _log(f"Background export error: {e}")
+
+
+def _flush_inflight():
+    """Wait for in-flight export threads to finish (best-effort, bounded)."""
+    with _inflight_lock:
+        threads = list(_inflight_exports)
+    if not threads:
+        return
+    _log(f"Flushing {len(threads)} in-flight export(s) (timeout={SHUTDOWN_FLUSH_TIMEOUT}s)...")
+    deadline = time.time() + SHUTDOWN_FLUSH_TIMEOUT
+    for t in threads:
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            break
+        t.join(timeout=remaining)
+    still_alive = sum(1 for t in threads if t.is_alive())
+    if still_alive:
+        _log(f"Shutdown flush: {still_alive} export(s) did not finish in time")
 
 
 # --- Process lifecycle ---
@@ -464,6 +560,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        _flush_inflight()
         server.server_close()
         _remove_pid()
         _log("Collector stopped")

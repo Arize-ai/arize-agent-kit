@@ -4,7 +4,8 @@
 # Provides: collector_start, collector_stop, collector_status, collector_ensure
 # Source this file to use the functions.
 
-set -euo pipefail
+# Note: no `set -euo pipefail` here — this file is designed to be sourced,
+# and setting shell options would change the caller's environment.
 
 # --- Shared layout ---
 _AK_BASE="${HOME}/.arize-agent-kit"
@@ -66,11 +67,11 @@ collector_start() {
   fi
 
   # Find collector runtime: prefer installed bin, fall back to source
-  local collector_cmd=""
+  local collector_cmd=()
   if [[ -x "$_AK_BIN" ]]; then
-    collector_cmd="$_AK_BIN"
+    collector_cmd=("$_AK_BIN")
   elif [[ -f "$_AK_COLLECTOR_PY" ]]; then
-    collector_cmd="python3 $_AK_COLLECTOR_PY"
+    collector_cmd=(python3 "$_AK_COLLECTOR_PY")
   else
     _ak_log "Collector runtime not found at $_AK_BIN or $_AK_COLLECTOR_PY"
     return 1
@@ -87,7 +88,7 @@ collector_start() {
   mkdir -p "$(dirname "$_AK_LOG_FILE")"
 
   # Start in background
-  nohup $collector_cmd >> "$_AK_LOG_FILE" 2>&1 &
+  nohup "${collector_cmd[@]}" >> "$_AK_LOG_FILE" 2>&1 &
   local bg_pid=$!
 
   # Wait for startup (up to 2 seconds)
