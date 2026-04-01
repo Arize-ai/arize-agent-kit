@@ -196,7 +196,10 @@ setup_shared_collector() {
     existing_backend=$(jq -r '.backend.target // empty' "$SHARED_CONFIG" 2>/dev/null) || true
   fi
 
+  local backend_target=""
+
   if [[ -n "$existing_backend" ]]; then
+    backend_target="$existing_backend"
     info "Existing backend config found (${existing_backend}) — adding harness entry"
     if [[ -n "$harness_name" ]]; then
       local tmp_config="${SHARED_CONFIG}.tmp.$$"
@@ -209,7 +212,6 @@ setup_shared_collector() {
     # Skip backend credential prompts — existing config is preserved
   else
     # No existing config — collect backend credentials
-    local backend_target=""
     local phoenix_endpoint="http://localhost:6006"
     local phoenix_api_key=""
     local arize_api_key=""
@@ -365,8 +367,16 @@ BINEOF
 
 # --- start_shared_collector: start or verify the shared collector process ---
 start_shared_collector() {
+  # Read port from config (default 4318)
+  local collector_port="4318"
+  if command_exists jq && [[ -f "$SHARED_CONFIG" ]]; then
+    local cfg_port
+    cfg_port=$(jq -r '.collector.port // empty' "$SHARED_CONFIG" 2>/dev/null) || true
+    [[ -n "$cfg_port" ]] && collector_port="$cfg_port"
+  fi
+
   # Check if already running via health endpoint
-  if curl -sf "http://127.0.0.1:4318/health" >/dev/null 2>&1; then
+  if curl -sf "http://127.0.0.1:${collector_port}/health" >/dev/null 2>&1; then
     info "Shared collector is already running"
     return 0
   fi
@@ -392,8 +402,8 @@ start_shared_collector() {
   # Wait for startup (up to 3 seconds)
   local attempts=0
   while [[ $attempts -lt 30 ]]; do
-    if curl -sf "http://127.0.0.1:4318/health" >/dev/null 2>&1; then
-      info "Shared collector started (listening on 127.0.0.1:4318)"
+    if curl -sf "http://127.0.0.1:${collector_port}/health" >/dev/null 2>&1; then
+      info "Shared collector started (listening on 127.0.0.1:${collector_port})"
       return 0
     fi
     sleep 0.1
