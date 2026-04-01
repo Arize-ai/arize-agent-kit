@@ -39,6 +39,7 @@ MAX_BODY_BYTES = 4 * 1024 * 1024  # 4 MB
 SHUTDOWN_FLUSH_TIMEOUT = 5  # seconds
 RETRY_ATTEMPTS = 3
 RETRY_BACKOFF = [1, 2, 4]  # seconds
+EVENT_BUFFER_TTL = 30 * 60  # 30 minutes
 
 # --- Global state ---
 _start_time = 0.0
@@ -49,6 +50,11 @@ _last_backend_error_lock = threading.Lock()
 _log_lock = threading.Lock()
 _inflight_exports = []  # list of threading.Thread
 _inflight_lock = threading.Lock()
+
+# --- Event buffer state (Codex OTLP log buffering) ---
+_event_lock = threading.Lock()
+_event_buffers = {}   # conversation_id -> [event, ...]
+_event_timestamps = {}  # conversation_id -> last_update_time
 
 
 def _log(msg):
@@ -389,6 +395,124 @@ def export_spans(span_json, config):
         return False
 
 
+# --- Event buffer (Codex OTLP log ingestion) ---
+# Codex emits native OTLP log events (codex.tool_decision, codex.sse_event, etc.)
+# which need to be buffered by conversation/thread ID until notify.sh drains them
+# to assemble child spans.
+
+def _expire_old_events():
+    """Remove event buffers older than TTL."""
+    now = time.time()
+    with _event_lock:
+        expired = [k for k, t in _event_timestamps.items() if now - t > EVENT_BUFFER_TTL]
+        for k in expired:
+            del _event_buffers[k]
+            del _event_timestamps[k]
+
+
+def _buffer_event(conversation_id, event):
+    with _event_lock:
+        if conversation_id not in _event_buffers:
+            _event_buffers[conversation_id] = []
+            _event_timestamps[conversation_id] = time.time()
+        _event_buffers[conversation_id].append(event)
+        _event_timestamps[conversation_id] = time.time()
+
+
+def _flush_events(conversation_id):
+    """Remove and return all buffered events for a conversation."""
+    with _event_lock:
+        events = _event_buffers.pop(conversation_id, [])
+        _event_timestamps.pop(conversation_id, None)
+    return events
+
+
+def _drain_events(conversation_id, since_ns=0):
+    """Return events newer than since_ns without removing them from the buffer."""
+    with _event_lock:
+        events = list(_event_buffers.get(conversation_id, []))
+    if since_ns > 0:
+        events = [e for e in events if int(e.get("time_ns", 0)) > since_ns]
+    return events
+
+
+def _extract_log_events(body):
+    """Extract (conversation_id, normalized_event) pairs from OTLP logs JSON."""
+    results = []
+    for rl in body.get("resourceLogs", []):
+        for sl in rl.get("scopeLogs", []):
+            for record in sl.get("logRecords", []):
+                attrs = {}
+                for a in record.get("attributes", []):
+                    key = a.get("key", "")
+                    val = a.get("value", {})
+                    for vtype in ("stringValue", "intValue", "doubleValue", "boolValue"):
+                        if vtype in val:
+                            attrs[key] = val[vtype]
+                            break
+
+                conv_id = (
+                    attrs.get("thread_id")
+                    or attrs.get("codex.thread_id")
+                    or attrs.get("thread")
+                    or attrs.get("codex.thread")
+                    or attrs.get("threadId")
+                    or attrs.get("codex.threadId")
+                    or attrs.get("conversation.id")
+                    or attrs.get("codex.conversation.id")
+                    or attrs.get("conversation_id")
+                    or attrs.get("codex.conversation_id")
+                    or attrs.get("conversationId")
+                    or attrs.get("codex.conversationId")
+                    or "unknown"
+                )
+
+                body_val = record.get("body", {})
+                if isinstance(body_val, dict):
+                    event_name = body_val.get("stringValue", "")
+                elif isinstance(body_val, str):
+                    event_name = body_val
+                else:
+                    event_name = ""
+                if not event_name:
+                    event_name = attrs.get("event.name", attrs.get("event", "unknown"))
+
+                time_ns = record.get("timeUnixNano", 0)
+                try:
+                    time_ns_int = int(time_ns)
+                except (TypeError, ValueError):
+                    time_ns_int = 0
+                if time_ns_int <= 0:
+                    observed = record.get("observedTimeUnixNano", 0)
+                    try:
+                        time_ns_int = int(observed)
+                    except (TypeError, ValueError):
+                        time_ns_int = 0
+
+                results.append((str(conv_id), {
+                    "event": event_name,
+                    "time_ns": time_ns_int,
+                    "attrs": attrs,
+                }))
+    return results
+
+
+def _decode_otlp_logs(raw):
+    """Decode an OTLP ExportLogsServiceRequest (JSON or protobuf) into a dict."""
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+    try:
+        from google.protobuf.json_format import MessageToDict
+        from opentelemetry.proto.collector.logs.v1 import logs_service_pb2
+        request = logs_service_pb2.ExportLogsServiceRequest()
+        request.ParseFromString(raw)
+        return MessageToDict(request)
+    except Exception as exc:
+        raise ValueError(f"unsupported OTLP log payload: {exc}") from exc
+
+
 # --- HTTP Handler ---
 
 class CollectorHandler(BaseHTTPRequestHandler):
@@ -404,79 +528,119 @@ class CollectorHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_POST(self):
-        if self.path.rstrip("/") != "/v1/spans":
-            self._send_json(404, {"status": "error", "message": "not found"})
-            return
-
+    def _read_body(self):
+        """Read and validate request body. Returns raw bytes or None on error."""
         if _shutting_down:
             self._send_json(503, {"status": "error", "message": "shutting down"})
-            return
-
+            return None
         try:
             content_length = int(self.headers.get("Content-Length", 0))
         except (TypeError, ValueError):
             self._send_json(400, {"status": "error", "message": "invalid Content-Length"})
-            return
+            return None
         if content_length > MAX_BODY_BYTES:
             self._send_json(413, {"status": "error", "message": "payload too large"})
-            return
-
+            return None
         if content_length == 0:
             self._send_json(400, {"status": "error", "message": "empty body"})
+            return None
+        return self.rfile.read(content_length)
+
+    def do_POST(self):
+        path = self.path.rstrip("/")
+
+        if path == "/v1/spans":
+            self._handle_spans()
+        elif path in ("/v1/logs", ""):
+            self._handle_logs()
+        else:
+            self._send_json(404, {"status": "error", "message": "not found"})
+
+    def _handle_spans(self):
+        """Accept OTLP span JSON and export to backend."""
+        raw = self._read_body()
+        if raw is None:
             return
 
-        raw = self.rfile.read(content_length)
         try:
             span_json = json.loads(raw)
         except json.JSONDecodeError as e:
-            self._send_json(
-                400, {"status": "error", "message": f"malformed JSON: {e}"}
-            )
+            self._send_json(400, {"status": "error", "message": f"malformed JSON: {e}"})
             return
 
         if "resourceSpans" not in span_json:
-            self._send_json(
-                400, {"status": "error", "message": "missing resourceSpans"}
-            )
+            self._send_json(400, {"status": "error", "message": "missing resourceSpans"})
             return
 
-        # Accept the payload immediately, export in a background thread
         self._send_json(202, {"status": "accepted"})
 
-        t = threading.Thread(
-            target=_background_export, args=(span_json,), daemon=True
-        )
+        t = threading.Thread(target=_background_export, args=(span_json,), daemon=True)
         with _inflight_lock:
-            # Prune finished threads
             _inflight_exports[:] = [th for th in _inflight_exports if th.is_alive()]
             _inflight_exports.append(t)
         t.start()
 
+    def _handle_logs(self):
+        """Accept OTLP log events and buffer by conversation ID (Codex)."""
+        raw = self._read_body()
+        if raw is None:
+            return
+
+        try:
+            body = _decode_otlp_logs(raw)
+        except ValueError as e:
+            self._send_json(400, {"status": "error", "message": str(e)})
+            return
+
+        events = _extract_log_events(body)
+        for conv_id, event in events:
+            _buffer_event(conv_id, event)
+
+        self._send_json(200, {"status": "accepted", "buffered": len(events)})
+
     def do_GET(self):
-        if self.path.rstrip("/") == "/health":
-            last_err = _get_last_error()
-            backend_target = _config.get("backend", {}).get("target", "unknown")
-            if last_err:
-                self._send_json(
-                    503,
-                    {
-                        "status": "unhealthy",
-                        "backend": backend_target,
-                        "error": last_err,
-                    },
-                )
-            else:
-                self._send_json(
-                    200,
-                    {
-                        "status": "healthy",
-                        "backend": backend_target,
-                        "uptime_seconds": int(time.time() - _start_time),
-                    },
-                )
+        path = self.path.rstrip("/")
+
+        if path == "/health":
+            self._handle_health()
+        elif path.startswith("/flush/"):
+            conv_id = path[len("/flush/"):]
+            if not conv_id:
+                self._send_json(400, {"status": "error", "message": "missing conversation_id"})
+                return
+            events = _flush_events(conv_id)
+            self._send_json(200, events)
+        elif path.startswith("/drain/"):
+            conv_id = path[len("/drain/"):]
+            if not conv_id:
+                self._send_json(400, {"status": "error", "message": "missing conversation_id"})
+                return
+            from urllib.parse import urlparse, parse_qs
+            query = parse_qs(urlparse(self.path).query)
+            since_ns = int(query.get("since_ns", ["0"])[0] or "0")
+            events = _drain_events(conv_id, since_ns=since_ns)
+            self._send_json(200, events)
         else:
             self._send_json(404, {"status": "error", "message": "not found"})
+
+    def _handle_health(self):
+        last_err = _get_last_error()
+        backend_target = _config.get("backend", {}).get("target", "unknown")
+        with _event_lock:
+            buffered_events = sum(len(v) for v in _event_buffers.values())
+            conversations = len(_event_buffers)
+        health = {
+            "status": "unhealthy" if last_err else "healthy",
+            "backend": backend_target,
+            "uptime_seconds": int(time.time() - _start_time),
+            "event_buffer": {
+                "buffered_events": buffered_events,
+                "conversations": conversations,
+            },
+        }
+        if last_err:
+            health["error"] = last_err
+        self._send_json(503 if last_err else 200, health)
 
 
 def _background_export(span_json):

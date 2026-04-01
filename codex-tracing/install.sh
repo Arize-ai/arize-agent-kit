@@ -20,7 +20,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 NOTIFY_SCRIPT="${SCRIPT_DIR}/hooks/notify.sh"
-EVENT_BUFFER_CTL="${SCRIPT_DIR}/scripts/collector_ctl.sh"
 SHARED_COLLECTOR_CTL="${REPO_ROOT}/core/collector_ctl.sh"
 PROXY_TEMPLATE="${SCRIPT_DIR}/scripts/codex_proxy.sh"
 CODEX_CONFIG_DIR="${HOME}/.codex"
@@ -96,13 +95,6 @@ if [[ "${1:-}" == "uninstall" ]]; then
     else
       info "No Arize [otel] exporter found in config.toml"
     fi
-  fi
-
-  # Stop event buffer if running
-  if [[ -f "$EVENT_BUFFER_CTL" ]]; then
-    source "$EVENT_BUFFER_CTL"
-    event_buffer_stop >/dev/null 2>&1 || true
-    info "Stopped event buffer"
   fi
 
   # Stop shared collector if running (only if no other harnesses need it)
@@ -356,15 +348,13 @@ BINEOF
   info "Installed shared collector to $SHARED_BIN"
 fi
 
-# --- Configure native OTLP export via Codex event buffer ---
-# The event buffer captures Codex's native OTel events and buffers them for
-# child-span assembly.  It runs on port 4319 (separate from shared collector on 4318).
-EVENT_BUFFER_PORT="${CODEX_EVENT_PORT:-${CODEX_COLLECTOR_PORT:-4319}}"
+# --- Configure native OTLP export via shared collector ---
+# The shared collector (port 4318) accepts both span exports (POST /v1/spans)
+# and Codex OTLP log events (POST /v1/logs) for child-span assembly.
+COLLECTOR_PORT="${ARIZE_COLLECTOR_PORT:-4318}"
 
 if grep -q "^\[otel\]" "$CODEX_CONFIG" 2>/dev/null; then
-  # Update existing [otel] section to point at event buffer
   cp "$CODEX_CONFIG" "${CODEX_CONFIG}.bak"
-  # Remove old [otel] section and any nested [otel.*] tables.
   awk '
     BEGIN { skip=0 }
     /^\[otel(\.|\])/ { skip=1; next }
@@ -376,13 +366,13 @@ fi
 
 cat >> "$CODEX_CONFIG" <<EOF
 
-# Arize event buffer — captures Codex events for rich span trees
+# Arize shared collector — captures Codex events for rich span trees
 [otel]
 [otel.exporter.otlp-http]
-endpoint = "http://127.0.0.1:${EVENT_BUFFER_PORT}/v1/logs"
+endpoint = "http://127.0.0.1:${COLLECTOR_PORT}/v1/logs"
 protocol = "json"
 EOF
-info "Added [otel] exporter pointing to event buffer (port $EVENT_BUFFER_PORT)"
+info "Added [otel] exporter pointing to shared collector (port $COLLECTOR_PORT)"
 
 # --- Install codex proxy wrapper ---
 mkdir -p "$PROXY_DIR"
@@ -394,7 +384,6 @@ sed \
   -e "s|__REAL_CODEX__|${REAL_CODEX_BIN}|g" \
   -e "s|__ARIZE_ENV_FILE__|${ENV_FILE}|g" \
   -e "s|__SHARED_COLLECTOR_CTL__|${SHARED_COLLECTOR_CTL}|g" \
-  -e "s|__EVENT_BUFFER_CTL__|${EVENT_BUFFER_CTL}|g" \
   "$PROXY_TEMPLATE" > "$PROXY_PATH"
 chmod +x "$PROXY_PATH"
 info "Installed codex proxy to ${PROXY_PATH}"
@@ -409,15 +398,6 @@ if [[ -f "$SHARED_COLLECTOR_CTL" ]]; then
   fi
 fi
 
-# --- Start event buffer ---
-if [[ -f "$EVENT_BUFFER_CTL" ]]; then
-  source "$EVENT_BUFFER_CTL"
-  if event_buffer_start >/dev/null 2>&1; then
-    info "Event buffer started (port $EVENT_BUFFER_PORT)"
-  else
-    warn "Could not start event buffer — the proxy will retry on next codex launch"
-  fi
-fi
 
 # --- Ensure ~/.local/bin is on PATH ahead of the real codex ---
 PROFILE_LINE='export PATH="$HOME/.local/bin:$PATH"'
@@ -457,10 +437,6 @@ if [[ "$add_to_profile" =~ ^[Yy] ]]; then
   fi
 fi
 
-# --- Write event buffer port to env file ---
-if ! grep -q "CODEX_EVENT_PORT" "$ENV_FILE" 2>/dev/null; then
-  echo "export CODEX_EVENT_PORT=${EVENT_BUFFER_PORT}" >> "$ENV_FILE"
-fi
 
 # --- Summary ---
 echo ""
@@ -486,19 +462,13 @@ case "$TARGET" in
 esac
 echo ""
 echo "  Architecture:"
-echo "    Shared collector (port 4318) — exports spans to ${TARGET}"
-echo "    Event buffer (port ${EVENT_BUFFER_PORT}) — buffers Codex OTel events for child spans"
+echo "    Shared collector (port 4318) — exports spans to ${TARGET} and buffers Codex events"
 echo ""
-echo "  The proxy wrapper at ${PROXY_PATH} ensures both are running before Codex starts."
-echo "  Manage the shared collector: source ${SHARED_COLLECTOR_CTL}"
+echo "  The proxy wrapper at ${PROXY_PATH} ensures the collector is running before Codex starts."
+echo "  Manage the collector: source ${SHARED_COLLECTOR_CTL}"
 echo "    collector_status  — check if running"
 echo "    collector_stop    — stop the collector"
 echo "    collector_ensure  — start if not running (idempotent)"
-echo ""
-echo "  Manage the event buffer: source ${EVENT_BUFFER_CTL}"
-echo "    event_buffer_status  — check if running"
-echo "    event_buffer_stop    — stop the event buffer"
-echo "    event_buffer_ensure  — start if not running (idempotent)"
 echo ""
 echo "  Test with: ARIZE_DRY_RUN=true codex"
 echo ""

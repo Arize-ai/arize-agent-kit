@@ -4,31 +4,26 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 
 ## Architecture
 
-This integration uses the shared collector/exporter architecture with a Codex-specific event buffer for child-span assembly:
+This integration uses the shared collector at `127.0.0.1:4318` for both span export and Codex event buffering:
 
 ```
 Codex CLI
   │
   ├─ notify hook ──► notify.sh ──► OpenInference LLM spans (per turn)
   │                     │
-  │                     ├─ Drains events from event buffer (port 4319)
-  │                     └─ Sends built spans to shared collector (port 4318)
+  │                     ├─ Drains buffered events from collector (GET /drain/{id})
+  │                     └─ Sends built spans to collector (POST /v1/spans)
   │                              └─► Phoenix (REST) or Arize AX (gRPC)
   │
-  └─ OTLP export ──► event buffer (collector.py, port 4319)
+  └─ OTLP export ──► collector (POST /v1/logs)
                       └─ Buffers native Codex events by thread-id
-                         └─ Drained by notify.sh per turn
 ```
 
-1. **Shared collector** (`core/collector.py`, port 4318) -- The background span exporter shared by all harnesses.  Accepts built OTLP JSON spans on `POST /v1/spans` and forwards them to Phoenix or Arize AX.  Configured via `~/.arize-agent-kit/config.json`.
+1. **Shared collector** (`core/collector.py`, port 4318) -- background process shared by all harnesses. Accepts span exports (`POST /v1/spans`), buffers Codex OTLP log events (`POST /v1/logs`), and serves buffered events (`GET /drain/{id}`, `GET /flush/{id}`). Exports to Phoenix or Arize AX. Managed via `core/collector_ctl.sh`.
 
-2. **Event buffer** (`scripts/collector.py`, port 4319) -- A lightweight Codex-specific OTLP log receiver (stdlib Python).  Codex's native telemetry exports events here.  The event buffer stores them by thread-id until `notify.sh` drains them for child-span assembly.  This is NOT the exporter.
+2. **`notify.sh`** -- Codex calls this after every agent turn. It builds an OpenInference LLM span from the turn payload, drains buffered events from the collector, assembles child spans (TOOL, CHAIN), and submits the complete span tree back to the collector for export.
 
-3. **`notify.sh`** -- Codex calls this after every agent turn.  It builds an OpenInference LLM span from the turn payload, drains buffered events from the event buffer, assembles child spans, and submits the complete span tree to the shared collector.
-
-4. **`collector_ctl.sh`** -- Lifecycle management for the event buffer (start, stop, status, ensure).  The shared collector has its own lifecycle manager at `core/collector_ctl.sh`.
-
-When both the notify hook and native OTLP export are enabled, `notify.sh` builds a parent LLM span and attaches child spans (TOOL, CHAIN) from event buffer data, producing a rich trace tree per turn.
+When both the notify hook and native OTLP export are enabled, `notify.sh` builds a parent LLM span and attaches child spans from buffered event data, producing a rich trace tree per turn.
 
 ## Installation
 
@@ -122,7 +117,7 @@ The parent LLM span includes:
 
 ### Multi-Span Assembly
 
-When the event buffer is running, `notify.sh` drains buffered events for the current thread-id and builds child spans.  These are merged with the parent span into a single OTLP `resourceSpans` payload via `build_multi_span()`, producing a hierarchical trace tree.  The assembled payload is submitted to the shared collector at `127.0.0.1:4318` for backend export.
+When Codex OTLP export is enabled, `notify.sh` drains buffered events for the current thread-id from the shared collector and builds child spans.  These are merged with the parent span into a single OTLP `resourceSpans` payload via `build_multi_span()`, producing a hierarchical trace tree.
 
 ## Environment Variables
 
@@ -140,7 +135,7 @@ When the event buffer is running, `notify.sh` drains buffered events for the cur
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
 | `ARIZE_TRACE_DEBUG` | No | `false` | Write debug dumps to `~/.arize-codex/debug/` |
 | `ARIZE_LOG_FILE` | No | `/tmp/arize-codex.log` | Log file path (empty to disable) |
-| `CODEX_EVENT_PORT` | No | `4319` | Port for the Codex event buffer |
+| `ARIZE_COLLECTOR_PORT` | No | `4318` | Port for the shared collector |
 
 ### User Identification
 
@@ -169,20 +164,7 @@ collector_ensure   # Start if not already running
 
 Config: `~/.arize-agent-kit/config.json`.  PID: `~/.arize-agent-kit/run/collector.pid`.  Log: `~/.arize-agent-kit/logs/collector.log`.
 
-### Event Buffer (port 4319)
-
-The event buffer receives Codex's native OTel events and stores them for child-span assembly.  It is managed via `codex-tracing/scripts/collector_ctl.sh`:
-
-```bash
-source codex-tracing/scripts/collector_ctl.sh
-
-event_buffer_start    # Start the event buffer
-event_buffer_stop     # Stop it
-event_buffer_status   # Check if running (exit code 0/1)
-event_buffer_ensure   # Start if not already running
-```
-
-The event buffer listens on `127.0.0.1:4319`, buffers events by thread ID, supports protobuf and JSON OTLP formats, and auto-exits after 30 minutes of inactivity.  PID: `~/.arize-codex/event_buffer.pid`.
+The shared collector also buffers Codex's native OTLP log events (`POST /v1/logs`) by thread ID for child-span assembly. No separate event buffer process is needed.
 
 ## Directory Structure
 
@@ -190,9 +172,7 @@ The event buffer listens on `127.0.0.1:4319`, buffers events by thread ID, suppo
 codex-tracing/
   hooks/common.sh              Adapter: thread-id state, debug dump, multi-span
   hooks/notify.sh              Notify hook (LLM spans with child span assembly)
-  scripts/collector.py         Codex event buffer (NOT the exporter)
-  scripts/collector_ctl.sh     Event buffer lifecycle management
-  scripts/codex_proxy.sh       Proxy wrapper (ensures both processes run)
+  scripts/codex_proxy.sh       Proxy wrapper (ensures collector is running)
   install.sh                   Interactive/non-interactive installer
   skills/                      Codex setup skill
 ```
@@ -200,10 +180,10 @@ codex-tracing/
 Shared logic lives in `core/` at the repository root:
 
 ```
-core/common.sh       Env vars, logging, state primitives, span building, sending
-core/collector.py    Shared background collector/exporter
-core/collector_ctl.sh Shared collector lifecycle management
-core/send_arize.py   Arize AX gRPC sender (legacy fallback)
+core/common.sh        Env vars, logging, state primitives, span building, sending
+core/collector.py     Shared collector: span export + event buffering
+core/collector_ctl.sh Collector lifecycle management
+core/send_arize.py    Arize AX gRPC sender (legacy fallback)
 ```
 
 ## Troubleshooting
@@ -230,16 +210,10 @@ core/send_arize.py   Arize AX gRPC sender (legacy fallback)
 3. Check PID file: `cat ~/.arize-agent-kit/run/collector.pid`
 4. Check log: `tail -20 ~/.arize-agent-kit/logs/collector.log`
 
-**Event buffer not starting**
-
-1. Check if port 4319 is in use: `lsof -i :4319`
-2. Check status: `source scripts/collector_ctl.sh && event_buffer_status`
-3. Check PID file: `cat ~/.arize-codex/event_buffer.pid`
-
 **Missing child spans (tool calls, API requests)**
 
-1. Ensure native OTLP export is enabled in Codex config
-2. Verify the event buffer is running: `curl -s http://127.0.0.1:4319/health`
+1. Ensure native OTLP export is enabled in Codex config (`[otel]` section pointing to `127.0.0.1:4318`)
+2. Verify the collector is running: `curl -s http://127.0.0.1:4318/health` (check `event_buffer` in response)
 3. Enable debug dumps: `export ARIZE_TRACE_DEBUG=true` and check `~/.arize-codex/debug/`
 
 **"jq required" error**
