@@ -9,6 +9,7 @@ Trace AI coding sessions to [Arize AX](https://arize.com) or [Phoenix](https://g
 | Claude Code CLI | `claude-code-tracing` | Marketplace or curl | [claude-code-tracing/README.md](claude-code-tracing/README.md) |
 | Claude Agent SDK | `claude-code-tracing` | Local plugin path | [claude-code-tracing/README.md](claude-code-tracing/README.md) |
 | OpenAI Codex CLI | `codex-tracing` | `install.sh` or curl | [codex-tracing/README.md](codex-tracing/README.md) |
+| Cursor IDE | `cursor-tracing` | `install.sh` or curl | [cursor-tracing/README.md](cursor-tracing/README.md) |
 
 ## Quick Install
 
@@ -27,6 +28,9 @@ curl -fsSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/insta
 
 # Codex
 curl -fsSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- codex
+
+# Cursor
+curl -fsSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- cursor
 ```
 
 The installer does three things:
@@ -61,7 +65,8 @@ All configuration lives in `~/.arize/harness/config.json`, written by the instal
   },
   "harnesses": {
     "claude-code": { "project_name": "claude-code" },
-    "codex": { "project_name": "codex" }
+    "codex": { "project_name": "codex" },
+    "cursor": { "project_name": "cursor" }
   }
 }
 ```
@@ -133,6 +138,7 @@ See [COLLECTOR_ARCHITECTURE.md](COLLECTOR_ARCHITECTURE.md) for the full collecto
 core/                   Shared span building, state primitives, collector, and sending
 claude-code-tracing/    Claude Code CLI and Agent SDK integration
 codex-tracing/          OpenAI Codex CLI integration
+cursor-tracing/         Cursor IDE integration
 install.sh              Curl-pipe installer (shared collector + harness config)
 DEVELOPMENT.md          Guide for adding new harness adapters
 ```

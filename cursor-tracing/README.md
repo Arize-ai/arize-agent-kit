@@ -76,32 +76,24 @@ The single source of truth for backend credentials, collector settings, and per-
 }
 ```
 
-### `.env` file support
-
-For backwards compatibility with the standalone `arize-cursor` repo, a `.env` file in the project root is also supported. Environment variables defined there override values from `config.json`. However, the config file is the recommended approach — see [Environment Variables](#environment-variables-fallback) for the full list.
-
 ## Activating Hooks
 
-Cursor uses a single `hooks.json` file in your project's `.cursor/` directory to route all hook events to one handler script. Copy the provided hooks file:
+Cursor uses a single `hooks.json` file in your project's `.cursor/` directory to route all hook events to one handler script.
 
-```bash
-cp cursor-tracing/hooks.json .cursor/hooks.json
-```
-
-The hooks file references the handler script via absolute path. If you installed to a non-default location, update the path in `.cursor/hooks.json`:
+If you used `install.sh cursor`, hooks.json is generated automatically with the correct absolute paths. For manual installs, create `.cursor/hooks.json` with the path to the handler:
 
 ```json
 {
   "hooks": {
-    "beforeSubmitPrompt": [{ "command": "bash /path/to/arize-agent-kit/cursor-tracing/hooks/handler.sh" }],
-    "afterAgentResponse": [{ "command": "bash /path/to/arize-agent-kit/cursor-tracing/hooks/handler.sh" }]
+    "beforeSubmitPrompt": [{ "command": "bash /path/to/arize-agent-kit/cursor-tracing/hooks/hook-handler.sh" }],
+    "afterAgentResponse": [{ "command": "bash /path/to/arize-agent-kit/cursor-tracing/hooks/hook-handler.sh" }]
   }
 }
 ```
 
 If your project already has a `.cursor/hooks.json`, merge the hook entries rather than overwriting the file. The setup script (`scripts/setup.sh`) handles this automatically.
 
-> **Note:** All 12 hook events route to the same `handler.sh` script. The handler reads `hook_event_name` from the stdin JSON payload and dispatches to the appropriate logic via a `case` statement.
+> **Note:** All 12 hook events route to the same `hook-handler.sh` script. The handler reads `hook_event_name` from the stdin JSON payload and dispatches to the appropriate logic via a `case` statement.
 
 ## Hook Events
 
@@ -131,7 +123,7 @@ Hooks build OTLP spans and POST them to the shared background collector at `http
 ```text
 Cursor IDE
   │
-  └─ hooks.json ──► handler.sh ──► case $hook_event_name
+  └─ hooks.json ──► hook-handler.sh ──► case $hook_event_name
                         │
                         ├─ build_span() (OTLP format via core/common.sh)
                         └─ send_span()  ──► POST http://127.0.0.1:4318/v1/spans
@@ -144,42 +136,12 @@ The collector is installed and started automatically by `install.sh`. See [COLLE
 
 ## Shell/MCP State Merging
 
-Cursor fires separate `before` and `after` events for shell execution and MCP tool use. To produce a single span with both the input (command/tool name) and the result (output, duration), the handler uses a disk-backed FIFO state stack:
+Cursor fires separate `before` and `after` events for shell execution and MCP tool use. To produce a single span with both the input (command/tool name) and the result (output, duration), the handler uses a disk-backed LIFO state stack:
 
 1. **`beforeShellExecution` / `beforeMCPExecution`** — Pushes the command/tool name and start timestamp to a state file in `~/.arize-cursor/`.
 2. **`afterShellExecution` / `afterMCPExecution`** — Pops the matching state, computes duration, and builds a complete TOOL span with both input and output.
 
 State files are keyed by `conversation_id` to isolate concurrent sessions. Stale state files are garbage-collected automatically.
-
-## Migrating from arize-cursor
-
-If you are using the standalone [arize-cursor](https://github.com/Arize-ai/arize-cursor) repository, here is what changed in the arize-agent-kit port:
-
-### What changed
-
-| Aspect | arize-cursor (standalone) | arize-agent-kit (this) |
-|--------|--------------------------|------------------------|
-| **Backend export** | Python gRPC sender in hooks; requires `grpcio`, `opentelemetry-proto` | Shared collector handles all export; no Python deps in hooks |
-| **Span format** | Two formats: `build_phoenix_span` + `build_otlp_span` | Single OTLP format via `build_span()` from `core/common.sh` |
-| **Configuration** | `.env` file with `PHOENIX_ENDPOINT`, `ARIZE_API_KEY`, etc. | `~/.arize/harness/config.json` (`.env` still works as fallback) |
-| **State directory** | `~/.cursor/cursor-phoenix-state/` | `~/.arize-cursor/` |
-| **Collector** | None (direct export from hooks) | Shared background collector at `127.0.0.1:4318` |
-| **Installation** | Standalone clone + manual setup | `install.sh` with `cursor` flag, or root curl installer |
-
-### What stayed the same
-
-- All 12 hook events and their span semantics
-- Disk-backed state stack for before/after event merging
-- `.env` file support (now as a fallback, not primary)
-- `conversation_id`-based session tracking
-- Deterministic trace ID derivation from `generation_id`
-
-### Migration steps
-
-1. Run the arize-agent-kit installer: `curl -fsSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- cursor`
-2. Your existing `.env` settings will be read as fallback. Optionally migrate them to `~/.arize/harness/config.json`.
-3. Update `.cursor/hooks.json` to point to the new handler path.
-4. Remove the old `arize-cursor` clone if no longer needed.
 
 ## Troubleshooting
 
@@ -196,7 +158,7 @@ If you are using the standalone [arize-cursor](https://github.com/Arize-ai/arize
 For more verbose output, enable debug logging:
 
 ```bash
-ARIZE_VERBOSE=true  # in your shell or .env file
+ARIZE_VERBOSE=true  # set in your shell before running Cursor
 tail -f /tmp/arize-cursor.log
 ```
 
@@ -222,7 +184,7 @@ Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.
 ```
 cursor-tracing/
   hooks/common.sh       Adapter: sets ARIZE_SERVICE_NAME, sources core/common.sh
-  hooks/handler.sh      Single handler for all 12 hook events (case dispatch)
+  hooks/hook-handler.sh      Single handler for all 12 hook events (case dispatch)
   hooks.json            Cursor hooks configuration (copy to .cursor/hooks.json)
   scripts/setup.sh      Interactive configuration and hooks installation
 ```

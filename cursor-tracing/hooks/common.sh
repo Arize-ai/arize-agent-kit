@@ -11,6 +11,7 @@ ADAPTER_DIR="$(dirname "$SCRIPT_DIR")"
 STATE_DIR="${HOME}/.arize-cursor"
 ARIZE_SERVICE_NAME="cursor"
 ARIZE_SCOPE_NAME="arize-cursor-plugin"
+ARIZE_PROJECT_NAME="${ARIZE_PROJECT_NAME:-cursor}"
 ARIZE_LOG_FILE="${ARIZE_LOG_FILE:-/tmp/arize-cursor.log}"
 
 # Max attribute size (characters) for input.value / output.value
@@ -192,9 +193,3 @@ truncate_attr() {
   fi
 }
 
-# --- Requirements check ---
-check_requirements() {
-  [[ "$ARIZE_TRACE_ENABLED" != "true" ]] && exit 0
-  command -v jq &>/dev/null || { error "jq required. Install: brew install jq"; exit 1; }
-  mkdir -p "$STATE_DIR"
-}

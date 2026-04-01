@@ -12,19 +12,8 @@ set -euo pipefail
 
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# --- Load env (backwards compat with standalone arize-cursor repo) ---
-# Check project root .env, then legacy location
-for env_file in "${HOOK_DIR}/../../.env" "${HOME}/.cursor-phoenix.env"; do
-  if [[ -f "$env_file" ]]; then
-    set -a
-    # shellcheck disable=SC1090
-    source "$env_file"
-    set +a
-    break
-  fi
-done
-
 # --- Source cursor adapter (which sources core/common.sh) ---
+# Config is read from ~/.arize/harness/config.json by the shared collector.
 source "${HOOK_DIR}/common.sh"
 
 # --- Read input from stdin ---
