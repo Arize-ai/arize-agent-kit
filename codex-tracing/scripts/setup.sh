@@ -12,7 +12,6 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 info() { echo -e "${GREEN}[arize]${NC} $*"; }
-warn() { echo -e "${YELLOW}[arize]${NC} $*"; }
 err()  { echo -e "${RED}[arize]${NC} $*" >&2; }
 
 echo ""
@@ -73,6 +72,10 @@ export ARIZE_SPACE_ID="${arize_space}"
 export ARIZE_OTLP_ENDPOINT="${arize_ep}"
 export ARIZE_PROJECT_NAME="codex"
 EOF
+      ;;
+    *)
+      err "Unknown backend in config: $existing_backend"
+      exit 1
       ;;
   esac
   chmod 600 "$ENV_FILE"
@@ -214,16 +217,17 @@ fi
 mkdir -p "$CODEX_CONFIG_DIR"
 [[ -f "$CODEX_CONFIG" ]] || touch "$CODEX_CONFIG"
 
-COLLECTOR_PORT=4318
+COLLECTOR_PORT=$(jq -r '.collector.port // 4318' "$SHARED_CONFIG")
 
 # Remove old [otel] section if present
 if grep -q "^\[otel\]" "$CODEX_CONFIG" 2>/dev/null; then
   cp "$CODEX_CONFIG" "${CODEX_CONFIG}.bak"
   awk '
-    BEGIN { skip=0 }
-    /^\[otel(\.|\])/ { skip=1; next }
+    BEGIN { skip=0; blanks=0 }
+    /^\[otel(\.|\])/ { skip=1; blanks=0; next }
     skip && /^\[/ && $0 !~ /^\[otel(\.|\])/ { skip=0 }
-    !skip { print }
+    !skip && /^[[:space:]]*$/ { blanks++; next }
+    !skip { for (i=0; i<blanks && NR>1; i++) print ""; blanks=0; print }
   ' "${CODEX_CONFIG}.bak" > "$CODEX_CONFIG"
   info "Removed old [otel] section from config.toml"
 fi
