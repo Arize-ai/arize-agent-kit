@@ -108,6 +108,11 @@ inc_state() {
   _unlock_state
 }
 
+# --- Shared collector endpoint ---
+ARIZE_COLLECTOR_HOST="${ARIZE_COLLECTOR_HOST:-127.0.0.1}"
+ARIZE_COLLECTOR_PORT="${ARIZE_COLLECTOR_PORT:-4318}"
+_COLLECTOR_URL="http://${ARIZE_COLLECTOR_HOST}:${ARIZE_COLLECTOR_PORT}"
+
 # --- Target Detection ---
 get_target() {
   if [[ -n "$PHOENIX_ENDPOINT" ]]; then echo "phoenix"
@@ -116,7 +121,19 @@ get_target() {
   fi
 }
 
-# --- Send to Phoenix (REST API) ---
+# --- Send to shared collector ---
+send_to_collector() {
+  local span_json="$1"
+
+  curl -sf -X POST "${_COLLECTOR_URL}/v1/spans" \
+    -H "Content-Type: application/json" \
+    -d "$span_json" \
+    --max-time 5 \
+    >/dev/null
+}
+
+# --- Legacy direct send to Phoenix (REST API) ---
+# Kept as fallback when ARIZE_DIRECT_SEND=true and collector is unavailable
 send_to_phoenix() {
   local span_json="$1"
   local project="${ARIZE_PROJECT_NAME:-default}"
@@ -142,7 +159,8 @@ send_to_phoenix() {
   "${curl_cmd[@]}" >/dev/null
 }
 
-# --- Send to Arize AX (requires Python) ---
+# --- Legacy direct send to Arize AX (requires Python) ---
+# Kept as fallback when ARIZE_DIRECT_SEND=true and collector is unavailable
 send_to_arize() {
   local span_json="$1"
   local script="${CORE_DIR}/send_arize.py"
@@ -189,8 +207,6 @@ send_to_arize() {
 # --- Main send function ---
 send_span() {
   local span_json="$1"
-  local target
-  target=$(get_target)
 
   if [[ "$ARIZE_DRY_RUN" == "true" ]]; then
     log_always "DRY RUN:"
@@ -200,15 +216,43 @@ send_span() {
 
   [[ "$ARIZE_VERBOSE" == "true" ]] && echo "$span_json" | jq -c . >&2
 
-  case "$target" in
-    phoenix) send_to_phoenix "$span_json" ;;
-    arize) send_to_arize "$span_json" ;;
-    *) error "No target. Set PHOENIX_ENDPOINT or ARIZE_API_KEY + ARIZE_SPACE_ID"; return 1 ;;
-  esac
+  # Primary path: submit to the shared collector
+  local collector_err
+  collector_err=$(mktemp)
+  if send_to_collector "$span_json" 2>"$collector_err"; then
+    rm -f "$collector_err"
+    local span_name
+    span_name=$(echo "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name // "unknown"' 2>/dev/null)
+    log "Sent span: $span_name (collector)"
+    return 0
+  fi
 
-  local span_name
-  span_name=$(echo "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name // "unknown"' 2>/dev/null)
-  log "Sent span: $span_name ($target)"
+  # Collector unreachable — log loudly with the actual error
+  local curl_detail=""
+  if [[ -s "$collector_err" ]]; then
+    curl_detail=" ($(cat "$collector_err"))"
+  fi
+  rm -f "$collector_err"
+  error "Collector at ${_COLLECTOR_URL} is not reachable${curl_detail}"
+
+  # Fall back to direct send only if explicitly opted in
+  if [[ "${ARIZE_DIRECT_SEND:-false}" == "true" ]]; then
+    log_always "Falling back to direct send (ARIZE_DIRECT_SEND=true)"
+    local target
+    target=$(get_target)
+    case "$target" in
+      phoenix) send_to_phoenix "$span_json" ;;
+      arize) send_to_arize "$span_json" ;;
+      *) error "No target configured for direct send"; return 1 ;;
+    esac
+    local span_name
+    span_name=$(echo "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name // "unknown"' 2>/dev/null)
+    log "Sent span: $span_name ($target, direct)"
+    return 0
+  fi
+
+  error "Start the collector with: source core/collector_ctl.sh && collector_start"
+  return 1
 }
 
 # --- Build OTLP span ---

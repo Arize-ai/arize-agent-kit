@@ -210,24 +210,27 @@ if [[ -n "$tool_calls_json" && "$tool_calls_json" != "null" ]]; then
   fi
 fi
 
-# --- Flush collector events and build child spans ---
-COLLECTOR_PORT="${CODEX_COLLECTOR_PORT:-4318}"
-COLLECTOR_CTL="${ADAPTER_DIR}/scripts/collector_ctl.sh"
+# --- Flush event buffer and build child spans ---
+# The event buffer runs on a separate port (default 4319) from the shared
+# span exporter (4318).  It buffers native Codex OTel events for child-span
+# assembly.  The final spans are sent via send_span() → shared collector.
+EVENT_BUFFER_PORT="${CODEX_EVENT_PORT:-${CODEX_COLLECTOR_PORT:-4319}}"
+EVENT_BUFFER_CTL="${ADAPTER_DIR}/scripts/collector_ctl.sh"
 
 collector_events="[]"
-if [[ -f "$COLLECTOR_CTL" ]]; then
-  source "$COLLECTOR_CTL"
-  collector_ensure 2>/dev/null || true
+if [[ -f "$EVENT_BUFFER_CTL" ]]; then
+  source "$EVENT_BUFFER_CTL"
+  event_buffer_ensure 2>/dev/null || true
 
   if [[ -n "$thread_id" ]]; then
     last_collector_time_ns=$(get_state "last_collector_time_ns")
     [[ -z "$last_collector_time_ns" ]] && last_collector_time_ns="0"
-    collector_events=$(curl -sf "http://127.0.0.1:${COLLECTOR_PORT}/drain/${thread_id}?since_ns=${last_collector_time_ns}&wait_ms=5000&quiet_ms=500" 2>/dev/null || echo "[]")
+    collector_events=$(curl -sf "http://127.0.0.1:${EVENT_BUFFER_PORT}/drain/${thread_id}?since_ns=${last_collector_time_ns}&wait_ms=5000&quiet_ms=500" 2>/dev/null || echo "[]")
     if [[ -z "$collector_events" || "$collector_events" == "null" ]]; then
       collector_events="[]"
     fi
   else
-    log "Skipping collector flush because thread-id is missing"
+    log "Skipping event buffer flush because thread-id is missing"
   fi
   debug_dump "${debug_prefix}_collector_events" "$collector_events"
 fi

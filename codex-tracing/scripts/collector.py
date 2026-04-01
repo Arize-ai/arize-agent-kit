@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """
-Lightweight OTel log collector for Codex CLI events.
+Codex-specific event buffer for child-span assembly.
 
 Receives OTLP ExportLogsServiceRequest payloads on POST / or /v1/logs,
-buffers events by conversation_id, and serves them via GET /flush/{id}.
+buffers events by conversation_id, and serves them via GET /flush/{id}
+and GET /drain/{id}.
+
+This is NOT the span exporter — it is a Codex-only input component that
+buffers native Codex OTel events until notify.sh drains them to build
+child spans.  The actual span export is handled by the shared collector
+at 127.0.0.1:4318 (core/collector.py).
 
 It accepts OTLP/HTTP JSON directly and will also decode protobuf OTLP payloads
 when the protobuf runtime is available in the environment.
@@ -20,12 +26,14 @@ from typing import Dict, List, Tuple
 from urllib.parse import parse_qs, urlparse
 
 # --- Configuration ---
-PORT = int(os.environ.get("CODEX_COLLECTOR_PORT", "4318"))
+# Event buffer listens on port 4319 by default to avoid conflict with the
+# shared span exporter on port 4318.  Override with CODEX_EVENT_PORT.
+PORT = int(os.environ.get("CODEX_EVENT_PORT", os.environ.get("CODEX_COLLECTOR_PORT", "4319")))
 HOST = "127.0.0.1"
 TTL_SECONDS = 30 * 60  # 30 minutes
 INACTIVITY_TIMEOUT = 30 * 60  # 30 minutes
 PID_DIR = os.path.expanduser("~/.arize-codex")
-PID_FILE = os.path.join(PID_DIR, "collector.pid")
+PID_FILE = os.path.join(PID_DIR, "event_buffer.pid")
 DEBUG_DIR = os.path.join(PID_DIR, "debug")
 
 # --- Buffer ---

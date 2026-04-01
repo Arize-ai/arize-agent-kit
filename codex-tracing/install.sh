@@ -3,8 +3,10 @@
 #
 # This script configures Codex to send OpenInference traces to Arize AX or Phoenix.
 # It sets up:
-#   1. The notify hook (creates OpenInference LLM spans per turn)
-#   2. Optionally, native OTLP export (sends Codex's built-in telemetry events)
+#   1. The shared collector/exporter (~/.arize-agent-kit/) for backend export
+#   2. The Codex event buffer for child-span assembly
+#   3. The notify hook (creates OpenInference LLM spans per turn)
+#   4. Native OTLP export (sends Codex's built-in telemetry events to the event buffer)
 #
 # Usage:
 #   ./install.sh                  # Interactive setup
@@ -16,8 +18,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 NOTIFY_SCRIPT="${SCRIPT_DIR}/hooks/notify.sh"
-COLLECTOR_CTL="${SCRIPT_DIR}/scripts/collector_ctl.sh"
+EVENT_BUFFER_CTL="${SCRIPT_DIR}/scripts/collector_ctl.sh"
+SHARED_COLLECTOR_CTL="${REPO_ROOT}/core/collector_ctl.sh"
 PROXY_TEMPLATE="${SCRIPT_DIR}/scripts/codex_proxy.sh"
 CODEX_CONFIG_DIR="${HOME}/.codex"
 CODEX_CONFIG="${CODEX_CONFIG_DIR}/config.toml"
@@ -25,6 +29,10 @@ PROXY_DIR="${HOME}/.local/bin"
 PROXY_PATH="${PROXY_DIR}/codex"
 PROXY_BACKUP="${PROXY_DIR}/codex.arize-backup"
 PATH_PROFILE_MARKER="# Arize Codex tracing - prepend ~/.local/bin for codex proxy"
+
+# Shared collector layout
+SHARED_BASE="${HOME}/.arize-agent-kit"
+SHARED_CONFIG="${SHARED_BASE}/config.json"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -67,9 +75,7 @@ if [[ "${1:-}" == "uninstall" ]]; then
   if [[ -f "$CODEX_CONFIG" ]]; then
     # Remove notify line referencing our script
     if grep -qF "$NOTIFY_SCRIPT" "$CODEX_CONFIG" 2>/dev/null; then
-      # Create backup
       cp "$CODEX_CONFIG" "${CODEX_CONFIG}.bak"
-      # Remove notify line that references our script
       sed -i.tmp "\|$NOTIFY_SCRIPT|d" "$CODEX_CONFIG"
       rm -f "${CODEX_CONFIG}.tmp"
       info "Removed notify hook from config.toml (backup: config.toml.bak)"
@@ -77,7 +83,8 @@ if [[ "${1:-}" == "uninstall" ]]; then
       info "No Arize notify hook found in config.toml"
     fi
 
-    if grep -q "endpoint = \"http://127.0.0.1:${CODEX_COLLECTOR_PORT:-4318}/v1/logs\"" "$CODEX_CONFIG" 2>/dev/null; then
+    # Remove [otel] section pointing at event buffer (check both old port 4318 and new 4319)
+    if grep -qE "endpoint = \"http://127\.0\.0\.1:(4318|4319)/v1/logs\"" "$CODEX_CONFIG" 2>/dev/null; then
       cp "$CODEX_CONFIG" "${CODEX_CONFIG}.bak"
       awk '
         BEGIN { skip=0 }
@@ -91,18 +98,25 @@ if [[ "${1:-}" == "uninstall" ]]; then
     fi
   fi
 
-  # Stop collector if running
-  if [[ -f "$COLLECTOR_CTL" ]]; then
-    source "$COLLECTOR_CTL"
+  # Stop event buffer if running
+  if [[ -f "$EVENT_BUFFER_CTL" ]]; then
+    source "$EVENT_BUFFER_CTL"
+    event_buffer_stop >/dev/null 2>&1 || true
+    info "Stopped event buffer"
+  fi
+
+  # Stop shared collector if running (only if no other harnesses need it)
+  if [[ -f "$SHARED_COLLECTOR_CTL" ]]; then
+    source "$SHARED_COLLECTOR_CTL"
     collector_stop >/dev/null 2>&1 || true
-    info "Stopped collector"
+    info "Stopped shared collector"
   fi
 
   # Remove collector auto-start from shell profile
   for profile in "${HOME}/.zshrc" "${HOME}/.bashrc"; do
     if [[ -f "$profile" ]] && grep -q "collector_ctl.sh" "$profile" 2>/dev/null; then
       cp "$profile" "${profile}.bak"
-      sed -i.tmp '/arize-codex.*collector_ctl/d; /collector_ensure/d' "$profile"
+      sed -i.tmp '/arize-codex.*collector_ctl/d; /collector_ensure/d; /event_buffer_ensure/d' "$profile"
       rm -f "${profile}.tmp"
       info "Removed collector auto-start from $(basename "$profile")"
     fi
@@ -129,9 +143,9 @@ if [[ "${1:-}" == "uninstall" ]]; then
     fi
   done
 
-  # Clean up state
+  # Clean up Codex state
   rm -rf "${HOME}/.arize-codex"
-  info "Cleaned up state directory"
+  info "Cleaned up Codex state directory"
 
   if [[ -f "${CODEX_CONFIG_DIR}/arize-env.sh" ]]; then
     rm -f "${CODEX_CONFIG_DIR}/arize-env.sh"
@@ -272,13 +286,83 @@ esac
 chmod 600 "$ENV_FILE"
 info "Wrote credentials to $ENV_FILE"
 
-# --- Configure native OTLP export via local collector ---
-# The collector captures Codex's native OTel events and transforms them into
-# OpenInference child spans. This is always enabled (core functionality).
-COLLECTOR_PORT="${CODEX_COLLECTOR_PORT:-4318}"
+# --- Install shared collector config ---
+# The shared collector at ~/.arize-agent-kit/ handles backend export for all
+# harnesses.  Write its config.json with the backend credentials.
+mkdir -p "${SHARED_BASE}/bin" "${SHARED_BASE}/run" "${SHARED_BASE}/logs"
+
+case "$TARGET" in
+  phoenix)
+    cat > "$SHARED_CONFIG" <<EOF
+{
+  "collector": {
+    "host": "127.0.0.1",
+    "port": 4318
+  },
+  "backend": {
+    "target": "phoenix",
+    "phoenix": {
+      "endpoint": "${PHOENIX_ENDPOINT}",
+      "api_key": "${PHOENIX_API_KEY:-}",
+      "project_name": "${ARIZE_PROJECT_NAME:-codex}"
+    },
+    "arize": {
+      "endpoint": "otlp.arize.com:443",
+      "api_key": "",
+      "space_id": ""
+    }
+  }
+}
+EOF
+    ;;
+  arize)
+    cat > "$SHARED_CONFIG" <<EOF
+{
+  "collector": {
+    "host": "127.0.0.1",
+    "port": 4318
+  },
+  "backend": {
+    "target": "arize",
+    "phoenix": {
+      "endpoint": "http://localhost:6006",
+      "api_key": ""
+    },
+    "arize": {
+      "endpoint": "${ARIZE_OTLP_ENDPOINT:-otlp.arize.com:443}",
+      "api_key": "${ARIZE_API_KEY}",
+      "space_id": "${ARIZE_SPACE_ID}",
+      "project_name": "${ARIZE_PROJECT_NAME:-codex}"
+    }
+  }
+}
+EOF
+    ;;
+esac
+
+chmod 600 "$SHARED_CONFIG"
+info "Wrote shared collector config to $SHARED_CONFIG"
+
+# Install shared collector runtime (symlink core/collector.py)
+SHARED_COLLECTOR_PY="${REPO_ROOT}/core/collector.py"
+SHARED_BIN="${SHARED_BASE}/bin/arize-collector"
+if [[ -f "$SHARED_COLLECTOR_PY" ]]; then
+  # Create a wrapper script that invokes the collector with python3
+  cat > "$SHARED_BIN" <<BINEOF
+#!/bin/bash
+exec python3 "${SHARED_COLLECTOR_PY}" "\$@"
+BINEOF
+  chmod +x "$SHARED_BIN"
+  info "Installed shared collector to $SHARED_BIN"
+fi
+
+# --- Configure native OTLP export via Codex event buffer ---
+# The event buffer captures Codex's native OTel events and buffers them for
+# child-span assembly.  It runs on port 4319 (separate from shared collector on 4318).
+EVENT_BUFFER_PORT="${CODEX_EVENT_PORT:-${CODEX_COLLECTOR_PORT:-4319}}"
 
 if grep -q "^\[otel\]" "$CODEX_CONFIG" 2>/dev/null; then
-  # Update existing [otel] section to point at local collector
+  # Update existing [otel] section to point at event buffer
   cp "$CODEX_CONFIG" "${CODEX_CONFIG}.bak"
   # Remove old [otel] section and any nested [otel.*] tables.
   awk '
@@ -292,13 +376,13 @@ fi
 
 cat >> "$CODEX_CONFIG" <<EOF
 
-# Arize OTel collector — captures Codex events for rich span trees
+# Arize event buffer — captures Codex events for rich span trees
 [otel]
 [otel.exporter.otlp-http]
-endpoint = "http://127.0.0.1:${COLLECTOR_PORT}/v1/logs"
+endpoint = "http://127.0.0.1:${EVENT_BUFFER_PORT}/v1/logs"
 protocol = "json"
 EOF
-info "Added [otel] exporter pointing to local collector (port $COLLECTOR_PORT, protocol json)"
+info "Added [otel] exporter pointing to event buffer (port $EVENT_BUFFER_PORT)"
 
 # --- Install codex proxy wrapper ---
 mkdir -p "$PROXY_DIR"
@@ -309,18 +393,29 @@ fi
 sed \
   -e "s|__REAL_CODEX__|${REAL_CODEX_BIN}|g" \
   -e "s|__ARIZE_ENV_FILE__|${ENV_FILE}|g" \
-  -e "s|__COLLECTOR_CTL__|${COLLECTOR_CTL}|g" \
+  -e "s|__SHARED_COLLECTOR_CTL__|${SHARED_COLLECTOR_CTL}|g" \
+  -e "s|__EVENT_BUFFER_CTL__|${EVENT_BUFFER_CTL}|g" \
   "$PROXY_TEMPLATE" > "$PROXY_PATH"
 chmod +x "$PROXY_PATH"
 info "Installed codex proxy to ${PROXY_PATH}"
 
-# --- Start collector ---
-if [[ -f "$COLLECTOR_CTL" ]]; then
-  source "$COLLECTOR_CTL"
+# --- Start shared collector ---
+if [[ -f "$SHARED_COLLECTOR_CTL" ]]; then
+  source "$SHARED_COLLECTOR_CTL"
   if collector_start >/dev/null 2>&1; then
-    info "Collector started (port $COLLECTOR_PORT)"
+    info "Shared collector started (port 4318)"
   else
-    warn "Could not start collector — the proxy will retry on the next codex launch"
+    warn "Could not start shared collector — the proxy will retry on next codex launch"
+  fi
+fi
+
+# --- Start event buffer ---
+if [[ -f "$EVENT_BUFFER_CTL" ]]; then
+  source "$EVENT_BUFFER_CTL"
+  if event_buffer_start >/dev/null 2>&1; then
+    info "Event buffer started (port $EVENT_BUFFER_PORT)"
+  else
+    warn "Could not start event buffer — the proxy will retry on next codex launch"
   fi
 fi
 
@@ -331,7 +426,7 @@ SHELL_PROFILE="$(detect_shell_profile)"
 for profile in "${HOME}/.zshrc" "${HOME}/.bashrc" "${HOME}/.bash_profile"; do
   if [[ -f "$profile" ]] && grep -q "collector_ctl.sh" "$profile" 2>/dev/null; then
     cp "$profile" "${profile}.bak"
-    sed -i.tmp '/arize-codex.*collector_ctl/d; /collector_ensure/d' "$profile"
+    sed -i.tmp '/arize-codex.*collector_ctl/d; /collector_ensure/d; /event_buffer_ensure/d' "$profile"
     rm -f "${profile}.tmp"
     info "Removed old collector auto-start from $(basename "$profile")"
   fi
@@ -362,9 +457,9 @@ if [[ "$add_to_profile" =~ ^[Yy] ]]; then
   fi
 fi
 
-# --- Write collector port to env file ---
-if ! grep -q "CODEX_COLLECTOR_PORT" "$ENV_FILE" 2>/dev/null; then
-  echo "export CODEX_COLLECTOR_PORT=${COLLECTOR_PORT}" >> "$ENV_FILE"
+# --- Write event buffer port to env file ---
+if ! grep -q "CODEX_EVENT_PORT" "$ENV_FILE" 2>/dev/null; then
+  echo "export CODEX_EVENT_PORT=${EVENT_BUFFER_PORT}" >> "$ENV_FILE"
 fi
 
 # --- Summary ---
@@ -390,13 +485,20 @@ case "$TARGET" in
     ;;
 esac
 echo ""
-echo "  The proxy wrapper at ${PROXY_PATH} ensures the collector is running before Codex starts."
-echo "  The OTel collector listens in the background on port $COLLECTOR_PORT."
-echo "  It captures Codex's native telemetry events and transforms them into rich span trees."
-echo "  Manage it with: source ${SCRIPT_DIR}/scripts/collector_ctl.sh"
+echo "  Architecture:"
+echo "    Shared collector (port 4318) — exports spans to ${TARGET}"
+echo "    Event buffer (port ${EVENT_BUFFER_PORT}) — buffers Codex OTel events for child spans"
+echo ""
+echo "  The proxy wrapper at ${PROXY_PATH} ensures both are running before Codex starts."
+echo "  Manage the shared collector: source ${SHARED_COLLECTOR_CTL}"
 echo "    collector_status  — check if running"
 echo "    collector_stop    — stop the collector"
 echo "    collector_ensure  — start if not running (idempotent)"
+echo ""
+echo "  Manage the event buffer: source ${EVENT_BUFFER_CTL}"
+echo "    event_buffer_status  — check if running"
+echo "    event_buffer_stop    — stop the event buffer"
+echo "    event_buffer_ensure  — start if not running (idempotent)"
 echo ""
 echo "  Test with: ARIZE_DRY_RUN=true codex"
 echo ""

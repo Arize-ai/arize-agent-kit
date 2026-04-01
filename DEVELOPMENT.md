@@ -2,12 +2,23 @@
 
 Contributor guide for adding new harness adapters and working with the shared core.
 
+## Architecture Overview
+
+The system has two layers:
+
+1. **Harness adapters** — build OpenInference spans from harness-specific events (hook payloads, session lifecycle, tool calls) and submit them locally.
+2. **Shared collector/exporter** — a background process at `http://127.0.0.1:4318` that receives spans from all harnesses and exports them to Phoenix or Arize AX.
+
+Harnesses are responsible for span construction and session state. The collector is responsible for backend export, credentials, retries, and logging. New harnesses should submit spans to the collector via `POST http://127.0.0.1:4318/v1/spans` rather than implementing direct export logic. See [COLLECTOR_ARCHITECTURE.md](COLLECTOR_ARCHITECTURE.md) for the full collector contract.
+
 ## Repo Structure
 
 ```
 core/
   common.sh          # Shared: env vars, logging, utils, state primitives, span building, sending
-  send_arize.py      # Shared: Arize AX gRPC sender (Python, opentelemetry-proto + grpcio)
+  collector.py       # Shared: background collector/exporter (stdlib HTTP + Phoenix/Arize export)
+  collector_ctl.sh   # Shared: collector lifecycle (start/stop/status/ensure)
+  send_arize.py      # Legacy: Arize AX gRPC sender (kept for ARIZE_DIRECT_SEND fallback)
 
 claude-code-tracing/ # Claude Code CLI / Agent SDK adapter
   hooks/common.sh    # Adapter: PID-based state, session resolution, GC, sources core/common.sh
@@ -18,11 +29,11 @@ claude-code-tracing/ # Claude Code CLI / Agent SDK adapter
 codex-tracing/       # OpenAI Codex CLI adapter
   hooks/common.sh    # Adapter: thread-id state, debug_dump, multi-span, sources core/common.sh
   hooks/notify.sh    # Single event handler (Codex uses one hook for all events)
-  scripts/           # collector.py, collector_ctl.sh
+  scripts/           # collector.py, collector_ctl.sh (Codex-specific event buffer)
   skills/            # setup-codex-tracing/SKILL.md
   README.md          # Codex-specific setup and usage
 
-install.sh           # Curl-pipe installer for non-marketplace harnesses
+install.sh           # Installer: shared collector setup + harness config
 marketplace.json     # Claude Code marketplace listing
 ```
 
@@ -163,6 +174,8 @@ input=$(cat)
 # ... resolve session, build span, send span ...
 ```
 
+Hook scripts call `send_span` which submits the span payload to the shared collector at `http://127.0.0.1:4318/v1/spans`. New harnesses should not implement direct backend export — the collector handles Phoenix and Arize AX export for all harnesses.
+
 Include `ARIZE_USER_ID` in spans:
 
 ```bash
@@ -175,7 +188,8 @@ attrs=$(jq -nc \
 
 ### Step 4: Update install.sh and marketplace.json
 
-- Add the new harness to `install.sh` if it should be installable via curl-pipe
+- Add a `setup_<harness>` function to `install.sh` for harness-specific configuration (hooks, env files, etc.)
+- The shared collector setup is handled automatically by `setup_shared_collector` — your harness setup function does not need to start or configure the collector
 - Add to `marketplace.json` if the harness supports the Claude Code plugin format
 
 ### Step 5: Write a README.md
@@ -206,10 +220,11 @@ Follow the pattern in existing adapter READMEs: features, configuration table, q
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `send_span` | `span_json` | Route span to the configured target (Phoenix or Arize AX). Handles dry run and verbose modes. |
-| `send_to_phoenix` | `span_json` | Send directly to Phoenix REST API. Uses `$PHOENIX_ENDPOINT`, `$PHOENIX_API_KEY`. |
-| `send_to_arize` | `span_json` | Send to Arize AX via `core/send_arize.py`. Finds Python with opentelemetry automatically. |
-| `get_target` | (none) | Returns `"phoenix"`, `"arize"`, or `"none"` based on env vars. |
+| `send_span` | `span_json` | Submit span to the shared collector at `http://127.0.0.1:4318/v1/spans`. Handles dry run and verbose modes. The collector routes to the configured backend (Phoenix or Arize AX). |
+| `send_to_collector` | `span_json` | Low-level curl POST to the shared collector endpoint. Called by `send_span`. |
+| `send_to_phoenix` | `span_json` | (Legacy fallback) Send directly to Phoenix REST API. Only used when `ARIZE_DIRECT_SEND=true` and the collector is unreachable. |
+| `send_to_arize` | `span_json` | (Legacy fallback) Send to Arize AX via `core/send_arize.py`. Only used when `ARIZE_DIRECT_SEND=true` and the collector is unreachable. Requires Python with `opentelemetry-proto` and `grpcio`. |
+| `get_target` | (none) | (Legacy) Returns `"phoenix"`, `"arize"`, or `"none"` based on env vars. Used only by the legacy direct-send fallback path. |
 
 ### State Management
 
