@@ -108,7 +108,7 @@ Then proceed to [Configure Codex](#configure-codex).
 ## Configure Codex
 
 This section configures:
-1. **Shared collector config** at `~/.arize-agent-kit/config.json`
+1. **Shared collector config** at `~/.arize/harness/config.json`
 2. **Environment variables** in `~/.codex/arize-env.sh`
 3. **Notify hook** in `~/.codex/config.toml`
 4. **Event buffer** (auto-configured) — captures Codex events for rich span trees
@@ -120,44 +120,65 @@ Ask the user: **"Where is the codex-tracing directory located?"**
 
 Common locations:
 - If cloned: `./arize-agent-kit/codex-tracing`
-- If installed via the curl installer: `~/.arize-agent-kit/codex-tracing`
+- If installed via the curl installer: `~/.arize/harness/codex-tracing`
 
 Store this as `INTEGRATION_PATH` for the notify hook config.
 
 ### Step 1: Write the shared collector config
 
-Create `~/.arize-agent-kit/config.json` with the backend credentials:
+Write `~/.arize/harness/config.json` with the backend credentials. The config file is the single source of truth for collector and backend settings.
+
+**Important: read-merge-write.** If `~/.arize/harness/config.json` already exists, read it first, add or update the `harnesses.codex` entry, and preserve existing backend credentials. Only prompt the user for backend credentials if there is no existing config.
 
 **Phoenix:**
 ```bash
-mkdir -p ~/.arize-agent-kit/{bin,run,logs}
-cat > ~/.arize-agent-kit/config.json << 'EOF'
+mkdir -p ~/.arize/harness/{bin,run,logs}
+CONFIG_FILE=~/.arize/harness/config.json
+if [ -f "$CONFIG_FILE" ]; then
+  # Merge: add/update harnesses.codex, preserve existing backend settings
+  tmp=$(mktemp)
+  jq '.harnesses.codex = {"project_name": "codex"}' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+else
+  cat > "$CONFIG_FILE" << 'EOF'
 {
   "collector": { "host": "127.0.0.1", "port": 4318 },
   "backend": {
     "target": "phoenix",
-    "phoenix": { "endpoint": "http://localhost:6006", "api_key": "", "project_name": "codex" },
-    "arize": { "endpoint": "otlp.arize.com:443", "api_key": "", "space_id": "" }
+    "phoenix": { "endpoint": "http://localhost:6006", "api_key": "" }
+  },
+  "harnesses": {
+    "codex": { "project_name": "codex" }
   }
 }
 EOF
-chmod 600 ~/.arize-agent-kit/config.json
+fi
+chmod 600 "$CONFIG_FILE"
 ```
 
 **Arize AX:**
 ```bash
-mkdir -p ~/.arize-agent-kit/{bin,run,logs}
-cat > ~/.arize-agent-kit/config.json << 'EOF'
+mkdir -p ~/.arize/harness/{bin,run,logs}
+CONFIG_FILE=~/.arize/harness/config.json
+if [ -f "$CONFIG_FILE" ]; then
+  # Merge: add/update harnesses.codex, preserve existing backend settings
+  tmp=$(mktemp)
+  jq '.harnesses.codex = {"project_name": "codex"}' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+else
+  cat > "$CONFIG_FILE" << 'EOF'
 {
   "collector": { "host": "127.0.0.1", "port": 4318 },
   "backend": {
     "target": "arize",
     "phoenix": { "endpoint": "http://localhost:6006", "api_key": "" },
-    "arize": { "endpoint": "otlp.arize.com:443", "api_key": "<key>", "space_id": "<space-id>", "project_name": "codex" }
+    "arize": { "endpoint": "otlp.arize.com:443", "api_key": "<key>", "space_id": "<space-id>" }
+  },
+  "harnesses": {
+    "codex": { "project_name": "codex" }
   }
 }
 EOF
-chmod 600 ~/.arize-agent-kit/config.json
+fi
+chmod 600 "$CONFIG_FILE"
 ```
 
 ### Step 2: Write the environment file
@@ -274,7 +295,7 @@ Should print: `[arize] DRY RUN:` followed by the span name.
 ### Confirm
 
 Tell the user:
-- Configuration saved to `~/.codex/config.toml`, `~/.codex/arize-env.sh`, and `~/.arize-agent-kit/config.json`
+- Configuration saved to `~/.codex/config.toml`, `~/.codex/arize-env.sh`, and `~/.arize/harness/config.json`
 - The shared collector (port 4318) exports spans to the configured backend
 - The shared collector (port 4318) captures Codex native events for child-span assembly
 - Traces will appear as rich span trees with child spans for tool calls and API requests
@@ -282,7 +303,7 @@ Tell the user:
 - If the collector has no buffered events, tracing still works with flat Turn spans (graceful degradation)
 - Mention `ARIZE_DRY_RUN=true` to test without sending data
 - Mention `ARIZE_VERBOSE=true` and `ARIZE_TRACE_DEBUG=true` for debug output
-- Logs: shared collector at `~/.arize-agent-kit/logs/collector.log`, harness at `/tmp/arize-codex.log`
+- Logs: shared collector at `~/.arize/harness/logs/collector.log`, harness at `/tmp/arize-codex.log`
 
 ### Environment Variables Reference
 
@@ -312,13 +333,13 @@ Common issues and fixes:
 | Notify hook not firing | Verify `notify` line in `~/.codex/config.toml` points to correct path |
 | "jq required" error | Install jq: `brew install jq` (macOS) or `apt install jq` (Linux) |
 | Phoenix unreachable | Verify Phoenix is running: `curl -sf <endpoint>/v1/traces` |
-| Shared collector not running | Check config: `cat ~/.arize-agent-kit/config.json`. Start: `source core/collector_ctl.sh && collector_start` |
-| No output in terminal | Notify runs in background; check `/tmp/arize-codex.log` and `~/.arize-agent-kit/logs/collector.log` |
+| Shared collector not running | Check config: `cat ~/.arize/harness/config.json`. Start: `source core/collector_ctl.sh && collector_start` |
+| No output in terminal | Notify runs in background; check `/tmp/arize-codex.log` and `~/.arize/harness/logs/collector.log` |
 | Want to test without sending | Set `ARIZE_DRY_RUN=true` in env or `export ARIZE_DRY_RUN=true` |
 | Want verbose logging | Set `ARIZE_VERBOSE=true` in env or `export ARIZE_VERBOSE=true` |
 | Wrong project name | Set `ARIZE_PROJECT_NAME` in `~/.codex/arize-env.sh` (default: `codex`) |
 | Existing notify hook | Codex supports only one `notify` — create a wrapper script that calls both |
 | Stale state files | Run: `rm -rf ~/.arize-codex/state_*.json` |
 | Flat spans only (no children) | Check collector health: `curl http://127.0.0.1:4318/health`. Verify `[otel]` in config.toml points to `127.0.0.1:4318` |
-| Collector not starting | Check `python3` is available. Check port 4318 isn't in use. See `~/.arize-agent-kit/logs/collector.log` |
+| Collector not starting | Check `python3` is available. Check port 4318 isn't in use. See `~/.arize/harness/logs/collector.log` |
 | User ID not appearing on spans | Set `ARIZE_USER_ID` in `~/.codex/arize-env.sh` or export before running Codex |

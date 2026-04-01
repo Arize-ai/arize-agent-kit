@@ -86,23 +86,25 @@ Then proceed to [Configure Settings](#configure-settings). If the user is on an 
 
 Configuration has two parts:
 
-1. **Shared collector config** (`~/.arize-agent-kit/config.json`) -- backend credentials and collector settings, read by the background collector
+1. **Shared collector config** (`~/.arize/harness/config.json`) -- backend credentials and collector settings, read by the background collector
 2. **Claude settings** (`~/.claude/settings.json` or `.claude/settings.local.json`) -- tracing feature flags and user-level env vars
 
 ### Ask the user for:
 
 1. **Scope**: Global (`~/.claude/settings.json`) or project-local (`.claude/settings.local.json`)
 2. **Backend choice**: Phoenix or Arize AX
-3. **Credentials**:
+3. **Credentials** (only if no existing config):
    - Phoenix: endpoint URL (default: `http://localhost:6006`), optional API key
    - Arize AX: API key and Space ID
 4. **OTLP Endpoint** (Arize AX only, optional): For hosted Arize instances using a custom endpoint. Defaults to `otlp.arize.com:443`.
-5. **Project name** (optional): defaults to workspace name
+5. **Project name** (optional): defaults to `"claude-code"`, stored under `harnesses.claude-code.project_name`
 6. **User ID** (optional): Set `ARIZE_USER_ID` to identify spans by user (useful for teams)
 
 ### Write the shared collector config
 
-Write backend credentials to `~/.arize-agent-kit/config.json`. Create the directory if needed: `mkdir -p ~/.arize-agent-kit`
+The config file at `~/.arize/harness/config.json` is the single source of truth for backend credentials and per-harness project naming. Create the directory structure if needed: `mkdir -p ~/.arize/harness/{bin,run,logs}`
+
+**Important: read-merge-write.** If `~/.arize/harness/config.json` already exists, read it first, then merge in the new or updated fields (e.g., add/update the `harnesses.claude-code` entry) while preserving existing backend credentials. Only prompt for backend credentials if no existing config is found.
 
 **Phoenix:**
 ```json
@@ -114,6 +116,9 @@ Write backend credentials to `~/.arize-agent-kit/config.json`. Create the direct
       "endpoint": "<endpoint>",
       "api_key": ""
     }
+  },
+  "harnesses": {
+    "claude-code": { "project_name": "claude-code" }
   }
 }
 ```
@@ -127,8 +132,11 @@ Write backend credentials to `~/.arize-agent-kit/config.json`. Create the direct
     "arize": {
       "endpoint": "otlp.arize.com:443",
       "api_key": "<key>",
-      "space_id": "<space-id>"
+      "space_id": "<id>"
     }
+  },
+  "harnesses": {
+    "claude-code": { "project_name": "claude-code" }
   }
 }
 ```
@@ -151,7 +159,7 @@ Read the file (or create `{}` if it doesn't exist), then merge env vars into the
 }
 ```
 
-If a custom project name was provided, also set `"ARIZE_PROJECT_NAME": "<name>"`.
+If a custom project name was provided, set it in `harnesses.claude-code.project_name` in the shared collector config (`~/.arize/harness/config.json`), not as an env var.
 
 If a user ID was provided, also set `"ARIZE_USER_ID": "<id>"`. This adds a `user.id` attribute to all traced spans.
 
@@ -174,7 +182,7 @@ echo '{}' > .claude/settings.local.json
 ### Confirm
 
 Tell the user:
-- Shared collector config saved to `~/.arize-agent-kit/config.json`
+- Shared collector config saved to `~/.arize/harness/config.json`
 - Claude settings saved to the chosen file:
   - Global: `~/.claude/settings.json`
   - Project-local: `.claude/settings.local.json`
@@ -184,7 +192,7 @@ Tell the user:
 - Mention `ARIZE_DRY_RUN=true` to test without sending data
 - Mention `ARIZE_VERBOSE=true` for debug output
 - Hook logs are written to `/tmp/arize-claude-code.log`
-- Collector logs are written to `~/.arize-agent-kit/logs/collector.log`
+- Collector logs are written to `~/.arize/harness/logs/collector.log`
 
 **Note**: Project-local settings override global settings for the same variables.
 
@@ -221,7 +229,7 @@ No Python dependencies are needed -- the shared collector handles backend export
 
 ### 3. Set up the shared collector config
 
-Ensure `~/.arize-agent-kit/config.json` has the correct backend credentials (see [Configure Settings](#configure-settings) above). The shared collector must be running for spans to be exported.
+Ensure `~/.arize/harness/config.json` has the correct backend credentials (see [Configure Settings](#configure-settings) above). The shared collector must be running for spans to be exported.
 
 ### 4. Create a settings file
 
@@ -238,10 +246,11 @@ Tell the user to create a `settings.local.json` file (or similar):
 ```
 
 Optional env vars that can also be added to the settings file:
-- `ARIZE_PROJECT_NAME`: Custom project name (default: workspace directory name)
 - `ARIZE_USER_ID`: User identifier added as `user.id` attribute to all spans (useful for teams)
 - `ARIZE_DRY_RUN`: Set to `"true"` to test without sending data
 - `ARIZE_VERBOSE`: Set to `"true"` for debug output
+
+To customize the project name, set it in `harnesses.claude-code.project_name` in the shared collector config (`~/.arize/harness/config.json`) rather than as an env var.
 
 ### 5. Add the plugin to their code
 
@@ -301,11 +310,11 @@ Common issues and fixes:
 | Problem | Fix |
 |---------|-----|
 | Traces not appearing | Check `ARIZE_TRACE_ENABLED` is `"true"` in Claude settings, and verify collector is running: `curl -sf http://127.0.0.1:4318/health` |
-| Collector not running | Start it: `source core/collector_ctl.sh && collector_start`. Check logs: `~/.arize-agent-kit/logs/collector.log` |
-| Collector config missing | Run `install.sh` or create `~/.arize-agent-kit/config.json` manually |
+| Collector not running | Start it: `source core/collector_ctl.sh && collector_start`. Check logs: `~/.arize/harness/logs/collector.log` |
+| Collector config missing | Run `install.sh` or create `~/.arize/harness/config.json` manually (include `harnesses` section) |
 | Phoenix unreachable | Verify Phoenix is running: `curl -sf <endpoint>/v1/traces` |
 | No output in terminal | Hook stderr is discarded by Claude Code; check `/tmp/arize-claude-code.log` |
 | Want to test without sending | Set `ARIZE_DRY_RUN` to `"true"` in env config |
 | Want verbose logging | Set `ARIZE_VERBOSE` to `"true"` in env config |
-| Wrong project name | Set `ARIZE_PROJECT_NAME` in env config (default: workspace dir name) |
+| Wrong project name | Set `harnesses.claude-code.project_name` in `~/.arize/harness/config.json` (default: `"claude-code"`) |
 | Spans missing user attribution | Set `ARIZE_USER_ID` in env config to add `user.id` to all spans |

@@ -12,6 +12,41 @@ import json
 import os
 import sys
 
+CONFIG_FILE = os.path.expanduser("~/.arize/harness/config.json")
+
+
+def _load_config():
+    """Load config from ~/.arize/harness/config.json."""
+    if not os.path.isfile(CONFIG_FILE):
+        return None
+    with open(CONFIG_FILE, "r") as f:
+        return json.load(f)
+
+
+def _resolve_project_name(span_data, config):
+    """Resolve project name from harness config, env var, or service.name."""
+    service_name = ""
+    for rs in span_data.get("resourceSpans", []):
+        for attr in rs.get("resource", {}).get("attributes", []):
+            if attr.get("key") == "service.name":
+                service_name = attr.get("value", {}).get("stringValue", "")
+                break
+        if service_name:
+            break
+
+    if config:
+        harness_cfg = config.get("harnesses", {}).get(service_name, {})
+        project_name = harness_cfg.get("project_name", "")
+        if project_name:
+            return project_name
+
+    project_name = os.environ.get("ARIZE_PROJECT_NAME", "")
+    if project_name:
+        return project_name
+    if service_name:
+        return service_name
+    return "default"
+
 
 def send_to_arize_grpc(span_data: dict, api_key: str, space_id: str) -> bool:
     """Send spans to Arize using gRPC with proper trace IDs."""
@@ -61,8 +96,9 @@ def send_to_arize_grpc(span_data: dict, api_key: str, space_id: str) -> bool:
                 return common_pb2.AnyValue(string_value=serialized)
             return common_pb2.AnyValue(string_value=json.dumps(value))
 
-        # Get project name from environment
-        project_name = os.environ.get("ARIZE_PROJECT_NAME", "default")
+        # Resolve project name from config, env var, or service.name
+        config = _load_config()
+        project_name = _resolve_project_name(span_data, config)
 
         # Build the protobuf message from our JSON
         resource_spans = []
@@ -173,8 +209,11 @@ def send_to_arize_grpc(span_data: dict, api_key: str, space_id: str) -> bool:
             resource_spans=resource_spans
         )
 
-        # Send via gRPC (endpoint is configurable for hosted Arize instances)
-        endpoint = os.environ.get("ARIZE_OTLP_ENDPOINT", "otlp.arize.com:443")
+        # Send via gRPC (endpoint from config or env)
+        if config:
+            endpoint = config.get("backend", {}).get("arize", {}).get("endpoint", "otlp.arize.com:443")
+        else:
+            endpoint = os.environ.get("ARIZE_OTLP_ENDPOINT", "otlp.arize.com:443")
         credentials = grpc.ssl_channel_credentials()
         channel = grpc.secure_channel(endpoint, credentials)
         stub = trace_service_pb2_grpc.TraceServiceStub(channel)
@@ -204,12 +243,18 @@ def main():
         print(f"[arize] Invalid JSON: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Arize AX credentials
-    api_key = os.environ.get("ARIZE_API_KEY")
-    space_id = os.environ.get("ARIZE_SPACE_ID")
+    # Arize AX credentials: config.json if it exists, otherwise env vars
+    config = _load_config()
+    if config:
+        arize_cfg = config.get("backend", {}).get("arize", {})
+        api_key = arize_cfg.get("api_key")
+        space_id = arize_cfg.get("space_id")
+    else:
+        api_key = os.environ.get("ARIZE_API_KEY")
+        space_id = os.environ.get("ARIZE_SPACE_ID")
 
     if not api_key or not space_id:
-        print("[arize] ARIZE_API_KEY and ARIZE_SPACE_ID required", file=sys.stderr)
+        print("[arize] ARIZE_API_KEY and ARIZE_SPACE_ID required (set in config.json or env)", file=sys.stderr)
         sys.exit(1)
 
     success = send_to_arize_grpc(span_data, api_key, space_id)

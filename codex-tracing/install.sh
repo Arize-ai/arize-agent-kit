@@ -3,7 +3,7 @@
 #
 # This script configures Codex to send OpenInference traces to Arize AX or Phoenix.
 # It sets up:
-#   1. The shared collector/exporter (~/.arize-agent-kit/) for backend export
+#   1. The shared collector/exporter (~/.arize/harness/) for backend export
 #   2. The Codex event buffer for child-span assembly
 #   3. The notify hook (creates OpenInference LLM spans per turn)
 #   4. Native OTLP export (sends Codex's built-in telemetry events to the event buffer)
@@ -30,7 +30,7 @@ PROXY_BACKUP="${PROXY_DIR}/codex.arize-backup"
 PATH_PROFILE_MARKER="# Arize Codex tracing - prepend ~/.local/bin for codex proxy"
 
 # Shared collector layout
-SHARED_BASE="${HOME}/.arize-agent-kit"
+SHARED_BASE="${HOME}/.arize/harness"
 SHARED_CONFIG="${SHARED_BASE}/config.json"
 
 RED='\033[0;31m'
@@ -279,13 +279,25 @@ chmod 600 "$ENV_FILE"
 info "Wrote credentials to $ENV_FILE"
 
 # --- Install shared collector config ---
-# The shared collector at ~/.arize-agent-kit/ handles backend export for all
+# The shared collector at ~/.arize/harness/ handles backend export for all
 # harnesses.  Write its config.json with the backend credentials.
 mkdir -p "${SHARED_BASE}/bin" "${SHARED_BASE}/run" "${SHARED_BASE}/logs"
 
-case "$TARGET" in
-  phoenix)
-    cat > "$SHARED_CONFIG" <<EOF
+# If config already exists with a valid backend, just add the codex harness entry
+existing_backend=""
+if command -v jq >/dev/null 2>&1 && [[ -f "$SHARED_CONFIG" ]]; then
+  existing_backend=$(jq -r '.backend.target // empty' "$SHARED_CONFIG" 2>/dev/null) || true
+fi
+
+if [[ -n "$existing_backend" ]]; then
+  info "Existing backend config found (${existing_backend}) — adding codex harness entry"
+  tmp_config="${SHARED_CONFIG}.tmp.$$"
+  jq '.harnesses.codex.project_name = "codex"' \
+     "$SHARED_CONFIG" > "$tmp_config" && mv "$tmp_config" "$SHARED_CONFIG"
+else
+  case "$TARGET" in
+    phoenix)
+      cat > "$SHARED_CONFIG" <<EOF
 {
   "collector": {
     "host": "127.0.0.1",
@@ -295,20 +307,22 @@ case "$TARGET" in
     "target": "phoenix",
     "phoenix": {
       "endpoint": "${PHOENIX_ENDPOINT}",
-      "api_key": "${PHOENIX_API_KEY:-}",
-      "project_name": "${ARIZE_PROJECT_NAME:-codex}"
+      "api_key": "${PHOENIX_API_KEY:-}"
     },
     "arize": {
       "endpoint": "otlp.arize.com:443",
       "api_key": "",
       "space_id": ""
     }
+  },
+  "harnesses": {
+    "codex": { "project_name": "codex" }
   }
 }
 EOF
-    ;;
-  arize)
-    cat > "$SHARED_CONFIG" <<EOF
+      ;;
+    arize)
+      cat > "$SHARED_CONFIG" <<EOF
 {
   "collector": {
     "host": "127.0.0.1",
@@ -323,14 +337,17 @@ EOF
     "arize": {
       "endpoint": "${ARIZE_OTLP_ENDPOINT:-otlp.arize.com:443}",
       "api_key": "${ARIZE_API_KEY}",
-      "space_id": "${ARIZE_SPACE_ID}",
-      "project_name": "${ARIZE_PROJECT_NAME:-codex}"
+      "space_id": "${ARIZE_SPACE_ID}"
     }
+  },
+  "harnesses": {
+    "codex": { "project_name": "codex" }
   }
 }
 EOF
-    ;;
-esac
+      ;;
+  esac
+fi
 
 chmod 600 "$SHARED_CONFIG"
 info "Wrote shared collector config to $SHARED_CONFIG"

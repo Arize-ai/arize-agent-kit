@@ -47,30 +47,54 @@ This stops the background collector, removes the collector runtime, and cleans u
 
 ## Configuration
 
-Backend credentials are stored in `~/.arize-agent-kit/config.json`, written by the installer. You can also set environment variables to override behavior at the harness level.
+All configuration lives in `~/.arize/harness/config.json`, written by the installer. This file is the single source of truth for backend credentials, collector settings, and per-harness project names.
 
-### Environment Variables
+### config.json Schema
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `ARIZE_TRACE_ENABLED` | No | `true` | Enable or disable tracing |
-| `ARIZE_API_KEY` | For AX | - | Arize AX API key (also read from shared config) |
-| `ARIZE_SPACE_ID` | For AX | - | Arize AX space ID (also read from shared config) |
-| `ARIZE_OTLP_ENDPOINT` | No | `otlp.arize.com:443` | OTLP gRPC endpoint (on-prem Arize) |
-| `PHOENIX_ENDPOINT` | For Phoenix | `http://localhost:6006` | Phoenix collector URL (also read from shared config) |
-| `PHOENIX_API_KEY` | No | - | Phoenix API key (if auth enabled) |
-| `ARIZE_PROJECT_NAME` | No | `default` | Project name in Arize/Phoenix |
-| `ARIZE_USER_ID` | No | - | User identifier added to all spans as `user.id` |
-| `ARIZE_DRY_RUN` | No | `false` | Print spans to log instead of sending |
-| `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
-| `ARIZE_LOG_FILE` | No | `/tmp/arize-<harness>.log` | Log file path (empty to disable) |
+```json
+{
+  "collector": { "host": "127.0.0.1", "port": 4318 },
+  "backend": {
+    "target": "phoenix|arize",
+    "phoenix": { "endpoint": "...", "api_key": "..." },
+    "arize": { "endpoint": "...", "api_key": "...", "space_id": "..." }
+  },
+  "harnesses": {
+    "claude-code": { "project_name": "claude-code" },
+    "codex": { "project_name": "codex" }
+  }
+}
+```
+
+- **`collector`** — Host and port for the local OTLP collector.
+- **`backend.target`** — Which backend to export to (`phoenix` or `arize`).
+- **`backend.phoenix` / `backend.arize`** — Credentials for the selected backend.
+- **`harnesses.<name>.project_name`** — Per-harness project name used in Arize/Phoenix.
+
+### Environment Variable Fallbacks
+
+Environment variables are supported as fallbacks but are secondary to `config.json`. If a value is set in both `config.json` and the environment, `config.json` wins.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ARIZE_TRACE_ENABLED` | `true` | Enable or disable tracing |
+| `ARIZE_API_KEY` | - | Arize AX API key (fallback if not in config.json) |
+| `ARIZE_SPACE_ID` | - | Arize AX space ID (fallback if not in config.json) |
+| `ARIZE_OTLP_ENDPOINT` | `otlp.arize.com:443` | OTLP gRPC endpoint (on-prem Arize) |
+| `PHOENIX_ENDPOINT` | `http://localhost:6006` | Phoenix collector URL (fallback if not in config.json) |
+| `PHOENIX_API_KEY` | - | Phoenix API key (fallback if not in config.json) |
+| `ARIZE_PROJECT_NAME` | `default` | Project name (fallback if not in `harnesses` config) |
+| `ARIZE_USER_ID` | - | User identifier added to all spans as `user.id` |
+| `ARIZE_DRY_RUN` | `false` | Print spans to log instead of sending |
+| `ARIZE_VERBOSE` | `false` | Enable verbose logging |
+| `ARIZE_LOG_FILE` | `/tmp/arize-<harness>.log` | Log file path (empty to disable) |
 
 ### Backend Requirements
 
-| Backend | Auth | Harness Dependencies | Latency |
-|---------|------|---------------------|---------|
-| **Phoenix** (self-hosted) | `PHOENIX_ENDPOINT` | `jq`, `curl` | ~local |
-| **Arize AX** (cloud) | `ARIZE_API_KEY` + `ARIZE_SPACE_ID` | `jq`, `curl` | ~remote |
+| Backend | Auth (config.json) | Harness Dependencies | Latency |
+|---------|---------------------|---------------------|---------|
+| **Phoenix** (self-hosted) | `backend.phoenix.endpoint` | `jq`, `curl` | ~local |
+| **Arize AX** (cloud) | `backend.arize.api_key` + `backend.arize.space_id` | `jq`, `curl` | ~remote |
 
 Both backends are served by the shared collector. Harnesses only need `jq` and `curl` to build and submit spans locally. The collector handles all backend-specific transport (HTTP for Phoenix, gRPC for Arize AX) — no Python packages required in the user environment.
 
@@ -84,11 +108,11 @@ Codex hooks       ─┼─> POST http://127.0.0.1:4318/v1/spans ──> Phoenix
 Future harnesses  ─┘         (shared background collector)
 ```
 
-The installer writes all shared runtime files under `~/.arize-agent-kit/`:
+The installer writes all shared runtime files under `~/.arize/harness/`:
 
 | Path | Purpose |
 |------|---------|
-| `config.json` | Backend target and credentials |
+| `config.json` | Collector settings, backend target/credentials, and per-harness project names (`harnesses`) |
 | `bin/arize-collector` | Collector launcher script |
 | `run/collector.pid` | PID of the running collector process |
 | `logs/collector.log` | Collector log output |

@@ -8,7 +8,7 @@
 # and setting shell options would change the caller's environment.
 
 # --- Shared layout ---
-_AK_BASE="${HOME}/.arize-agent-kit"
+_AK_BASE="${HOME}/.arize/harness"
 _AK_CONFIG="${_AK_BASE}/config.json"
 _AK_PID_FILE="${_AK_BASE}/run/collector.pid"
 _AK_LOG_FILE="${_AK_BASE}/logs/collector.log"
@@ -59,9 +59,11 @@ collector_start() {
     return 0
   fi
 
-  # Config is optional — collector falls back to env vars if config.json is missing
+  # Config is required — collector reads all settings from config.json
   if [[ ! -f "$_AK_CONFIG" ]]; then
-    _ak_log "No config.json found, collector will read from environment variables"
+    _ak_log "ERROR: No config.json found at $_AK_CONFIG — cannot start collector"
+    _ak_log "Run install.sh or use the setup skill to create it"
+    return 1
   fi
 
   # Find collector runtime: prefer installed bin, fall back to source

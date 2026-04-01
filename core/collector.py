@@ -6,9 +6,9 @@ Accepts OTLP JSON span payloads on POST /v1/spans from any harness,
 exports to the configured backend (Phoenix REST or Arize AX gRPC),
 and reports health on GET /health.
 
-Reads configuration from ~/.arize-agent-kit/config.json.
-Writes PID to ~/.arize-agent-kit/run/collector.pid.
-Logs to ~/.arize-agent-kit/logs/collector.log.
+Reads configuration from ~/.arize/harness/config.json.
+Writes PID to ~/.arize/harness/run/collector.pid.
+Logs to ~/.arize/harness/logs/collector.log.
 
 This is a stdlib-only runtime for the HTTP server and Phoenix export path.
 Arize AX gRPC export requires grpcio and opentelemetry-proto, which are
@@ -27,7 +27,7 @@ import urllib.error
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 # --- Paths ---
-BASE_DIR = os.path.expanduser("~/.arize-agent-kit")
+BASE_DIR = os.path.expanduser("~/.arize/harness")
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 PID_DIR = os.path.join(BASE_DIR, "run")
 PID_FILE = os.path.join(PID_DIR, "collector.pid")
@@ -83,67 +83,66 @@ def _get_last_error():
 # --- Config ---
 
 def load_config():
-    """Load config from ~/.arize-agent-kit/config.json, falling back to env vars.
+    """Load config from ~/.arize/harness/config.json.
 
-    Env var fallback supports marketplace installs where config.json doesn't
-    exist but users have set PHOENIX_ENDPOINT or ARIZE_API_KEY in their
-    Claude Code settings.local.json.
+    Config file is required — run install.sh or the setup skill to create it.
     """
-    # Try config file first
-    if os.path.isfile(CONFIG_FILE):
-        with open(CONFIG_FILE, "r") as f:
-            cfg = json.load(f)
-        backend = cfg.get("backend", {})
-        target = backend.get("target", "")
-        if target in ("phoenix", "arize"):
-            if target == "arize":
-                arize_cfg = backend.get("arize", {})
-                if not arize_cfg.get("api_key"):
-                    raise ValueError("backend.arize.api_key is required when target is 'arize'")
-                if not arize_cfg.get("space_id"):
-                    raise ValueError("backend.arize.space_id is required when target is 'arize'")
-            return cfg
-
-    # Fall back to environment variables
-    _log("No config.json found, reading backend config from environment variables")
-    cfg = {"collector": {"host": "127.0.0.1", "port": 4318}, "backend": {}}
-
-    arize_api_key = os.environ.get("ARIZE_API_KEY", "")
-    arize_space_id = os.environ.get("ARIZE_SPACE_ID", "")
-    phoenix_endpoint = os.environ.get("PHOENIX_ENDPOINT", "")
-
-    if arize_api_key and arize_space_id:
-        cfg["backend"] = {
-            "target": "arize",
-            "arize": {
-                "api_key": arize_api_key,
-                "space_id": arize_space_id,
-                "endpoint": os.environ.get("ARIZE_OTLP_ENDPOINT", "otlp.arize.com:443"),
-            },
-            "phoenix": {},
-        }
-    elif phoenix_endpoint:
-        cfg["backend"] = {
-            "target": "phoenix",
-            "phoenix": {
-                "endpoint": phoenix_endpoint,
-                "api_key": os.environ.get("PHOENIX_API_KEY", ""),
-            },
-            "arize": {},
-        }
-    else:
+    if not os.path.isfile(CONFIG_FILE):
         raise ValueError(
-            "No backend configured. Set PHOENIX_ENDPOINT or ARIZE_API_KEY + ARIZE_SPACE_ID, "
-            "or run install.sh to create ~/.arize-agent-kit/config.json"
+            f"No config found at {CONFIG_FILE}. "
+            "Run install.sh or use the setup skill to create it."
         )
 
-    # Pick up project name from env
-    project_name = os.environ.get("ARIZE_PROJECT_NAME", "")
-    if project_name:
-        cfg["backend"].get("phoenix", {})["project_name"] = project_name
-        cfg["backend"].get("arize", {})["project_name"] = project_name
+    with open(CONFIG_FILE, "r") as f:
+        cfg = json.load(f)
+
+    backend = cfg.get("backend", {})
+    target = backend.get("target", "")
+    if target not in ("phoenix", "arize"):
+        raise ValueError(
+            f"Invalid or missing backend.target: '{target}'. Must be 'phoenix' or 'arize'."
+        )
+    if target == "arize":
+        arize_cfg = backend.get("arize", {})
+        if not arize_cfg.get("api_key"):
+            raise ValueError("backend.arize.api_key is required when target is 'arize'")
+        if not arize_cfg.get("space_id"):
+            raise ValueError("backend.arize.space_id is required when target is 'arize'")
 
     return cfg
+
+
+def _resolve_project_name(span_json, config):
+    """Resolve the project name for a span payload.
+
+    Priority:
+    1. harnesses.<service_name>.project_name in config (explicit per-harness override)
+    2. ARIZE_PROJECT_NAME env var
+    3. service.name resource attribute from the span
+    4. "default"
+    """
+    # Extract service.name from span resource attributes
+    service_name = ""
+    for rs in span_json.get("resourceSpans", []):
+        for attr in rs.get("resource", {}).get("attributes", []):
+            if attr.get("key") == "service.name":
+                service_name = attr.get("value", {}).get("stringValue", "")
+                break
+        if service_name:
+            break
+
+    # Look up per-harness config
+    harness_cfg = config.get("harnesses", {}).get(service_name, {})
+    project_name = harness_cfg.get("project_name", "")
+
+    if not project_name:
+        project_name = os.environ.get("ARIZE_PROJECT_NAME", "")
+    if not project_name:
+        project_name = service_name
+    if not project_name:
+        project_name = "default"
+
+    return project_name
 
 
 # --- Backend export ---
@@ -422,12 +421,15 @@ def export_spans(span_json, config):
     """Route span payload to the configured backend."""
     backend = config.get("backend", {})
     target = backend.get("target", "")
+    project_name = _resolve_project_name(span_json, config)
 
     if target == "phoenix":
-        phoenix_cfg = backend.get("phoenix", {})
+        phoenix_cfg = dict(backend.get("phoenix", {}))
+        phoenix_cfg["project_name"] = project_name
         return _export_to_phoenix(span_json, phoenix_cfg)
     elif target == "arize":
-        arize_cfg = backend.get("arize", {})
+        arize_cfg = dict(backend.get("arize", {}))
+        arize_cfg["project_name"] = project_name
         return _export_to_arize(span_json, arize_cfg)
     else:
         _set_last_error(f"Unknown backend target: {target}")

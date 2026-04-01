@@ -7,7 +7,7 @@ check_requirements
 # Ensure the shared collector is running (idempotent, no-op if already up).
 # For marketplace installs, this starts the collector on first session.
 # collector_ctl.sh falls back to running collector.py directly if the
-# installed launcher at ~/.arize-agent-kit/bin/arize-collector doesn't exist.
+# installed launcher at ~/.arize/harness/bin/arize-collector doesn't exist.
 _COLLECTOR_CTL="${CORE_DIR}/collector_ctl.sh"
 if [[ -f "$_COLLECTOR_CTL" ]]; then
   source "$_COLLECTOR_CTL"

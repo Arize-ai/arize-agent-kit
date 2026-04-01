@@ -16,7 +16,7 @@ set -euo pipefail
 # --- Constants ---
 REPO_URL="https://github.com/Arize-ai/arize-agent-kit.git"
 TARBALL_URL="https://github.com/Arize-ai/arize-agent-kit/archive/refs/heads/main.tar.gz"
-INSTALL_DIR="${HOME}/.arize-agent-kit"
+INSTALL_DIR="${HOME}/.arize/harness"
 
 # Shared collector layout
 SHARED_CONFIG="${INSTALL_DIR}/config.json"
@@ -186,74 +186,100 @@ setup_shared_collector() {
   mkdir -p "$SHARED_RUN_DIR"
   mkdir -p "$SHARED_LOG_DIR"
 
-  # --- Collect backend credentials ---
-  local backend_target=""
-  local phoenix_endpoint="http://localhost:6006"
-  local phoenix_api_key=""
-  local arize_api_key=""
-  local arize_space_id=""
-  local arize_endpoint="otlp.arize.com:443"
-
-  # Detect backend from environment variables (non-interactive or pre-set)
-  if [[ -n "${ARIZE_API_KEY:-}" && -n "${ARIZE_SPACE_ID:-}" ]]; then
-    backend_target="arize"
-    arize_api_key="$ARIZE_API_KEY"
-    arize_space_id="$ARIZE_SPACE_ID"
-    [[ -n "${ARIZE_OTLP_ENDPOINT:-}" ]] && arize_endpoint="$ARIZE_OTLP_ENDPOINT"
-  elif [[ -n "${PHOENIX_ENDPOINT:-}" ]]; then
-    backend_target="phoenix"
-    phoenix_endpoint="$PHOENIX_ENDPOINT"
-    [[ -n "${PHOENIX_API_KEY:-}" ]] && phoenix_api_key="$PHOENIX_API_KEY"
-  fi
-
-  # Interactive prompt if backend not detected and stdin is a terminal
-  if [[ -z "$backend_target" && -t 0 ]]; then
-    echo ""
-    echo "  Choose a tracing backend:"
-    echo ""
-    echo "    1) Phoenix (self-hosted)"
-    echo "    2) Arize AX (cloud)"
-    echo ""
-    local choice=""
-    read -rp "  Backend [1/2]: " choice
-    case "$choice" in
-      1|phoenix)
-        backend_target="phoenix"
-        read -rp "  Phoenix endpoint [http://localhost:6006]: " phoenix_endpoint
-        phoenix_endpoint="${phoenix_endpoint:-http://localhost:6006}"
-        read -rp "  Phoenix API key (blank if none): " phoenix_api_key
-        ;;
-      2|arize)
-        backend_target="arize"
-        read -rp "  Arize API key: " arize_api_key
-        if [[ -z "$arize_api_key" ]]; then
-          err "Arize API key is required"
-          exit 1
-        fi
-        read -rp "  Arize space ID: " arize_space_id
-        if [[ -z "$arize_space_id" ]]; then
-          err "Arize space ID is required"
-          exit 1
-        fi
-        read -rp "  Arize OTLP endpoint [otlp.arize.com:443]: " arize_endpoint
-        arize_endpoint="${arize_endpoint:-otlp.arize.com:443}"
-        ;;
-      *)
-        err "Invalid choice: $choice"
-        exit 1
-        ;;
-    esac
-  fi
-
-  # Non-interactive without env vars: default to phoenix
-  if [[ -z "$backend_target" ]]; then
-    backend_target="phoenix"
-    info "No backend credentials detected — defaulting to Phoenix at ${phoenix_endpoint}"
-  fi
-
   # --- Write shared config ---
-  local config_json
-  config_json=$(cat <<CFGEOF
+  local harness_name="${1:-}"
+  local harness_project="${harness_name:-default}"
+
+  # If config already exists with a valid backend, just add the harness entry
+  local existing_backend=""
+  if command_exists jq && [[ -f "$SHARED_CONFIG" ]]; then
+    existing_backend=$(jq -r '.backend.target // empty' "$SHARED_CONFIG" 2>/dev/null) || true
+  fi
+
+  if [[ -n "$existing_backend" ]]; then
+    info "Existing backend config found (${existing_backend}) — adding harness entry"
+    if [[ -n "$harness_name" ]]; then
+      local tmp_config="${SHARED_CONFIG}.tmp.$$"
+      jq --arg hn "$harness_name" --arg pn "$harness_project" \
+         '.harnesses[$hn].project_name = $pn' \
+         "$SHARED_CONFIG" > "$tmp_config" && mv "$tmp_config" "$SHARED_CONFIG"
+      chmod 600 "$SHARED_CONFIG"
+      info "Added harness '${harness_name}' to ${SHARED_CONFIG}"
+    fi
+    # Skip backend credential prompts — existing config is preserved
+  else
+    # No existing config — collect backend credentials
+    local backend_target=""
+    local phoenix_endpoint="http://localhost:6006"
+    local phoenix_api_key=""
+    local arize_api_key=""
+    local arize_space_id=""
+    local arize_endpoint="otlp.arize.com:443"
+
+    # Detect backend from environment variables (non-interactive or pre-set)
+    if [[ -n "${ARIZE_API_KEY:-}" && -n "${ARIZE_SPACE_ID:-}" ]]; then
+      backend_target="arize"
+      arize_api_key="$ARIZE_API_KEY"
+      arize_space_id="$ARIZE_SPACE_ID"
+      [[ -n "${ARIZE_OTLP_ENDPOINT:-}" ]] && arize_endpoint="$ARIZE_OTLP_ENDPOINT"
+    elif [[ -n "${PHOENIX_ENDPOINT:-}" ]]; then
+      backend_target="phoenix"
+      phoenix_endpoint="$PHOENIX_ENDPOINT"
+      [[ -n "${PHOENIX_API_KEY:-}" ]] && phoenix_api_key="$PHOENIX_API_KEY"
+    fi
+
+    # Interactive prompt if backend not detected and stdin is a terminal
+    if [[ -z "$backend_target" && -t 0 ]]; then
+      echo ""
+      echo "  Choose a tracing backend:"
+      echo ""
+      echo "    1) Phoenix (self-hosted)"
+      echo "    2) Arize AX (cloud)"
+      echo ""
+      local choice=""
+      read -rp "  Backend [1/2]: " choice
+      case "$choice" in
+        1|phoenix)
+          backend_target="phoenix"
+          read -rp "  Phoenix endpoint [http://localhost:6006]: " phoenix_endpoint
+          phoenix_endpoint="${phoenix_endpoint:-http://localhost:6006}"
+          read -rp "  Phoenix API key (blank if none): " phoenix_api_key
+          ;;
+        2|arize)
+          backend_target="arize"
+          read -rp "  Arize API key: " arize_api_key
+          if [[ -z "$arize_api_key" ]]; then
+            err "Arize API key is required"
+            exit 1
+          fi
+          read -rp "  Arize space ID: " arize_space_id
+          if [[ -z "$arize_space_id" ]]; then
+            err "Arize space ID is required"
+            exit 1
+          fi
+          read -rp "  Arize OTLP endpoint [otlp.arize.com:443]: " arize_endpoint
+          arize_endpoint="${arize_endpoint:-otlp.arize.com:443}"
+          ;;
+        *)
+          err "Invalid choice: $choice"
+          exit 1
+          ;;
+      esac
+    fi
+
+    # Non-interactive without env vars: default to phoenix
+    if [[ -z "$backend_target" ]]; then
+      backend_target="phoenix"
+      info "No backend credentials detected — defaulting to Phoenix at ${phoenix_endpoint}"
+    fi
+
+    # Write fresh config with backend + harness
+    local harnesses_json="{}"
+    if [[ -n "$harness_name" ]]; then
+      harnesses_json="{\"${harness_name}\": {\"project_name\": \"${harness_project}\"}}"
+    fi
+    local config_json
+    config_json=$(cat <<CFGEOF
 {
   "collector": {
     "host": "127.0.0.1",
@@ -270,19 +296,19 @@ setup_shared_collector() {
       "api_key": "${arize_api_key}",
       "space_id": "${arize_space_id}"
     }
-  }
+  },
+  "harnesses": ${harnesses_json}
 }
 CFGEOF
-  )
-
-  # Validate JSON if jq is available
-  if command_exists jq; then
-    echo "$config_json" | jq . > "$SHARED_CONFIG"
-  else
-    echo "$config_json" > "$SHARED_CONFIG"
+    )
+    if command_exists jq; then
+      echo "$config_json" | jq . > "$SHARED_CONFIG"
+    else
+      echo "$config_json" > "$SHARED_CONFIG"
+    fi
+    chmod 600 "$SHARED_CONFIG"
+    info "Wrote shared config to ${SHARED_CONFIG} (backend=${backend_target}, harness=${harness_name:-none})"
   fi
-  chmod 600 "$SHARED_CONFIG"
-  info "Wrote shared config to ${SHARED_CONFIG} (backend=${backend_target})"
 
   # --- Find Python ---
   local python_cmd
@@ -854,13 +880,13 @@ main() {
     claude)
       command_exists jq || { err "jq is required. Install: brew install jq  or  apt install jq"; exit 1; }
       install_repo
-      setup_shared_collector
+      setup_shared_collector "claude-code"
       setup_claude
       ;;
     codex)
       command_exists jq || { err "jq is required. Install: brew install jq  or  apt install jq"; exit 1; }
       install_repo
-      setup_shared_collector
+      setup_shared_collector "codex"
       setup_codex
       ;;
     update)

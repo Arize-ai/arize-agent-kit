@@ -64,9 +64,28 @@ The setup script will:
 
 1. Ask whether to store tracing env vars globally in `~/.claude/settings.json` or project-locally in `.claude/settings.local.json`
 2. Ask which backend to configure: Phoenix or Arize AX
-3. Write backend credentials to the shared config at `~/.arize-agent-kit/config.json`
+3. Write backend credentials and harness settings to the shared config at `~/.arize/harness/config.json`
 4. Write the required env vars into the selected Claude settings file
 5. Optionally add `ARIZE_USER_ID` for span attribution
+
+### Shared Config File
+
+The single source of truth for backend credentials, collector settings, and per-harness configuration is `~/.arize/harness/config.json`. Each harness (e.g. `claude-code`, `codex`) gets its own entry under `harnesses` with a dedicated `project_name`:
+
+```json
+{
+  "collector": { "host": "127.0.0.1", "port": 4318 },
+  "backend": {
+    "target": "phoenix",
+    "phoenix": { "endpoint": "...", "api_key": "..." }
+  },
+  "harnesses": {
+    "claude-code": { "project_name": "claude-code" }
+  }
+}
+```
+
+Environment variables (see below) still work as a fallback for the legacy direct-send path, but the config file is the recommended way to manage all settings.
 
 Or configure manually by adding environment variables to either `~/.claude/settings.json` or `.claude/settings.local.json`:
 
@@ -80,7 +99,7 @@ Or configure manually by adding environment variables to either `~/.claude/setti
 }
 ```
 
-Backend credentials (endpoint, API key) are stored in `~/.arize-agent-kit/config.json` and read by the shared collector -- not by hooks directly.
+Backend credentials and harness project names are stored in `~/.arize/harness/config.json` and read by the shared collector -- not by hooks directly.
 
 Requires: `jq`, `curl`. No Python packages needed in the user environment.
 
@@ -94,7 +113,7 @@ Requires: `jq`, `curl`. No Python packages needed in the user environment.
 }
 ```
 
-Backend credentials (`api_key`, `space_id`) are stored in `~/.arize-agent-kit/config.json` and read by the shared collector.
+Backend credentials (`api_key`, `space_id`) and harness project names are stored in `~/.arize/harness/config.json` and read by the shared collector.
 
 Requires: `jq`, `curl`. No Python packages needed in the user environment -- the collector bundles its own gRPC dependencies.
 
@@ -124,12 +143,14 @@ The plugin works with the Claude Agent SDK (Python) with one difference: the SDK
 
 Hook commands in `plugin.json` use `${CLAUDE_PLUGIN_ROOT}` so the plugin directory can be located anywhere on disk.
 
-## Environment Variables
+## Environment Variables (fallback)
+
+The config file `~/.arize/harness/config.json` is the primary and recommended way to configure tracing. The environment variables below serve as a fallback for the legacy direct-send path or for overriding specific values at runtime.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `ARIZE_TRACE_ENABLED` | No | `true` | Enable or disable tracing |
-| `ARIZE_PROJECT_NAME` | No | Working dir basename | Project name in Arize/Phoenix |
+| `ARIZE_PROJECT_NAME` | No | Config file / working dir basename | Project name override (prefer `harnesses` config) |
 | `ARIZE_USER_ID` | No | - | User identifier added to all spans as `user.id` |
 | `ARIZE_DRY_RUN` | No | `false` | Print spans to log instead of sending |
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
@@ -137,7 +158,7 @@ Hook commands in `plugin.json` use `${CLAUDE_PLUGIN_ROOT}` so the plugin directo
 | `ARIZE_COLLECTOR_HOST` | No | `127.0.0.1` | Shared collector listen address |
 | `ARIZE_COLLECTOR_PORT` | No | `4318` | Shared collector listen port |
 
-Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.) are configured in the shared config file `~/.arize-agent-kit/config.json` and read by the collector. They do not need to be set as environment variables in Claude settings.
+Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.) and project names are configured in the shared config file `~/.arize/harness/config.json` and read by the collector. They do not need to be set as environment variables in Claude settings.
 
 ### User Identification
 
@@ -174,7 +195,7 @@ tail -f /tmp/arize-claude-code.log
 Check the collector log for backend export diagnostics:
 
 ```bash
-tail -f ~/.arize-agent-kit/logs/collector.log
+tail -f ~/.arize/harness/logs/collector.log
 ```
 
 Verify the collector is running:
@@ -218,14 +239,14 @@ core/collector_ctl.sh  Collector lifecycle management (start/stop/status/ensure)
 2. Verify the collector is running: `curl -sf http://127.0.0.1:4318/health`
 3. If the collector is not running, start it: `source core/collector_ctl.sh && collector_start`
 4. Check the hook log: `tail -20 /tmp/arize-claude-code.log`
-5. Check the collector log: `tail -20 ~/.arize-agent-kit/logs/collector.log`
+5. Check the collector log: `tail -20 ~/.arize/harness/logs/collector.log`
 6. Test with dry run: `ARIZE_DRY_RUN=true ARIZE_VERBOSE=true claude`
 
 **Collector not running**
 
-1. Verify the shared config exists: `cat ~/.arize-agent-kit/config.json`
+1. Verify the shared config exists: `cat ~/.arize/harness/config.json`
 2. Start the collector: `source core/collector_ctl.sh && collector_start`
-3. Check collector logs for startup errors: `tail -20 ~/.arize-agent-kit/logs/collector.log`
+3. Check collector logs for startup errors: `tail -20 ~/.arize/harness/logs/collector.log`
 
 **"jq required" error**
 
