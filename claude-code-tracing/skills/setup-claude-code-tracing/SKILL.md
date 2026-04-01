@@ -84,9 +84,11 @@ Then proceed to [Configure Settings](#configure-settings). If the user is on an 
 
 ## Configure Settings
 
+**Important:** For marketplace installs, users must run this setup skill before tracing will work. The shared collector requires `~/.arize/harness/config.json` to exist -- it will not start without it.
+
 Configuration has two parts:
 
-1. **Shared collector config** (`~/.arize/harness/config.json`) -- backend credentials and collector settings, read by the background collector
+1. **Shared collector config** (`~/.arize/harness/config.json`) -- backend credentials and collector settings, read by the background collector. This skill creates it.
 2. **Claude settings** (`~/.claude/settings.json` or `.claude/settings.local.json`) -- tracing feature flags and user-level env vars
 
 ### Ask the user for:
@@ -296,6 +298,8 @@ await client.close();
 Tell the user to add `"ARIZE_DRY_RUN": "true"` to their settings file to verify hooks fire without sending data, and check `/tmp/arize-claude-code.log` for output. Also verify the collector is running: `curl -sf http://127.0.0.1:4318/health`.
 
 ### Agent SDK Compatibility
+
+For full Agent SDK documentation, see: https://platform.claude.com/docs/en/agent-sdk/overview
 
 - **Important**: You must use `ClaudeSDKClient` -- the standalone `query()` function does not support hooks and tracing will not work.
 - **TypeScript SDK**: All 9 hooks are supported -- full parity with the CLI.

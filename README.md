@@ -66,10 +66,12 @@ All configuration lives in `~/.arize/harness/config.json`, written by the instal
 }
 ```
 
-- **`collector`** — Host and port for the local OTLP collector.
+- **`collector`** — Host and port for the local OTLP collector. Default port is `4318`. To change it, set `collector.port` in `config.json` — this only needs to be done once and applies to all harnesses.
 - **`backend.target`** — Which backend to export to (`phoenix` or `arize`).
 - **`backend.phoenix` / `backend.arize`** — Credentials for the selected backend.
 - **`harnesses.<name>.project_name`** — Per-harness project name used in Arize/Phoenix.
+
+> **Port conflict?** If port 4318 is already in use, the collector will fail to start. Set `collector.port` to a different value (e.g. `4319`) in `~/.arize/harness/config.json`. The installer will also prompt for this during setup.
 
 ### Environment Variable Fallbacks
 

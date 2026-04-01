@@ -265,6 +265,12 @@ setup_shared_collector() {
           exit 1
           ;;
       esac
+
+      # Collector port (optional, default 4318)
+      echo ""
+      local collector_port="4318"
+      read -rp "  Collector port [4318]: " collector_port
+      collector_port="${collector_port:-4318}"
     fi
 
     # Non-interactive without env vars: default to phoenix
@@ -272,6 +278,8 @@ setup_shared_collector() {
       backend_target="phoenix"
       info "No backend credentials detected — defaulting to Phoenix at ${phoenix_endpoint}"
     fi
+
+    local collector_port="${collector_port:-4318}"
 
     # Write fresh config with backend + harness
     local harnesses_json="{}"
@@ -283,7 +291,7 @@ setup_shared_collector() {
 {
   "collector": {
     "host": "127.0.0.1",
-    "port": 4318
+    "port": ${collector_port}
   },
   "backend": {
     "target": "${backend_target}",

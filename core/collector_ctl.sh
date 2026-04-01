@@ -77,10 +77,14 @@ collector_start() {
     return 1
   fi
 
-  # Check if port is already in use by something else
+  # Check if port is already in use
   if curl -sf "http://${_AK_HOST}:${_AK_PORT}/health" >/dev/null 2>&1; then
-    _ak_log "Port ${_AK_PORT} already in use — assuming collector is running"
+    _ak_log "Collector already responding on ${_AK_HOST}:${_AK_PORT}"
     return 0
+  elif lsof -i ":${_AK_PORT}" -sTCP:LISTEN -t >/dev/null 2>&1; then
+    _ak_log "ERROR: Port ${_AK_PORT} is already in use by another process"
+    _ak_log "Set collector.port in ~/.arize/harness/config.json to use a different port"
+    return 1
   fi
 
   # Ensure directories exist
