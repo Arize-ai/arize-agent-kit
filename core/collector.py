@@ -83,26 +83,65 @@ def _get_last_error():
 # --- Config ---
 
 def load_config():
-    """Load and validate ~/.arize-agent-kit/config.json."""
-    if not os.path.isfile(CONFIG_FILE):
-        raise FileNotFoundError(f"Config file not found: {CONFIG_FILE}")
-    with open(CONFIG_FILE, "r") as f:
-        cfg = json.load(f)
+    """Load config from ~/.arize-agent-kit/config.json, falling back to env vars.
 
-    # Validate required keys
-    backend = cfg.get("backend", {})
-    target = backend.get("target", "")
-    if target not in ("phoenix", "arize"):
+    Env var fallback supports marketplace installs where config.json doesn't
+    exist but users have set PHOENIX_ENDPOINT or ARIZE_API_KEY in their
+    Claude Code settings.local.json.
+    """
+    # Try config file first
+    if os.path.isfile(CONFIG_FILE):
+        with open(CONFIG_FILE, "r") as f:
+            cfg = json.load(f)
+        backend = cfg.get("backend", {})
+        target = backend.get("target", "")
+        if target in ("phoenix", "arize"):
+            if target == "arize":
+                arize_cfg = backend.get("arize", {})
+                if not arize_cfg.get("api_key"):
+                    raise ValueError("backend.arize.api_key is required when target is 'arize'")
+                if not arize_cfg.get("space_id"):
+                    raise ValueError("backend.arize.space_id is required when target is 'arize'")
+            return cfg
+
+    # Fall back to environment variables
+    _log("No config.json found, reading backend config from environment variables")
+    cfg = {"collector": {"host": "127.0.0.1", "port": 4318}, "backend": {}}
+
+    arize_api_key = os.environ.get("ARIZE_API_KEY", "")
+    arize_space_id = os.environ.get("ARIZE_SPACE_ID", "")
+    phoenix_endpoint = os.environ.get("PHOENIX_ENDPOINT", "")
+
+    if arize_api_key and arize_space_id:
+        cfg["backend"] = {
+            "target": "arize",
+            "arize": {
+                "api_key": arize_api_key,
+                "space_id": arize_space_id,
+                "endpoint": os.environ.get("ARIZE_OTLP_ENDPOINT", "otlp.arize.com:443"),
+            },
+            "phoenix": {},
+        }
+    elif phoenix_endpoint:
+        cfg["backend"] = {
+            "target": "phoenix",
+            "phoenix": {
+                "endpoint": phoenix_endpoint,
+                "api_key": os.environ.get("PHOENIX_API_KEY", ""),
+            },
+            "arize": {},
+        }
+    else:
         raise ValueError(
-            f"backend.target must be 'phoenix' or 'arize', got: {target!r}"
+            "No backend configured. Set PHOENIX_ENDPOINT or ARIZE_API_KEY + ARIZE_SPACE_ID, "
+            "or run install.sh to create ~/.arize-agent-kit/config.json"
         )
 
-    if target == "arize":
-        arize_cfg = backend.get("arize", {})
-        if not arize_cfg.get("api_key"):
-            raise ValueError("backend.arize.api_key is required when target is 'arize'")
-        if not arize_cfg.get("space_id"):
-            raise ValueError("backend.arize.space_id is required when target is 'arize'")
+    # Pick up project name from env
+    project_name = os.environ.get("ARIZE_PROJECT_NAME", "")
+    if project_name:
+        cfg["backend"].get("phoenix", {})["project_name"] = project_name
+        cfg["backend"].get("arize", {})["project_name"] = project_name
 
     return cfg
 

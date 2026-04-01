@@ -1,8 +1,18 @@
 #!/bin/bash
-# SessionStart - Initialize session state
+# SessionStart - Initialize session state and ensure collector is running
 source "$(dirname "$0")/common.sh"
 
 check_requirements
+
+# Ensure the shared collector is running (idempotent, no-op if already up).
+# For marketplace installs, this starts the collector on first session.
+# collector_ctl.sh falls back to running collector.py directly if the
+# installed launcher at ~/.arize-agent-kit/bin/arize-collector doesn't exist.
+_COLLECTOR_CTL="${CORE_DIR}/collector_ctl.sh"
+if [[ -f "$_COLLECTOR_CTL" ]]; then
+  source "$_COLLECTOR_CTL"
+  collector_ensure 2>/dev/null || true
+fi
 
 input=$(cat 2>/dev/null || echo '{}')
 [[ -z "$input" ]] && input='{}'

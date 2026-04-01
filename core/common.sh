@@ -216,41 +216,33 @@ send_span() {
 
   [[ "$ARIZE_VERBOSE" == "true" ]] && echo "$span_json" | jq -c . >&2
 
-  # Direct send bypasses the collector entirely
-  if [[ "${ARIZE_DIRECT_SEND:-false}" == "true" ]]; then
-    local target
-    target=$(get_target)
-    case "$target" in
-      phoenix) send_to_phoenix "$span_json" ;;
-      arize) send_to_arize "$span_json" ;;
-      *) error "No target configured for direct send"; return 1 ;;
-    esac
-    local span_name
-    span_name=$(echo "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name // "unknown"' 2>/dev/null)
-    log "Sent span: $span_name ($target, direct)"
-    return 0
-  fi
-
-  # Primary path: submit to the shared collector
-  local collector_err
-  collector_err=$(mktemp)
-  if send_to_collector "$span_json" 2>"$collector_err"; then
+  # Try the shared collector first (preferred — handles all backend transport)
+  if [[ "${ARIZE_DIRECT_SEND:-}" != "true" ]]; then
+    local collector_err
+    collector_err=$(mktemp)
+    if send_to_collector "$span_json" 2>"$collector_err"; then
+      rm -f "$collector_err"
+      local span_name
+      span_name=$(echo "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name // "unknown"' 2>/dev/null)
+      log "Sent span: $span_name (collector)"
+      return 0
+    fi
     rm -f "$collector_err"
-    local span_name
-    span_name=$(echo "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name // "unknown"' 2>/dev/null)
-    log "Sent span: $span_name (collector)"
-    return 0
+    log "Collector not reachable, falling back to direct send"
   fi
 
-  # Collector unreachable
-  local curl_detail=""
-  if [[ -s "$collector_err" ]]; then
-    curl_detail=" ($(cat "$collector_err"))"
-  fi
-  rm -f "$collector_err"
-  error "Collector at ${_COLLECTOR_URL} is not reachable${curl_detail}"
-  error "Start the collector with: ~/.arize-agent-kit/bin/arize-collector"
-  return 1
+  # Direct send — used when collector isn't running (e.g. marketplace install)
+  # or when ARIZE_DIRECT_SEND=true is set explicitly
+  local target
+  target=$(get_target)
+  case "$target" in
+    phoenix) send_to_phoenix "$span_json" ;;
+    arize) send_to_arize "$span_json" ;;
+    *) error "No target configured. Set PHOENIX_ENDPOINT or ARIZE_API_KEY + ARIZE_SPACE_ID, or start the collector."; return 1 ;;
+  esac
+  local span_name
+  span_name=$(echo "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name // "unknown"' 2>/dev/null)
+  log "Sent span: $span_name ($target, direct)"
 }
 
 # --- Build OTLP span ---

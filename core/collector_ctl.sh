@@ -59,11 +59,9 @@ collector_start() {
     return 0
   fi
 
-  # Validate config exists
+  # Config is optional — collector falls back to env vars if config.json is missing
   if [[ ! -f "$_AK_CONFIG" ]]; then
-    _ak_log "Config file not found: $_AK_CONFIG"
-    _ak_log "Run install.sh to create the shared config."
-    return 1
+    _ak_log "No config.json found, collector will read from environment variables"
   fi
 
   # Find collector runtime: prefer installed bin, fall back to source
