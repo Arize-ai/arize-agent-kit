@@ -503,6 +503,33 @@ setup_claude() {
   info "Setup complete! Test with: ARIZE_DRY_RUN=true claude"
 }
 
+# --- detect_shell_profile: find the user's active shell profile ---
+detect_shell_profile() {
+  if [[ -f "${HOME}/.zshrc" ]]; then
+    echo "${HOME}/.zshrc"
+  elif [[ -f "${HOME}/.bashrc" ]]; then
+    echo "${HOME}/.bashrc"
+  elif [[ -f "${HOME}/.bash_profile" ]]; then
+    echo "${HOME}/.bash_profile"
+  else
+    echo ""
+  fi
+}
+
+# --- discover_real_codex: find the actual codex binary (not our proxy) ---
+discover_real_codex() {
+  local current_codex proxy_path="${HOME}/.local/bin/codex"
+  current_codex=$(command -v codex 2>/dev/null || true)
+  if [[ -z "$current_codex" ]]; then
+    return 1
+  fi
+  if [[ "$current_codex" == "$proxy_path" && -f "$proxy_path" ]]; then
+    current_codex=$(sed -n 's/^REAL_CODEX="\([^"]*\)"$/\1/p' "$proxy_path" | head -1)
+  fi
+  [[ -n "$current_codex" && -x "$current_codex" ]] || return 1
+  echo "$current_codex"
+}
+
 # --- setup_codex: OpenAI Codex CLI ---
 setup_codex() {
   header "Setting up Arize tracing for Codex CLI"
@@ -529,7 +556,7 @@ setup_codex() {
   mkdir -p "$codex_config_dir"
   [[ -f "$codex_config" ]] || touch "$codex_config"
 
-  # --- Configure notify hook ---
+  # --- 1. Configure notify hook ---
   local notify_line="notify = [\"bash\", \"${notify_script}\"]"
 
   if grep -q "^notify" "$codex_config" 2>/dev/null; then
@@ -558,7 +585,7 @@ setup_codex() {
     info "Added notify hook to config.toml"
   fi
 
-  # --- Write env file template ---
+  # --- 2. Write env file template ---
   if [[ ! -f "$env_file" ]]; then
     cat > "$env_file" <<'ENVEOF'
 # Arize Codex tracing environment
@@ -584,13 +611,115 @@ ENVEOF
     info "Env file already exists at ${env_file}"
   fi
 
+  # --- 3. Configure OTLP exporter in config.toml ---
+  # Read collector port from shared config
+  local collector_port="4318"
+  if command_exists jq && [[ -f "$SHARED_CONFIG" ]]; then
+    local cfg_port
+    cfg_port=$(jq -r '.collector.port // empty' "$SHARED_CONFIG" 2>/dev/null) || true
+    [[ -n "$cfg_port" ]] && collector_port="$cfg_port"
+  fi
+
+  # Remove old [otel] section if present
+  if grep -q "^\[otel\]" "$codex_config" 2>/dev/null; then
+    cp "$codex_config" "${codex_config}.bak"
+    awk '
+      BEGIN { skip=0 }
+      /^\[otel(\.|\])/ { skip=1; next }
+      skip && /^\[/ && $0 !~ /^\[otel(\.|\])/ { skip=0 }
+      !skip { print }
+    ' "${codex_config}.bak" > "$codex_config"
+    info "Removed old [otel] section from config.toml"
+  fi
+
+  # Add new [otel] section pointing at shared collector
+  cat >> "$codex_config" <<OTELEOF
+
+# Arize shared collector -- captures Codex events for rich span trees
+[otel]
+[otel.exporter.otlp-http]
+endpoint = "http://127.0.0.1:${collector_port}/v1/logs"
+protocol = "json"
+OTELEOF
+  info "Added [otel] exporter pointing to shared collector (port $collector_port)"
+
+  # --- 4. Install codex proxy wrapper ---
+  local proxy_dir="${HOME}/.local/bin"
+  local proxy_path="${proxy_dir}/codex"
+  local proxy_backup="${proxy_dir}/codex.arize-backup"
+  local proxy_template="${plugin_dir}/scripts/codex_proxy.sh"
+
+  local real_codex_bin
+  real_codex_bin=$(discover_real_codex || true)
+  if [[ -z "$real_codex_bin" ]]; then
+    warn "Could not find codex binary -- skipping proxy install"
+  else
+    mkdir -p "$proxy_dir"
+    if [[ -f "$proxy_path" ]] && ! grep -q "ARIZE_CODEX_PROXY" "$proxy_path" 2>/dev/null; then
+      cp "$proxy_path" "$proxy_backup"
+      info "Backed up existing ${proxy_path} to ${proxy_backup}"
+    fi
+    sed \
+      -e "s|__REAL_CODEX__|${real_codex_bin}|g" \
+      -e "s|__ARIZE_ENV_FILE__|${env_file}|g" \
+      -e "s|__SHARED_COLLECTOR_CTL__|${INSTALL_DIR}/core/collector_ctl.sh|g" \
+      "$proxy_template" > "$proxy_path"
+    chmod +x "$proxy_path"
+    info "Installed codex proxy to ${proxy_path}"
+  fi
+
+  # --- 5. PATH management ---
+  local shell_profile
+  shell_profile=$(detect_shell_profile)
+
+  # Clean up old collector auto-start lines
+  for profile in "${HOME}/.zshrc" "${HOME}/.bashrc"; do
+    if [[ -f "$profile" ]] && grep -q "collector_ctl.sh" "$profile" 2>/dev/null; then
+      cp "$profile" "${profile}.bak"
+      sed -i.tmp '/arize-codex.*collector_ctl/d; /collector_ensure/d; /event_buffer_ensure/d' "$profile"
+      rm -f "${profile}.tmp"
+      info "Removed old collector auto-start from $(basename "$profile")"
+    fi
+  done
+
+  # Offer to add ~/.local/bin to PATH
+  if [[ -t 0 && -n "$real_codex_bin" ]]; then
+    local add_to_profile="n"
+    read -rp "  Ensure ~/.local/bin is prepended in your shell profile for the codex proxy? [Y/n]: " add_to_profile
+    add_to_profile="${add_to_profile:-y}"
+    if [[ "$add_to_profile" =~ ^[Yy] && -n "$shell_profile" ]]; then
+      local path_marker="# Arize Codex tracing - prepend ~/.local/bin for codex proxy"
+      if ! grep -q "prepend ~/.local/bin for codex proxy" "$shell_profile" 2>/dev/null; then
+        echo "" >> "$shell_profile"
+        echo "$path_marker" >> "$shell_profile"
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$shell_profile"
+        info "Added PATH update to $(basename "$shell_profile")"
+      else
+        info "PATH update already present in $(basename "$shell_profile")"
+      fi
+    fi
+  fi
+
+  # --- Summary ---
+  echo ""
+  echo -e "  ${BOLD}Codex tracing setup complete!${NC}"
+  echo ""
+  echo -e "  ${BOLD}What was configured:${NC}"
+  echo ""
+  echo "    - Notify hook in ~/.codex/config.toml"
+  echo "    - OTLP exporter in ~/.codex/config.toml (port ${collector_port})"
+  if [[ -n "$real_codex_bin" ]]; then
+    echo "    - Codex proxy wrapper at ${proxy_path}"
+    echo "      (real codex: ${real_codex_bin})"
+  fi
+  echo "    - Env file template at ${env_file}"
   echo ""
   echo -e "  ${BOLD}Tracing:${NC}"
   echo ""
-  echo "    The shared background collector is already running and will export"
+  echo "    The shared background collector is running and will export"
   echo "    spans to your configured backend automatically."
   echo ""
-  echo "    Check collector status:  curl -s http://127.0.0.1:4318/health | python3 -m json.tool"
+  echo "    Check collector status:  curl -s http://127.0.0.1:${collector_port}/health | python3 -m json.tool"
   echo "    View collector logs:     tail -f ${SHARED_LOG_FILE}"
   echo ""
   echo -e "  ${BOLD}Environment variables (optional overrides):${NC}"
@@ -601,16 +730,6 @@ ENVEOF
   echo ""
   echo "  Test with: ARIZE_DRY_RUN=true codex"
   echo ""
-
-  # Run the codex-specific installer if available and interactive
-  local codex_install="${plugin_dir}/install.sh"
-  if [[ -f "$codex_install" && -t 0 ]]; then
-    echo ""
-    read -rp "  Run full Codex setup (configures OTLP exporter + proxy)? [y/N]: " run_full
-    if [[ "${run_full:-n}" =~ ^[Yy] ]]; then
-      bash "$codex_install"
-    fi
-  fi
 
   info "Setup complete!"
 }
