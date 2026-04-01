@@ -4,6 +4,7 @@
 # Usage:
 #   curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- claude
 #   curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- codex
+#   curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- cursor
 #   curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- update
 #   curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- uninstall
 #
@@ -513,6 +514,121 @@ setup_claude() {
   info "Setup complete! Test with: ARIZE_DRY_RUN=true claude"
 }
 
+# --- setup_cursor: Cursor IDE ---
+setup_cursor() {
+  header "Setting up Arize tracing for Cursor IDE"
+
+  local plugin_dir="${INSTALL_DIR}/cursor-tracing"
+
+  if [[ ! -d "$plugin_dir" ]]; then
+    plugin_dir="${INSTALL_DIR}/plugins/cursor-tracing"
+  fi
+
+  if [[ ! -d "$plugin_dir" ]]; then
+    err "Cursor tracing plugin not found in ${INSTALL_DIR}"
+    exit 1
+  fi
+
+  info "Plugin installed at: ${plugin_dir}"
+
+  local cursor_hooks_json="${HOME}/.cursor/hooks.json"
+  local hook_command="bash ${plugin_dir}/hooks/hook-handler.sh"
+  local state_dir="${HOME}/.arize-cursor"
+
+  # Ensure directories exist
+  mkdir -p "${HOME}/.cursor"
+  mkdir -p "$state_dir"
+
+  # --- 1. Write/merge hooks.json with absolute paths ---
+  local hook_events=(
+    "beforeSubmitPrompt"
+    "afterAgentResponse"
+    "afterAgentThought"
+    "beforeShellExecution"
+    "afterShellExecution"
+    "beforeMCPExecution"
+    "afterMCPExecution"
+    "beforeReadFile"
+    "afterFileEdit"
+    "stop"
+    "beforeTabFileRead"
+    "afterTabFileEdit"
+  )
+
+  if [[ -f "$cursor_hooks_json" ]]; then
+    # Merge: add our hooks without clobbering existing entries
+    cp "$cursor_hooks_json" "${cursor_hooks_json}.bak"
+
+    local merged="$cursor_hooks_json"
+    local tmp_merged="${cursor_hooks_json}.tmp.$$"
+
+    # Start with existing content
+    local current
+    current=$(cat "$merged")
+
+    for event in "${hook_events[@]}"; do
+      # Check if our hook command is already present for this event
+      if echo "$current" | jq -e --arg cmd "$hook_command" --arg evt "$event" \
+        '.hooks[$evt] // [] | map(select(.command == $cmd)) | length > 0' >/dev/null 2>&1; then
+        continue
+      fi
+
+      # Add our hook entry to this event
+      current=$(echo "$current" | jq --arg cmd "$hook_command" --arg evt "$event" \
+        '.hooks[$evt] = ((.hooks[$evt] // []) + [{"command": $cmd}])')
+    done
+
+    echo "$current" | jq '.' > "$tmp_merged" && mv "$tmp_merged" "$merged"
+    info "Merged Arize hooks into existing ${cursor_hooks_json}"
+  else
+    # Generate fresh hooks.json with absolute paths
+    local hooks_obj="{}"
+    for event in "${hook_events[@]}"; do
+      hooks_obj=$(echo "$hooks_obj" | jq --arg cmd "$hook_command" --arg evt "$event" \
+        '.[$evt] = [{"command": $cmd}]')
+    done
+
+    jq -n --argjson hooks "$hooks_obj" '{"version": 1, "hooks": $hooks}' > "$cursor_hooks_json"
+    info "Created ${cursor_hooks_json}"
+  fi
+
+  # --- 2. Read collector port from shared config ---
+  local collector_port="4318"
+  if command_exists jq && [[ -f "$SHARED_CONFIG" ]]; then
+    local cfg_port
+    cfg_port=$(jq -r '.collector.port // empty' "$SHARED_CONFIG" 2>/dev/null) || true
+    [[ -n "$cfg_port" ]] && collector_port="$cfg_port"
+  fi
+
+  # --- 3. Summary ---
+  echo ""
+  echo -e "  ${BOLD}Cursor tracing setup complete!${NC}"
+  echo ""
+  echo -e "  ${BOLD}What was configured:${NC}"
+  echo ""
+  echo "    - Cursor hooks.json at ${cursor_hooks_json}"
+  echo "      (12 hook events routing to ${plugin_dir}/hooks/hook-handler.sh)"
+  echo "    - State directory at ${state_dir}"
+  echo ""
+  echo -e "  ${BOLD}Tracing:${NC}"
+  echo ""
+  echo "    The shared background collector is running and will export"
+  echo "    spans to your configured backend automatically."
+  echo ""
+  echo "    Check collector status:  curl -s http://127.0.0.1:${collector_port}/health | python3 -m json.tool"
+  echo "    View collector logs:     tail -f ${SHARED_LOG_FILE}"
+  echo ""
+  echo -e "  ${BOLD}Next steps:${NC}"
+  echo ""
+  echo "    1. Restart Cursor IDE to pick up the new hooks"
+  echo "    2. Start a conversation — spans will appear in your configured backend"
+  echo ""
+  echo "  Test with: ARIZE_DRY_RUN=true (open Cursor and start a conversation)"
+  echo ""
+
+  info "Setup complete!"
+}
+
 # --- detect_shell_profile: find the user's active shell profile ---
 detect_shell_profile() {
   if [[ -f "${HOME}/.zshrc" ]]; then
@@ -750,7 +866,7 @@ update_install() {
 
   if [[ ! -d "$INSTALL_DIR" ]]; then
     err "arize-agent-kit is not installed at ${INSTALL_DIR}"
-    err "Run install first: install.sh claude  or  install.sh codex"
+    err "Run install first: install.sh claude, install.sh codex, or install.sh cursor"
     exit 1
   fi
 
@@ -799,7 +915,7 @@ BINEOF
 
   start_shared_collector
 
-  info "Update complete! Re-run 'install.sh claude' or 'install.sh codex' to reconfigure harness settings."
+  info "Update complete! Re-run 'install.sh claude', 'install.sh codex', or 'install.sh cursor' to reconfigure harness settings."
 }
 
 cleanup_claude_config() {
@@ -998,6 +1114,62 @@ _uninstall_codex() {
   info "Codex tracing cleanup complete."
 }
 
+_uninstall_cursor() {
+  info "Removing Cursor tracing configuration..."
+
+  local cursor_hooks_json="${HOME}/.cursor/hooks.json"
+  local plugin_dir="${INSTALL_DIR}/cursor-tracing"
+  local hook_command="bash ${plugin_dir}/hooks/hook-handler.sh"
+
+  # 1. Remove our hooks from hooks.json
+  if [[ -f "$cursor_hooks_json" ]] && command_exists jq; then
+    if grep -qF "$hook_command" "$cursor_hooks_json" 2>/dev/null; then
+      cp "$cursor_hooks_json" "${cursor_hooks_json}.bak"
+
+      # Remove our hook entries from each event, then remove empty event arrays
+      jq --arg cmd "$hook_command" '
+        .hooks |= (
+          to_entries
+          | map(.value |= map(select(.command != $cmd)))
+          | map(select(.value | length > 0))
+          | from_entries
+        )
+      ' "$cursor_hooks_json" > "${cursor_hooks_json}.tmp" && \
+        mv "${cursor_hooks_json}.tmp" "$cursor_hooks_json"
+
+      # If hooks object is now empty, remove the file
+      local remaining
+      remaining=$(jq '.hooks | length' "$cursor_hooks_json" 2>/dev/null || echo "0")
+      if [[ "$remaining" -eq 0 ]]; then
+        rm -f "$cursor_hooks_json"
+        info "Removed ${cursor_hooks_json} (no hooks remaining)"
+      else
+        info "Removed Arize hooks from ${cursor_hooks_json} (other hooks preserved)"
+      fi
+    else
+      info "No Arize hooks found in ${cursor_hooks_json}"
+    fi
+  fi
+
+  # 2. Clean up cursor state directory
+  if [[ -d "${HOME}/.arize-cursor" ]]; then
+    rm -rf "${HOME}/.arize-cursor"
+    info "Removed ${HOME}/.arize-cursor"
+  fi
+
+  # 3. Remove cursor harness entry from config.json
+  if command_exists jq && [[ -f "$SHARED_CONFIG" ]]; then
+    if jq -e '.harnesses.cursor' "$SHARED_CONFIG" >/dev/null 2>&1; then
+      cp "$SHARED_CONFIG" "${SHARED_CONFIG}.bak"
+      jq 'del(.harnesses.cursor)' "$SHARED_CONFIG" > "${SHARED_CONFIG}.tmp" && \
+        mv "${SHARED_CONFIG}.tmp" "$SHARED_CONFIG"
+      info "Removed cursor harness entry from config.json"
+    fi
+  fi
+
+  info "Cursor tracing cleanup complete."
+}
+
 # --- uninstall ---
 uninstall() {
   header "Uninstalling arize-agent-kit"
@@ -1009,6 +1181,11 @@ uninstall() {
   # 2. Clean up harness-specific config (Codex)
   if [[ -d "${INSTALL_DIR}/codex-tracing" ]] || [[ -d "${HOME}/.codex" ]]; then
     _uninstall_codex
+  fi
+
+  # 2b. Clean up harness-specific config (Cursor)
+  if [[ -d "${INSTALL_DIR}/cursor-tracing" ]] || [[ -f "${HOME}/.cursor/hooks.json" ]] || [[ -d "${HOME}/.arize-cursor" ]]; then
+    _uninstall_cursor
   fi
 
   # 3. Clean up harness-specific config (Claude)
@@ -1077,6 +1254,7 @@ usage() {
   echo "  Commands:"
   echo "    claude      Install and configure tracing for Claude Code / Agent SDK"
   echo "    codex       Install and configure tracing for OpenAI Codex CLI"
+  echo "    cursor      Install and configure tracing for Cursor IDE"
   echo "    update      Update the installed arize-agent-kit to latest"
   echo "    uninstall   Remove arize-agent-kit and print cleanup reminders"
   echo ""
@@ -1088,6 +1266,7 @@ usage() {
   echo "  Examples:"
   echo "    curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- claude"
   echo "    curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- codex"
+  echo "    curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- cursor"
   echo "    bash install.sh update"
   echo ""
 }
@@ -1108,6 +1287,12 @@ main() {
       install_repo
       setup_shared_collector "codex"
       setup_codex
+      ;;
+    cursor)
+      command_exists jq || { err "jq is required. Install: brew install jq  or  apt install jq"; exit 1; }
+      install_repo
+      setup_shared_collector "cursor"
+      setup_cursor
       ;;
     update)
       update_install
