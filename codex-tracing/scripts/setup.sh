@@ -12,6 +12,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 info() { echo -e "${GREEN}[arize]${NC} $*"; }
+warn() { echo -e "${YELLOW}[arize]${NC} $*"; }
 err()  { echo -e "${RED}[arize]${NC} $*" >&2; }
 
 echo ""
@@ -206,7 +207,7 @@ EOF
   chmod 600 "$ENV_FILE"
   info "Wrote credentials to $ENV_FILE"
 
-  if [[ "${TARGET:-}" == "arize" ]]; then
+  if [[ "$TARGET" == "arize" ]]; then
     echo ""
     echo -e "${YELLOW}Note:${NC} Arize AX backend requires Python dependencies for the collector:"
     echo "  pip install opentelemetry-proto grpcio"
