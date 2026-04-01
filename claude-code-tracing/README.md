@@ -254,10 +254,10 @@ Install jq: `brew install jq` (macOS) or `apt-get install jq` (Linux).
 
 **Session state issues**
 
-State files are stored in `~/.arize-claude-code/`. To reset:
+State files are stored in `~/.arize/harness/state/claude-code/`. To reset:
 
 ```bash
-rm -rf ~/.arize-claude-code/state_*.json
+rm -rf ~/.arize/harness/state/claude-code/state_*.json
 ```
 
 Stale PID-based state files are garbage-collected automatically.

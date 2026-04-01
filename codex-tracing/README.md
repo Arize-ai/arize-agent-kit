@@ -152,7 +152,7 @@ These env vars are **optional overrides**. Prefer setting values in `~/.arize/ha
 | `ARIZE_USER_ID` | No | - | User identifier added to all spans as `user.id` |
 | `ARIZE_DRY_RUN` | No | `false` | Print spans to log instead of sending |
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
-| `ARIZE_TRACE_DEBUG` | No | `false` | Write debug dumps to `~/.arize-codex/debug/` |
+| `ARIZE_TRACE_DEBUG` | No | `false` | Write debug dumps to `~/.arize/harness/state/codex/debug/` |
 | `ARIZE_LOG_FILE` | No | `/tmp/arize-codex.log` | Log file path (empty to disable) |
 | `ARIZE_COLLECTOR_PORT` | No | `4318` | Port for the shared collector |
 
@@ -233,7 +233,7 @@ core/send_arize.py    Arize AX gRPC sender (legacy fallback)
 
 1. Ensure native OTLP export is enabled in Codex config (`[otel]` section pointing to `127.0.0.1:4318`)
 2. Verify the collector is running: `curl -s http://127.0.0.1:4318/health` (check `event_buffer` in response)
-3. Enable debug dumps: `export ARIZE_TRACE_DEBUG=true` and check `~/.arize-codex/debug/`
+3. Enable debug dumps: `export ARIZE_TRACE_DEBUG=true` and check `~/.arize/harness/state/codex/debug/`
 
 **"jq required" error**
 
@@ -241,10 +241,10 @@ Install jq: `brew install jq` (macOS) or `apt-get install jq` (Linux).
 
 **Session state issues**
 
-State files are stored in `~/.arize-codex/`. To reset:
+State files are stored in `~/.arize/harness/state/codex/`. To reset:
 
 ```bash
-rm -rf ~/.arize-codex/state_*.json
+rm -rf ~/.arize/harness/state/codex/state_*.json
 ```
 
 Stale state files older than 24 hours are garbage-collected automatically.

@@ -8,7 +8,7 @@ set -euo pipefail
 # --- Harness-specific config (set BEFORE sourcing core) ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ADAPTER_DIR="$(dirname "$SCRIPT_DIR")"
-STATE_DIR="${HOME}/.arize-cursor"
+STATE_DIR="${HOME}/.arize/harness/state/cursor"
 ARIZE_SERVICE_NAME="cursor"
 ARIZE_SCOPE_NAME="arize-cursor-plugin"
 ARIZE_PROJECT_NAME="${ARIZE_PROJECT_NAME:-cursor}"

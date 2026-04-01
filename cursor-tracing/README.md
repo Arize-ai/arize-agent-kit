@@ -138,7 +138,7 @@ The collector is installed and started automatically by `install.sh`. See [COLLE
 
 Cursor fires separate `before` and `after` events for shell execution and MCP tool use. To produce a single span with both the input (command/tool name) and the result (output, duration), the handler uses a disk-backed LIFO state stack:
 
-1. **`beforeShellExecution` / `beforeMCPExecution`** — Pushes the command/tool name and start timestamp to a state file in `~/.arize-cursor/`.
+1. **`beforeShellExecution` / `beforeMCPExecution`** — Pushes the command/tool name and start timestamp to a state file in `~/.arize/harness/state/cursor/`.
 2. **`afterShellExecution` / `afterMCPExecution`** — Pops the matching state, computes duration, and builds a complete TOOL span with both input and output.
 
 State files are keyed by `conversation_id` to isolate concurrent sessions. Stale state files are garbage-collected automatically.
@@ -150,9 +150,9 @@ State files are keyed by `conversation_id` to isolate concurrent sessions. Stale
 | **Spans not appearing** | 1. Verify collector is running: `curl -sf http://127.0.0.1:4318/health` 2. Check hook log: `tail -20 /tmp/arize-cursor.log` 3. Check collector log: `tail -20 ~/.arize/harness/logs/collector.log` |
 | **Collector not running** | Verify config exists: `cat ~/.arize/harness/config.json`. Start it: `source core/collector_ctl.sh && collector_start`. Check log: `tail -20 ~/.arize/harness/logs/collector.log` |
 | **"jq required" error** | Install jq: `brew install jq` (macOS) or `apt-get install jq` (Linux) |
-| **Shell/MCP spans missing input** | State push failed — check that `~/.arize-cursor/` is writable. Enable verbose logging: `ARIZE_VERBOSE=true` |
+| **Shell/MCP spans missing input** | State push failed — check that `~/.arize/harness/state/cursor/` is writable. Enable verbose logging: `ARIZE_VERBOSE=true` |
 | **Hooks not firing** | Verify `.cursor/hooks.json` exists in your project root and the handler path is correct (absolute path) |
-| **Duplicate or stale state files** | Reset state: `rm -rf ~/.arize-cursor/state_*.json`. Stale files are normally garbage-collected automatically |
+| **Duplicate or stale state files** | Reset state: `rm -rf ~/.arize/harness/state/cursor/state_*.json`. Stale files are normally garbage-collected automatically |
 | **Spans not appearing in Arize AX** | Verify `api_key` and `space_id` in `~/.arize/harness/config.json`. Check collector log: `grep ERROR ~/.arize/harness/logs/collector.log` |
 
 For more verbose output, enable debug logging:

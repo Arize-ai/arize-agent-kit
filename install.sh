@@ -533,7 +533,7 @@ setup_cursor() {
 
   local cursor_hooks_json="${HOME}/.cursor/hooks.json"
   local hook_command="bash ${plugin_dir}/hooks/hook-handler.sh"
-  local state_dir="${HOME}/.arize-cursor"
+  local state_dir="${HOME}/.arize/harness/state/cursor"
 
   # Ensure directories exist
   mkdir -p "${HOME}/.cursor"
@@ -1013,12 +1013,12 @@ cleanup_claude_config() {
     fi
   fi
 
-  if [[ -d "${HOME}/.arize-claude-code" ]]; then
-    if confirm_optional_cleanup "  Remove Claude runtime state at ${HOME}/.arize-claude-code? [Y/n]: " "y"; then
-      rm -rf "${HOME}/.arize-claude-code"
-      info "Removed ${HOME}/.arize-claude-code"
+  if [[ -d "${HOME}/.arize/harness/state/claude-code" ]]; then
+    if confirm_optional_cleanup "  Remove Claude runtime state at ${HOME}/.arize/harness/state/claude-code? [Y/n]: " "y"; then
+      rm -rf "${HOME}/.arize/harness/state/claude-code"
+      info "Removed ${HOME}/.arize/harness/state/claude-code"
     else
-      info "Left ${HOME}/.arize-claude-code in place"
+      info "Left ${HOME}/.arize/harness/state/claude-code in place"
     fi
   fi
 }
@@ -1093,7 +1093,7 @@ _uninstall_codex() {
   done
 
   # 6. Clean up codex state directory
-  rm -rf "${HOME}/.arize-codex"
+  rm -rf "${HOME}/.arize/harness/state/codex"
   info "Cleaned up Codex state directory"
 
   # 7. Remove env file
@@ -1152,9 +1152,9 @@ _uninstall_cursor() {
   fi
 
   # 2. Clean up cursor state directory
-  if [[ -d "${HOME}/.arize-cursor" ]]; then
-    rm -rf "${HOME}/.arize-cursor"
-    info "Removed ${HOME}/.arize-cursor"
+  if [[ -d "${HOME}/.arize/harness/state/cursor" ]]; then
+    rm -rf "${HOME}/.arize/harness/state/cursor"
+    info "Removed ${HOME}/.arize/harness/state/cursor"
   fi
 
   # 3. Remove cursor harness entry from config.json
@@ -1184,7 +1184,7 @@ uninstall() {
   fi
 
   # 2b. Clean up harness-specific config (Cursor)
-  if [[ -d "${INSTALL_DIR}/cursor-tracing" ]] || [[ -f "${HOME}/.cursor/hooks.json" ]] || [[ -d "${HOME}/.arize-cursor" ]]; then
+  if [[ -d "${INSTALL_DIR}/cursor-tracing" ]] || [[ -f "${HOME}/.cursor/hooks.json" ]] || [[ -d "${HOME}/.arize/harness/state/cursor" ]]; then
     _uninstall_cursor
   fi
 

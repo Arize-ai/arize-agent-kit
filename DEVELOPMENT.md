@@ -91,7 +91,7 @@ export ARIZE_SERVICE_NAME="<harness>"
 export ARIZE_SCOPE_NAME="arize-<harness>-plugin"
 
 # --- Adapter-specific state ---
-export STATE_DIR="${HOME}/.arize-<harness>"
+export STATE_DIR="${HOME}/.arize/harness/state/<harness>"
 export ARIZE_LOG_FILE="${ARIZE_LOG_FILE:-/tmp/arize-<harness>.log}"
 
 # --- Source shared core ---
@@ -263,7 +263,7 @@ Each adapter must set these before sourcing `core/common.sh`:
 |----------|---------|---------|
 | `ARIZE_SERVICE_NAME` | OTLP `service.name` resource attribute | `"claude-code"`, `"codex"` |
 | `ARIZE_SCOPE_NAME` | OTLP instrumentation scope name | `"arize-claude-plugin"` |
-| `STATE_DIR` | Directory for per-session state files | `"$HOME/.arize-claude-code"` |
+| `STATE_DIR` | Directory for per-session state files | `"$HOME/.arize/harness/state/claude-code"` |
 | `ARIZE_LOG_FILE` | Log file path (set by adapter as default) | `"/tmp/arize-codex.log"` |
 
 ## Testing
@@ -288,7 +288,7 @@ Write raw span data to files for inspection (Codex adapter only, unless added to
 
 ```bash
 ARIZE_TRACE_DEBUG=true <run-your-harness>
-ls ~/.arize-<harness>/debug/
+ls ~/.arize/harness/state/<harness>/debug/
 ```
 
 ### Log File

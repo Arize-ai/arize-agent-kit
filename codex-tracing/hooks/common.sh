@@ -9,7 +9,7 @@ set -euo pipefail
 # --- Harness-specific variables (set BEFORE sourcing core) ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ADAPTER_DIR="$(dirname "$SCRIPT_DIR")"
-STATE_DIR="${HOME}/.arize-codex"
+STATE_DIR="${HOME}/.arize/harness/state/codex"
 ARIZE_SERVICE_NAME="codex"
 ARIZE_SCOPE_NAME="arize-codex-plugin"
 ARIZE_LOG_FILE="${ARIZE_LOG_FILE:-/tmp/arize-codex.log}"
