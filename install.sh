@@ -897,6 +897,97 @@ cleanup_claude_config() {
   fi
 }
 
+# --- Per-harness uninstall helpers ---
+
+_uninstall_codex() {
+  info "Removing Codex tracing configuration..."
+
+  local codex_config_dir="${HOME}/.codex"
+  local codex_config="${codex_config_dir}/config.toml"
+  local proxy_dir="${HOME}/.local/bin"
+  local proxy_path="${proxy_dir}/codex"
+  local proxy_backup="${proxy_dir}/codex.arize-backup"
+  local notify_script="${INSTALL_DIR}/codex-tracing/hooks/notify.sh"
+
+  # 1. Remove notify hook from config.toml
+  if [[ -f "$codex_config" ]]; then
+    if grep -qF "$notify_script" "$codex_config" 2>/dev/null; then
+      cp "$codex_config" "${codex_config}.bak"
+      sed -i.tmp "\|$notify_script|d" "$codex_config"
+      rm -f "${codex_config}.tmp"
+      info "Removed notify hook from config.toml (backup: config.toml.bak)"
+    else
+      info "No Arize notify hook found in config.toml"
+    fi
+
+    # 2. Remove [otel] section pointing at our collector (check both port 4318 and 4319)
+    if grep -qE "endpoint = \"http://127\.0\.0\.1:(4318|4319)/v1/logs\"" "$codex_config" 2>/dev/null; then
+      cp "$codex_config" "${codex_config}.bak"
+      awk '
+        BEGIN { skip=0 }
+        /^\[otel(\.|\])/ { skip=1; next }
+        skip && /^\[/ && $0 !~ /^\[otel(\.|\])/ { skip=0 }
+        !skip { print }
+      ' "${codex_config}.bak" > "$codex_config"
+      info "Removed Arize [otel] exporter from config.toml"
+    else
+      info "No Arize [otel] exporter found in config.toml"
+    fi
+  fi
+
+  # 3. Remove codex proxy wrapper and restore backup
+  if [[ -f "$proxy_path" ]] && grep -q "ARIZE_CODEX_PROXY" "$proxy_path" 2>/dev/null; then
+    rm -f "$proxy_path"
+    info "Removed codex proxy from ${proxy_path}"
+  fi
+  if [[ -f "$proxy_backup" ]]; then
+    mv "$proxy_backup" "$proxy_path"
+    chmod +x "$proxy_path"
+    info "Restored previous codex wrapper to ${proxy_path}"
+  fi
+
+  # 4. Clean up PATH injection from shell profiles
+  for profile in "${HOME}/.zshrc" "${HOME}/.bashrc" "${HOME}/.bash_profile"; do
+    if [[ -f "$profile" ]] && grep -q "prepend ~/.local/bin for codex proxy" "$profile" 2>/dev/null; then
+      cp "$profile" "${profile}.bak"
+      sed -i.tmp '/Arize Codex tracing - prepend \~\/\.local\/bin for codex proxy/d; /export PATH="\$HOME\/\.local\/bin:\$PATH"/d' "$profile"
+      rm -f "${profile}.tmp"
+      info "Removed PATH update from $(basename "$profile")"
+    fi
+  done
+
+  # 5. Remove collector auto-start lines from shell profiles
+  for profile in "${HOME}/.zshrc" "${HOME}/.bashrc"; do
+    if [[ -f "$profile" ]] && grep -q "collector_ctl.sh" "$profile" 2>/dev/null; then
+      cp "$profile" "${profile}.bak"
+      sed -i.tmp '/arize-codex.*collector_ctl/d; /collector_ensure/d; /event_buffer_ensure/d' "$profile"
+      rm -f "${profile}.tmp"
+      info "Removed collector auto-start from $(basename "$profile")"
+    fi
+  done
+
+  # 6. Clean up codex state directory
+  rm -rf "${HOME}/.arize-codex"
+  info "Cleaned up Codex state directory"
+
+  # 7. Remove env file
+  if [[ -f "${codex_config_dir}/arize-env.sh" ]]; then
+    rm -f "${codex_config_dir}/arize-env.sh"
+    info "Removed ${codex_config_dir}/arize-env.sh"
+  fi
+
+  # 8. Remove codex harness entry from config.json
+  if command_exists jq && [[ -f "$SHARED_CONFIG" ]]; then
+    if jq -e '.harnesses.codex' "$SHARED_CONFIG" >/dev/null 2>&1; then
+      cp "$SHARED_CONFIG" "${SHARED_CONFIG}.bak"
+      jq 'del(.harnesses.codex)' "$SHARED_CONFIG" > "${SHARED_CONFIG}.tmp" && mv "${SHARED_CONFIG}.tmp" "$SHARED_CONFIG"
+      info "Removed codex harness entry from config.json"
+    fi
+  fi
+
+  info "Codex tracing cleanup complete."
+}
+
 # --- uninstall ---
 uninstall() {
   header "Uninstalling arize-agent-kit"
@@ -906,14 +997,8 @@ uninstall() {
   stop_shared_collector
 
   # 2. Clean up harness-specific config (Codex)
-  local codex_install="${INSTALL_DIR}/codex-tracing/install.sh"
-  if [[ ! -f "$codex_install" ]]; then
-    codex_install="${INSTALL_DIR}/plugins/codex-tracing/install.sh"
-  fi
-
-  if [[ -f "$codex_install" ]]; then
-    info "Removing Codex tracing configuration..."
-    bash "$codex_install" uninstall || warn "Codex uninstall encountered an issue; some manual cleanup may still be required"
+  if [[ -d "${INSTALL_DIR}/codex-tracing" ]] || [[ -d "${HOME}/.codex" ]]; then
+    _uninstall_codex
   fi
 
   # 3. Clean up harness-specific config (Claude)
@@ -967,8 +1052,6 @@ uninstall() {
   echo ""
   echo "  - Claude Agent SDK: remove any hardcoded local plugin path from your application code"
   echo "  - Claude Code marketplace installs are managed separately by Claude"
-  echo "  - Codex: verify ~/.codex/config.toml no longer references Arize"
-  echo "  - Codex: verify ~/.local/bin/codex and shell profile changes were restored if you had a custom wrapper"
   echo "  - Shell profile: remove any manual 'source ~/.codex/arize-env.sh' lines you added"
   echo ""
   info "Uninstall complete."
