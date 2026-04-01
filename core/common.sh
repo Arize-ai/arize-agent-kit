@@ -216,28 +216,8 @@ send_span() {
 
   [[ "$ARIZE_VERBOSE" == "true" ]] && echo "$span_json" | jq -c . >&2
 
-  # Primary path: submit to the shared collector
-  local collector_err
-  collector_err=$(mktemp)
-  if send_to_collector "$span_json" 2>"$collector_err"; then
-    rm -f "$collector_err"
-    local span_name
-    span_name=$(echo "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name // "unknown"' 2>/dev/null)
-    log "Sent span: $span_name (collector)"
-    return 0
-  fi
-
-  # Collector unreachable — log loudly with the actual error
-  local curl_detail=""
-  if [[ -s "$collector_err" ]]; then
-    curl_detail=" ($(cat "$collector_err"))"
-  fi
-  rm -f "$collector_err"
-  error "Collector at ${_COLLECTOR_URL} is not reachable${curl_detail}"
-
-  # Fall back to direct send only if explicitly opted in
+  # Direct send bypasses the collector entirely
   if [[ "${ARIZE_DIRECT_SEND:-false}" == "true" ]]; then
-    log_always "Falling back to direct send (ARIZE_DIRECT_SEND=true)"
     local target
     target=$(get_target)
     case "$target" in
@@ -251,7 +231,25 @@ send_span() {
     return 0
   fi
 
-  error "Start the collector with: source core/collector_ctl.sh && collector_start"
+  # Primary path: submit to the shared collector
+  local collector_err
+  collector_err=$(mktemp)
+  if send_to_collector "$span_json" 2>"$collector_err"; then
+    rm -f "$collector_err"
+    local span_name
+    span_name=$(echo "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name // "unknown"' 2>/dev/null)
+    log "Sent span: $span_name (collector)"
+    return 0
+  fi
+
+  # Collector unreachable
+  local curl_detail=""
+  if [[ -s "$collector_err" ]]; then
+    curl_detail=" ($(cat "$collector_err"))"
+  fi
+  rm -f "$collector_err"
+  error "Collector at ${_COLLECTOR_URL} is not reachable${curl_detail}"
+  error "Start the collector with: ~/.arize-agent-kit/bin/arize-collector"
   return 1
 }
 
