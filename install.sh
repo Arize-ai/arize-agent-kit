@@ -16,7 +16,8 @@ set -euo pipefail
 
 # --- Constants ---
 REPO_URL="https://github.com/Arize-ai/arize-agent-kit.git"
-TARBALL_URL="https://github.com/Arize-ai/arize-agent-kit/archive/refs/heads/main.tar.gz"
+INSTALL_BRANCH="${ARIZE_INSTALL_BRANCH:-main}"
+TARBALL_URL="https://github.com/Arize-ai/arize-agent-kit/archive/refs/heads/${INSTALL_BRANCH}.tar.gz"
 INSTALL_DIR="${HOME}/.arize/harness"
 
 # Shared collector layout
@@ -148,7 +149,7 @@ install_repo() {
 
   if command_exists git; then
     info "Cloning arize-agent-kit..."
-    git clone --depth 1 "$REPO_URL" "$INSTALL_DIR" 2>/dev/null || {
+    git clone --depth 1 --branch "$INSTALL_BRANCH" "$REPO_URL" "$INSTALL_DIR" 2>/dev/null || {
       warn "git clone failed — falling back to tarball"
       install_repo_tarball
       return
@@ -495,20 +496,6 @@ setup_claude() {
   echo "    Check collector status:  curl -s http://127.0.0.1:4318/health | python3 -m json.tool"
   echo "    View collector logs:     tail -f ${SHARED_LOG_FILE}"
   echo ""
-
-  # Run interactive setup if available and stdin is a terminal
-  local setup_script="${plugin_dir}/scripts/setup.sh"
-  if [[ ! -f "$setup_script" ]]; then
-    setup_script="${plugin_dir}/setup.sh"
-  fi
-  if [[ -f "$setup_script" && -t 0 ]]; then
-    echo ""
-    read -rp "  Run interactive setup now? [Y/n]: " run_setup
-    run_setup="${run_setup:-y}"
-    if [[ "$run_setup" =~ ^[Yy] ]]; then
-      bash "$setup_script"
-    fi
-  fi
 
   echo ""
   info "Setup complete! Test with: ARIZE_DRY_RUN=true claude"
@@ -1260,6 +1247,7 @@ usage() {
   echo ""
   echo "  Flags:"
   echo "    --with-skills   Symlink setup skills into .agents/skills/ in the current directory"
+  echo "    --branch <name> Install from a specific git branch (default: main)"
   echo ""
   echo "  The installer sets up a shared background collector that receives spans"
   echo "  from all harnesses and exports them to your configured backend (Phoenix"
@@ -1312,9 +1300,11 @@ main() {
 
   # Parse flags
   local with_skills=false
-  for arg in "$@"; do
-    case "$arg" in
-      --with-skills) with_skills=true ;;
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --with-skills) with_skills=true; shift ;;
+      --branch) INSTALL_BRANCH="${2:-main}"; TARBALL_URL="https://github.com/Arize-ai/arize-agent-kit/archive/refs/heads/${INSTALL_BRANCH}.tar.gz"; shift 2 ;;
+      *) shift ;;
     esac
   done
 
