@@ -481,18 +481,42 @@ setup_claude() {
 
   info "Plugin installed at: ${plugin_dir}"
 
-  echo ""
-  echo -e "  ${BOLD}Claude Code CLI (marketplace — recommended):${NC}"
-  echo ""
-  echo "    The easiest way to install for Claude Code CLI is via the marketplace:"
-  echo ""
-  echo "      claude plugin add arize-agent-kit"
-  echo ""
-  echo -e "  ${BOLD}Claude Code CLI (manual):${NC}"
-  echo ""
-  echo "    Add to your Claude Code settings (${HOME}/.claude/settings.json):"
-  echo ""
-  echo "      {\"plugins\": [\"${plugin_dir}\"]}"
+  # --- Register plugin and enable tracing in Claude settings ---
+  local claude_settings="${HOME}/.claude/settings.json"
+  mkdir -p "$(dirname "$claude_settings")"
+
+  if [[ ! -f "$claude_settings" ]]; then
+    echo '{}' > "$claude_settings"
+  fi
+
+  if command_exists jq; then
+    local tmp_settings="${claude_settings}.tmp.$$"
+
+    # Add plugin as local plugin if not already registered
+    local has_plugin
+    has_plugin=$(jq --arg p "$plugin_dir" '
+      (.plugins // []) | map(select(
+        (type == "string" and . == $p) or
+        (type == "object" and .path == $p)
+      )) | length
+    ' "$claude_settings" 2>/dev/null) || has_plugin="0"
+
+    if [[ "${has_plugin:-0}" -eq 0 ]]; then
+      jq --arg p "$plugin_dir" '.plugins = ((.plugins // []) + [{"type": "local", "path": $p}])' \
+        "$claude_settings" > "$tmp_settings" && mv "$tmp_settings" "$claude_settings"
+      info "Added plugin to ${claude_settings}"
+    else
+      info "Plugin already registered in ${claude_settings}"
+    fi
+
+    # Enable tracing env var
+    jq '.env = ((.env // {}) + {"ARIZE_TRACE_ENABLED": "true"})' \
+      "$claude_settings" > "$tmp_settings" && mv "$tmp_settings" "$claude_settings"
+    info "Enabled ARIZE_TRACE_ENABLED in ${claude_settings}"
+  else
+    warn "jq not available — add the plugin manually to ${claude_settings}"
+  fi
+
   echo ""
   echo -e "  ${BOLD}Claude Agent SDK:${NC}"
   echo ""
@@ -1208,33 +1232,16 @@ uninstall() {
   rmdir "$SHARED_RUN_DIR" 2>/dev/null || true
   rmdir "$SHARED_LOG_DIR" 2>/dev/null || true
 
-  # 5. Prompt before removing shared config (contains user credentials)
-  local keep_config=false
+  # 5. Remove shared config and install directory
   if [[ -f "$SHARED_CONFIG" ]]; then
-    if confirm_optional_cleanup "  Remove shared config at ${SHARED_CONFIG}? (contains backend credentials) [y/N]: " "n"; then
-      rm -f "$SHARED_CONFIG"
-      info "Removed ${SHARED_CONFIG}"
-    else
-      keep_config=true
-      info "Left ${SHARED_CONFIG} in place"
-    fi
+    rm -f "$SHARED_CONFIG"
+    info "Removed ${SHARED_CONFIG}"
   fi
 
-  # 6. Remove the install directory (repo checkout)
-  #    If the user chose to keep config, back it up and restore after removal
   if [[ -d "$INSTALL_DIR" ]]; then
-    if [[ "$keep_config" == true ]]; then
-      local tmp_config
-      tmp_config=$(mktemp)
-      cp "$SHARED_CONFIG" "$tmp_config"
-      rm -rf "$INSTALL_DIR"
-      mkdir -p "$INSTALL_DIR"
-      mv "$tmp_config" "$SHARED_CONFIG"
-      info "Removed ${INSTALL_DIR} (preserved ${SHARED_CONFIG})"
-    else
-      rm -rf "$INSTALL_DIR"
-      info "Removed ${INSTALL_DIR}"
-    fi
+    rm -rf "$INSTALL_DIR"
+    info "Removed ${INSTALL_DIR}"
+  fi
   else
     info "Repository checkout already absent at ${INSTALL_DIR}"
   fi
