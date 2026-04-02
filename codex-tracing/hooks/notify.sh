@@ -220,10 +220,26 @@ collector_events="[]"
 if [[ -n "$thread_id" ]]; then
   last_collector_time_ns=$(get_state "last_collector_time_ns")
   [[ -z "$last_collector_time_ns" ]] && last_collector_time_ns="0"
-  collector_events=$(curl -sf "http://127.0.0.1:${COLLECTOR_PORT}/drain/${thread_id}?since_ns=${last_collector_time_ns}" 2>/dev/null || echo "[]")
-  if [[ -z "$collector_events" || "$collector_events" == "null" ]]; then
-    collector_events="[]"
-  fi
+  drain_url="http://127.0.0.1:${COLLECTOR_PORT}/drain/${thread_id}"
+  drain_query="since_ns=${last_collector_time_ns}&wait_ms=8000&quiet_ms=1200"
+  drain_attempts=(0 1200 2000)
+
+  for retry_wait_ms in "${drain_attempts[@]}"; do
+    if (( retry_wait_ms > 0 )); then
+      sleep "$(awk "BEGIN { printf \"%.3f\", ${retry_wait_ms}/1000 }")"
+    fi
+
+    collector_events=$(curl -sf "${drain_url}?${drain_query}" 2>/dev/null || echo "[]")
+    if [[ -z "$collector_events" || "$collector_events" == "null" ]]; then
+      collector_events="[]"
+    fi
+
+    event_count=$(echo "$collector_events" | jq 'length' 2>/dev/null || echo "0")
+    log "Collector drain attempt (thread=${thread_id}, retry_wait_ms=${retry_wait_ms}) => ${event_count} events"
+    if [[ "$event_count" -gt 0 ]]; then
+      break
+    fi
+  done
 else
   log "Skipping event buffer drain because thread-id is missing"
 fi

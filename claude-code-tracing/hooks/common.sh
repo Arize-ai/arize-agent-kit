@@ -8,7 +8,7 @@ set -euo pipefail
 # --- Harness-specific config (set BEFORE sourcing core) ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ADAPTER_DIR="$(dirname "$SCRIPT_DIR")"
-STATE_DIR="${HOME}/.arize-claude-code"
+STATE_DIR="${HOME}/.arize/harness/state/claude-code"
 ARIZE_SERVICE_NAME="claude-code"
 ARIZE_SCOPE_NAME="arize-claude-plugin"
 ARIZE_LOG_FILE="${ARIZE_LOG_FILE:-/tmp/arize-claude-code.log}"

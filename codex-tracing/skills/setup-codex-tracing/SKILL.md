@@ -319,7 +319,7 @@ Tell the user:
 | `ARIZE_TRACE_ENABLED` | No | `true` | Enable/disable tracing |
 | `ARIZE_DRY_RUN` | No | `false` | Print spans instead of sending |
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
-| `ARIZE_TRACE_DEBUG` | No | `false` | Write debug JSON to `~/.arize-codex/debug/` |
+| `ARIZE_TRACE_DEBUG` | No | `false` | Write debug JSON to `~/.arize/harness/state/codex/debug/` |
 | `ARIZE_LOG_FILE` | No | `/tmp/arize-codex.log` | Log file path |
 | `ARIZE_COLLECTOR_PORT` | No | `4318` | Port for the shared collector |
 
@@ -339,7 +339,7 @@ Common issues and fixes:
 | Want verbose logging | Set `ARIZE_VERBOSE=true` in env or `export ARIZE_VERBOSE=true` |
 | Wrong project name | Set `ARIZE_PROJECT_NAME` in `~/.codex/arize-env.sh` (default: `codex`) |
 | Existing notify hook | Codex supports only one `notify` — create a wrapper script that calls both |
-| Stale state files | Run: `rm -rf ~/.arize-codex/state_*.json` |
+| Stale state files | Run: `rm -rf ~/.arize/harness/state/codex/state_*.json` |
 | Flat spans only (no children) | Check collector health: `curl http://127.0.0.1:4318/health`. Verify `[otel]` in config.toml points to `127.0.0.1:4318` |
 | Collector not starting | Check `python3` is available. Check port 4318 isn't in use. See `~/.arize/harness/logs/collector.log` |
 | User ID not appearing on spans | Set `ARIZE_USER_ID` in `~/.codex/arize-env.sh` or export before running Codex |
