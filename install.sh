@@ -233,10 +233,15 @@ setup_shared_collector() {
     fi
 
     # Interactive prompt if backend not detected
-    # Use /dev/tty for input when stdin is piped (e.g. curl | bash)
-    if [[ -z "$backend_target" ]] && { [[ -t 0 ]] || [[ -e /dev/tty ]]; }; then
-      local tty_in="/dev/stdin"
-      [[ ! -t 0 ]] && tty_in="/dev/tty"
+    # Try /dev/tty for input when stdin is piped (e.g. curl | bash)
+    local tty_in=""
+    if [[ -t 0 ]]; then
+      tty_in="/dev/stdin"
+    elif exec 3< /dev/tty 2>/dev/null; then
+      exec 3<&-
+      tty_in="/dev/tty"
+    fi
+    if [[ -z "$backend_target" && -n "$tty_in" ]]; then
 
       echo ""
       echo "  Choose a tracing backend:"
@@ -281,10 +286,19 @@ setup_shared_collector() {
       collector_port="${collector_port:-4318}"
     fi
 
-    # Non-interactive without env vars: default to phoenix
+    # Non-interactive without env vars
     if [[ -z "$backend_target" ]]; then
+      if [[ -z "$tty_in" ]]; then
+        # Piped install (curl | bash) without env vars — can't prompt
+        echo ""
+        warn "No backend credentials detected and no interactive terminal available."
+        warn "To configure Arize AX, re-run with env vars:"
+        warn "  ARIZE_API_KEY=... ARIZE_SPACE_ID=... curl -fsSL ... | bash -s -- claude"
+        warn "Defaulting to Phoenix at ${phoenix_endpoint}"
+        echo ""
+      fi
       backend_target="phoenix"
-      info "No backend credentials detected — defaulting to Phoenix at ${phoenix_endpoint}"
+      info "Backend: Phoenix at ${phoenix_endpoint}"
     fi
 
     local collector_port="${collector_port:-4318}"
