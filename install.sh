@@ -232,8 +232,12 @@ setup_shared_collector() {
       [[ -n "${PHOENIX_API_KEY:-}" ]] && phoenix_api_key="$PHOENIX_API_KEY"
     fi
 
-    # Interactive prompt if backend not detected and stdin is a terminal
-    if [[ -z "$backend_target" && -t 0 ]]; then
+    # Interactive prompt if backend not detected
+    # Use /dev/tty for input when stdin is piped (e.g. curl | bash)
+    if [[ -z "$backend_target" ]] && { [[ -t 0 ]] || [[ -e /dev/tty ]]; }; then
+      local tty_in="/dev/stdin"
+      [[ ! -t 0 ]] && tty_in="/dev/tty"
+
       echo ""
       echo "  Choose a tracing backend:"
       echo ""
@@ -241,27 +245,27 @@ setup_shared_collector() {
       echo "    2) Arize AX (cloud)"
       echo ""
       local choice=""
-      read -rp "  Backend [1/2]: " choice
+      read -rp "  Backend [1/2]: " choice < "$tty_in"
       case "$choice" in
         1|phoenix)
           backend_target="phoenix"
-          read -rp "  Phoenix endpoint [http://localhost:6006]: " phoenix_endpoint
+          read -rp "  Phoenix endpoint [http://localhost:6006]: " phoenix_endpoint < "$tty_in"
           phoenix_endpoint="${phoenix_endpoint:-http://localhost:6006}"
-          read -rp "  Phoenix API key (blank if none): " phoenix_api_key
+          read -rp "  Phoenix API key (blank if none): " phoenix_api_key < "$tty_in"
           ;;
         2|arize)
           backend_target="arize"
-          read -rp "  Arize API key: " arize_api_key
+          read -rp "  Arize API key: " arize_api_key < "$tty_in"
           if [[ -z "$arize_api_key" ]]; then
             err "Arize API key is required"
             exit 1
           fi
-          read -rp "  Arize space ID: " arize_space_id
+          read -rp "  Arize space ID: " arize_space_id < "$tty_in"
           if [[ -z "$arize_space_id" ]]; then
             err "Arize space ID is required"
             exit 1
           fi
-          read -rp "  Arize OTLP endpoint [otlp.arize.com:443]: " arize_endpoint
+          read -rp "  Arize OTLP endpoint [otlp.arize.com:443]: " arize_endpoint < "$tty_in"
           arize_endpoint="${arize_endpoint:-otlp.arize.com:443}"
           ;;
         *)
@@ -273,7 +277,7 @@ setup_shared_collector() {
       # Collector port (optional, default 4318)
       echo ""
       local collector_port="4318"
-      read -rp "  Collector port [4318]: " collector_port
+      read -rp "  Collector port [4318]: " collector_port < "$tty_in"
       collector_port="${collector_port:-4318}"
     fi
 
