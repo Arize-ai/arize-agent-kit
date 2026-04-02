@@ -1241,7 +1241,6 @@ uninstall() {
   if [[ -d "$INSTALL_DIR" ]]; then
     rm -rf "$INSTALL_DIR"
     info "Removed ${INSTALL_DIR}"
-  fi
   else
     info "Repository checkout already absent at ${INSTALL_DIR}"
   fi
