@@ -4,11 +4,11 @@ Trace AI coding sessions to [Arize AX](https://arize.com) or [Phoenix](https://g
 
 ## Supported Harnesses
 
-| Harness | Integration | Install Method | Guide |
-|---------|-------------|----------------|-------|
-| Claude Code CLI / Agent SDK | `claude-code-tracing` | Marketplace or curl | [claude-code-tracing/README.md](claude-code-tracing/README.md) |
-| OpenAI Codex CLI | `codex-tracing` | `install.sh` or curl | [codex-tracing/README.md](codex-tracing/README.md) |
-| Cursor IDE | `cursor-tracing` | `install.sh` or curl | [cursor-tracing/README.md](cursor-tracing/README.md) |
+| Harness | Integration | Install Method |
+|---------|-------------|----------------|
+| [Claude Code CLI / Agent SDK](claude-code-tracing/README.md) | `claude-code-tracing` | Marketplace or `install.sh` |
+| [OpenAI Codex CLI](codex-tracing/README.md) | `codex-tracing` | `install.sh` |
+| [Cursor IDE](cursor-tracing/README.md) | `cursor-tracing` | `install.sh` |
 
 Claude Code CLI and the Claude Agent SDK share the same plugin, hooks, and configuration — one install covers both.
 
@@ -24,14 +24,11 @@ claude plugin install claude-code-tracing@arize-agent-kit
 **Any harness (curl):**
 
 ```bash
-# Claude Code
-curl -fsSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- claude
+INSTALL="https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh"
 
-# Codex
-curl -fsSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- codex
-
-# Cursor
-curl -fsSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- cursor
+curl -fsSL $INSTALL | bash -s -- claude   # Claude Code / Agent SDK
+curl -fsSL $INSTALL | bash -s -- codex    # OpenAI Codex
+curl -fsSL $INSTALL | bash -s -- cursor   # Cursor IDE
 ```
 
 The installer does three things:
@@ -79,30 +76,12 @@ All configuration lives in `~/.arize/harness/config.json`, written by the instal
 
 > **Port conflict?** If port 4318 is already in use, the collector will fail to start. Set `collector.port` to a different value (e.g. `4319`) in `~/.arize/harness/config.json`. The installer will also prompt for this during setup.
 
-### Environment Variable Fallbacks
-
-Environment variables are supported as fallbacks but are secondary to `config.json`. If a value is set in both `config.json` and the environment, `config.json` wins.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ARIZE_TRACE_ENABLED` | `true` | Enable or disable tracing |
-| `ARIZE_API_KEY` | - | Arize AX API key (fallback if not in config.json) |
-| `ARIZE_SPACE_ID` | - | Arize AX space ID (fallback if not in config.json) |
-| `ARIZE_OTLP_ENDPOINT` | `otlp.arize.com:443` | OTLP gRPC endpoint (on-prem Arize) |
-| `PHOENIX_ENDPOINT` | `http://localhost:6006` | Phoenix collector URL (fallback if not in config.json) |
-| `PHOENIX_API_KEY` | - | Phoenix API key (fallback if not in config.json) |
-| `ARIZE_PROJECT_NAME` | `default` | Project name (fallback if not in `harnesses` config) |
-| `ARIZE_USER_ID` | - | User identifier added to all spans as `user.id` |
-| `ARIZE_DRY_RUN` | `false` | Print spans to log instead of sending |
-| `ARIZE_VERBOSE` | `false` | Enable verbose logging |
-| `ARIZE_LOG_FILE` | `/tmp/arize-<harness>.log` | Log file path (empty to disable) |
-
 ### Backend Requirements
 
-| Backend | Auth (config.json) | Harness Dependencies | Latency |
-|---------|---------------------|---------------------|---------|
-| **Phoenix** (self-hosted) | `backend.phoenix.endpoint` | `jq`, `curl` | ~local |
-| **Arize AX** (cloud) | `backend.arize.api_key` + `backend.arize.space_id` | `jq`, `curl` | ~remote |
+| Backend | Config fields |
+|---------|---------------|
+| **Phoenix** | `backend.phoenix.endpoint`, `backend.phoenix.api_key` |
+| **Arize AX** | `backend.arize.api_key`, `backend.arize.space_id`, `backend.arize.endpoint` |
 
 Both backends are served by the shared collector. Harnesses only need `jq` and `curl` to build and submit spans locally. The collector handles all backend-specific transport (HTTP for Phoenix, gRPC for Arize AX) — no Python packages required in the user environment.
 
