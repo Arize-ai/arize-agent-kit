@@ -1249,7 +1249,7 @@ usage() {
   echo ""
   echo "  Arize Agent Kit Installer"
   echo ""
-  echo "  Usage: install.sh <command>"
+  echo "  Usage: install.sh <command> [flags]"
   echo ""
   echo "  Commands:"
   echo "    claude      Install and configure tracing for Claude Code / Agent SDK"
@@ -1257,6 +1257,9 @@ usage() {
   echo "    cursor      Install and configure tracing for Cursor IDE"
   echo "    update      Update the installed arize-agent-kit to latest"
   echo "    uninstall   Remove arize-agent-kit and print cleanup reminders"
+  echo ""
+  echo "  Flags:"
+  echo "    --with-skills   Symlink setup skills into .agents/skills/ in the current directory"
   echo ""
   echo "  The installer sets up a shared background collector that receives spans"
   echo "  from all harnesses and exports them to your configured backend (Phoenix"
@@ -1271,9 +1274,49 @@ usage() {
   echo ""
 }
 
+# --- install_skills: symlink harness skills into .agents/skills/ ---
+install_skills() {
+  local harness="$1"
+  local skills_src="${INSTALL_DIR}/${harness}-tracing/skills"
+
+  if [[ ! -d "$skills_src" ]]; then
+    warn "No skills found for ${harness} at ${skills_src}"
+    return 0
+  fi
+
+  local target_dir=".agents/skills"
+  mkdir -p "$target_dir"
+
+  for skill_dir in "$skills_src"/*/; do
+    [[ -d "$skill_dir" ]] || continue
+    local skill_name
+    skill_name=$(basename "$skill_dir")
+    local link="${target_dir}/${skill_name}"
+
+    if [[ -L "$link" ]]; then
+      rm -f "$link"
+    elif [[ -d "$link" ]]; then
+      warn "Skipping ${skill_name}: ${link} already exists and is not a symlink"
+      continue
+    fi
+
+    ln -s "$skill_dir" "$link"
+    info "Linked skill: ${link} -> ${skill_dir}"
+  done
+}
+
 # --- Main ---
 main() {
   local cmd="${1:-}"
+  shift || true
+
+  # Parse flags
+  local with_skills=false
+  for arg in "$@"; do
+    case "$arg" in
+      --with-skills) with_skills=true ;;
+    esac
+  done
 
   case "$cmd" in
     claude)
@@ -1281,18 +1324,21 @@ main() {
       install_repo
       setup_shared_collector "claude-code"
       setup_claude
+      [[ "$with_skills" == true ]] && install_skills "claude-code"
       ;;
     codex)
       command_exists jq || { err "jq is required. Install: brew install jq  or  apt install jq"; exit 1; }
       install_repo
       setup_shared_collector "codex"
       setup_codex
+      [[ "$with_skills" == true ]] && install_skills "codex"
       ;;
     cursor)
       command_exists jq || { err "jq is required. Install: brew install jq  or  apt install jq"; exit 1; }
       install_repo
       setup_shared_collector "cursor"
       setup_cursor
+      [[ "$with_skills" == true ]] && install_skills "cursor"
       ;;
     update)
       update_install
