@@ -6,10 +6,11 @@ Trace AI coding sessions to [Arize AX](https://arize.com) or [Phoenix](https://g
 
 | Harness | Integration | Install Method | Guide |
 |---------|-------------|----------------|-------|
-| Claude Code CLI | `claude-code-tracing` | Marketplace or curl | [claude-code-tracing/README.md](claude-code-tracing/README.md) |
-| Claude Agent SDK | `claude-code-tracing` | Local plugin path | [claude-code-tracing/README.md](claude-code-tracing/README.md) |
+| Claude Code CLI / Agent SDK | `claude-code-tracing` | Marketplace or curl | [claude-code-tracing/README.md](claude-code-tracing/README.md) |
 | OpenAI Codex CLI | `codex-tracing` | `install.sh` or curl | [codex-tracing/README.md](codex-tracing/README.md) |
 | Cursor IDE | `cursor-tracing` | `install.sh` or curl | [cursor-tracing/README.md](cursor-tracing/README.md) |
+
+Claude Code CLI and the Claude Agent SDK share the same plugin, hooks, and configuration — one install covers both.
 
 ## Quick Install
 
@@ -136,7 +137,7 @@ See [COLLECTOR_ARCHITECTURE.md](COLLECTOR_ARCHITECTURE.md) for the full collecto
 
 ```
 core/                   Shared span building, state primitives, collector, and sending
-claude-code-tracing/    Claude Code CLI and Agent SDK integration
+claude-code-tracing/    Claude Code (CLI and Agent SDK) integration
 codex-tracing/          OpenAI Codex CLI integration
 cursor-tracing/         Cursor IDE integration
 install.sh              Curl-pipe installer (shared collector + harness config)

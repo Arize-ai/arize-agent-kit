@@ -4,8 +4,8 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 
 ## Features
 
-- 9 hook-based span types covering the full Claude Code session lifecycle
-- Works with both Claude Code CLI and the Python Agent SDK
+- 9 hook-based span types covering the full session lifecycle
+- Works with both Claude Code CLI and the Claude Agent SDK — same install, same hooks, same config
 - Exports to Phoenix or Arize AX through the shared background collector -- no harness-specific exporter dependencies required
 - PID-based session isolation with automatic garbage collection
 - Lazy session initialization for Agent SDK environments (no `SessionStart` event)
@@ -51,13 +51,24 @@ The installer:
 
 Hooks are written as hardcoded commands in `settings.json` rather than relying on `plugin.json` — this is the format that Claude Code fires reliably across all environments.
 
-### Manual (Agent SDK)
+### Claude Agent SDK
 
-Clone the repository and point your Agent SDK project at the plugin directory:
+The same installer works for both Claude Code CLI and the Claude Agent SDK — they share the same hooks and settings. Run the curl installer above, then pass the plugin path when launching your agent:
+
+```typescript
+import { Agent } from '@anthropic-ai/agent-sdk';
+
+const agent = new Agent({
+  plugins: ['~/.arize/harness/claude-code-tracing'],
+  // ... other options
+});
+```
+
+Or clone the repository for manual setup:
 
 ```bash
 git clone https://github.com/Arize-ai/arize-agent-kit.git
-# In your SDK config, set the plugin path to:
+# Point your SDK config at:
 #   /path/to/arize-agent-kit/claude-code-tracing
 ```
 
@@ -120,7 +131,9 @@ Spans are submitted locally to the shared collector at `http://127.0.0.1:4318/v1
 
 ## Agent SDK Compatibility
 
-The plugin works with the Claude Agent SDK (Python) with one difference: the SDK does not fire a `SessionStart` event. The `UserPromptSubmit` hook performs lazy session initialization when it detects no prior session state.
+The plugin works identically with both Claude Code CLI and the Claude Agent SDK. The same hooks, settings, and collector are shared — no separate installation or configuration is needed.
+
+The one difference is that the Agent SDK does not fire a `SessionStart` event. The `UserPromptSubmit` hook performs lazy session initialization when it detects no prior session state, so tracing starts automatically on the first prompt.
 
 Hook commands are written with absolute paths by `install.sh` into `~/.claude/settings.json`. The `plugin.json` also declares hooks using `${CLAUDE_PLUGIN_ROOT}` for marketplace installs, but the `settings.json` entries are what fire reliably across all environments.
 
