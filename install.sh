@@ -509,10 +509,40 @@ setup_claude() {
       info "Plugin already registered in ${claude_settings}"
     fi
 
-    # Enable tracing env var
-    jq '.env = ((.env // {}) + {"ARIZE_TRACE_ENABLED": "true"})' \
-      "$claude_settings" > "$tmp_settings" && mv "$tmp_settings" "$claude_settings"
-    info "Enabled ARIZE_TRACE_ENABLED in ${claude_settings}"
+    # --- Write hooks directly into settings.json ---
+    # Claude Code fires hooks from settings.json reliably; plugin.json hooks
+    # may not fire in all environments. Write hardcoded hook commands so
+    # tracing works out of the box.
+    # Event name -> script name mapping
+    local -A hook_scripts=(
+      [SessionStart]="session_start"
+      [UserPromptSubmit]="user_prompt_submit"
+      [PreToolUse]="pre_tool_use"
+      [PostToolUse]="post_tool_use"
+      [Stop]="stop"
+      [SubagentStop]="subagent_stop"
+      [Notification]="notification"
+      [PermissionRequest]="permission_request"
+      [SessionEnd]="session_end"
+    )
+
+    for event in "${!hook_scripts[@]}"; do
+      local script_name="${hook_scripts[$event]}"
+      local hook_cmd="bash ${plugin_dir}/hooks/${script_name}.sh"
+
+      # Check if this hook command is already present for this event
+      local has_hook
+      has_hook=$(jq --arg evt "$event" --arg cmd "$hook_cmd" '
+        (.hooks[$evt] // [])[] | select(.hooks[]?.command == $cmd)
+      ' "$claude_settings" 2>/dev/null | head -1) || has_hook=""
+
+      if [[ -z "$has_hook" ]]; then
+        jq --arg evt "$event" --arg cmd "$hook_cmd" '
+          .hooks[$evt] = ((.hooks[$evt] // []) + [{"hooks": [{"type": "command", "command": $cmd}]}])
+        ' "$claude_settings" > "$tmp_settings" && mv "$tmp_settings" "$claude_settings"
+      fi
+    done
+    info "Registered tracing hooks in ${claude_settings}"
   else
     warn "jq not available — add the plugin manually to ${claude_settings}"
   fi
@@ -980,6 +1010,33 @@ cleanup_claude_config() {
         info "Removed Arize Claude plugin path from ${global_settings}"
       else
         info "Left ${global_settings} unchanged"
+      fi
+    fi
+
+    # Remove Arize tracing hooks from settings.json
+    local has_arize_hooks
+    has_arize_hooks=$(jq '
+      [.hooks // {} | to_entries[] | .value[]?.hooks[]? |
+       select(.command? and (.command | test("arize|claude-code-tracing")))] | length
+    ' "$global_settings" 2>/dev/null) || has_arize_hooks="0"
+
+    if [[ "${has_arize_hooks:-0}" -gt 0 ]]; then
+      if confirm_optional_cleanup "  Remove Arize tracing hooks from ${global_settings}? [y/N]: " "n"; then
+        cp "$global_settings" "${global_settings}.bak"
+        jq '
+          .hooks = (
+            (.hooks // {}) | to_entries | map(
+              .value = [.value[]? | select(
+                (.hooks // []) | all(
+                  .command? // "" | test("arize|claude-code-tracing") | not
+                )
+              )] | .value = [.value[]? | select(.hooks | length > 0)]
+            ) | map(select(.value | length > 0)) | from_entries
+          ) | if .hooks == {} then del(.hooks) else . end
+        ' "$global_settings" > "${global_settings}.tmp" && mv "${global_settings}.tmp" "$global_settings"
+        info "Removed Arize tracing hooks from ${global_settings}"
+      else
+        info "Left hooks in ${global_settings} unchanged"
       fi
     fi
 
