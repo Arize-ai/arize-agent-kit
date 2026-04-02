@@ -55,6 +55,7 @@ _inflight_lock = threading.Lock()
 _event_lock = threading.Lock()
 _event_buffers = {}   # conversation_id -> [event, ...]
 _event_timestamps = {}  # conversation_id -> last_update_time
+_logged_conv_debug = 0
 
 
 def _log(msg):
@@ -501,6 +502,7 @@ def _drain_events(conversation_id, since_ns=0, wait_ms=0, quiet_ms=0):
 
 def _extract_log_events(body):
     """Extract (conversation_id, normalized_event) pairs from OTLP logs JSON."""
+    global _logged_conv_debug
     results = []
     for rl in body.get("resourceLogs", []):
         for sl in rl.get("scopeLogs", []):
@@ -539,6 +541,33 @@ def _extract_log_events(body):
                     event_name = ""
                 if not event_name:
                     event_name = attrs.get("event.name", attrs.get("event", "unknown"))
+
+                if _logged_conv_debug < 20:
+                    interesting = {
+                        k: attrs.get(k)
+                        for k in (
+                            "thread_id",
+                            "codex.thread_id",
+                            "thread",
+                            "codex.thread",
+                            "threadId",
+                            "codex.threadId",
+                            "conversation.id",
+                            "codex.conversation.id",
+                            "conversation_id",
+                            "codex.conversation_id",
+                            "conversationId",
+                            "codex.conversationId",
+                        )
+                        if k in attrs
+                    }
+                    _log(
+                        "OTLP log identity debug: "
+                        f"event={event_name} conv_id={conv_id} "
+                        f"interesting={interesting} "
+                        f"attr_keys={sorted(attrs.keys())[:40]}"
+                    )
+                    _logged_conv_debug += 1
 
                 time_ns = record.get("timeUnixNano", 0)
                 try:
@@ -610,7 +639,8 @@ class CollectorHandler(BaseHTTPRequestHandler):
         return self.rfile.read(content_length)
 
     def do_POST(self):
-        path = self.path.rstrip("/")
+        from urllib.parse import urlparse
+        path = urlparse(self.path).path.rstrip("/")
 
         if path == "/v1/spans":
             self._handle_spans()
@@ -662,7 +692,9 @@ class CollectorHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"status": "accepted", "buffered": len(events)})
 
     def do_GET(self):
-        path = self.path.rstrip("/")
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
 
         if path == "/health":
             self._handle_health()
@@ -678,8 +710,7 @@ class CollectorHandler(BaseHTTPRequestHandler):
             if not conv_id:
                 self._send_json(400, {"status": "error", "message": "missing conversation_id"})
                 return
-            from urllib.parse import urlparse, parse_qs
-            query = parse_qs(urlparse(self.path).query)
+            query = parse_qs(parsed.query)
             since_ns = int(query.get("since_ns", ["0"])[0] or "0")
             wait_ms = int(query.get("wait_ms", ["0"])[0] or "0")
             quiet_ms = int(query.get("quiet_ms", ["0"])[0] or "0")

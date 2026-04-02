@@ -109,7 +109,14 @@ inc_state() {
 }
 
 # --- Shared collector endpoint ---
+_ARIZE_SHARED_CONFIG="${HOME}/.arize/harness/config.json"
 ARIZE_COLLECTOR_HOST="${ARIZE_COLLECTOR_HOST:-127.0.0.1}"
+if [[ -z "${ARIZE_COLLECTOR_PORT:-}" && -f "$_ARIZE_SHARED_CONFIG" ]] && command -v jq &>/dev/null; then
+  _cfg_collector_port=$(jq -r '.collector.port // empty' "$_ARIZE_SHARED_CONFIG" 2>/dev/null) || true
+  if [[ -n "${_cfg_collector_port:-}" ]]; then
+    ARIZE_COLLECTOR_PORT="$_cfg_collector_port"
+  fi
+fi
 ARIZE_COLLECTOR_PORT="${ARIZE_COLLECTOR_PORT:-4318}"
 _COLLECTOR_URL="http://${ARIZE_COLLECTOR_HOST}:${ARIZE_COLLECTOR_PORT}"
 
@@ -226,6 +233,12 @@ send_span() {
       span_name=$(echo "$span_json" | jq -r '.resourceSpans[0].scopeSpans[0].spans[0].name // "unknown"' 2>/dev/null)
       log "Sent span: $span_name (collector)"
       return 0
+    fi
+    if [[ -s "$collector_err" ]]; then
+      _log_to_file "Collector send failed for ${_COLLECTOR_URL}/v1/spans:"
+      cat "$collector_err" >> "$ARIZE_LOG_FILE"
+    else
+      _log_to_file "Collector send failed for ${_COLLECTOR_URL}/v1/spans with no stderr output"
     fi
     rm -f "$collector_err"
     log "Collector not reachable, falling back to direct send"

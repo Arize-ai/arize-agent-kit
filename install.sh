@@ -1075,8 +1075,8 @@ _uninstall_codex() {
       info "No Arize notify hook found in config.toml"
     fi
 
-    # 2. Remove [otel] section pointing at our collector (check both port 4318 and 4319)
-    if grep -qE "endpoint = \"http://127\.0\.0\.1:(4318|4319)/v1/logs\"" "$codex_config" 2>/dev/null; then
+    # 2. Remove [otel] section pointing at our local collector regardless of configured port
+    if grep -qE 'endpoint = "http://127\.0\.0\.1:[0-9]+/v1/logs"' "$codex_config" 2>/dev/null; then
       cp "$codex_config" "${codex_config}.bak"
       awk '
         BEGIN { skip=0 }
