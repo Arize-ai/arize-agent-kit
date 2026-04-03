@@ -31,13 +31,12 @@ curl -fsSL $INSTALL | bash -s -- codex    # OpenAI Codex
 curl -fsSL $INSTALL | bash -s -- cursor   # Cursor IDE
 ```
 
-The installer does three things:
+The installer:
 
 1. **Asks for your backend** — Phoenix endpoint or Arize AX credentials
-2. **Starts a background collector** — a lightweight local process at `127.0.0.1:4318` that handles all backend export (HTTP for Phoenix, gRPC for Arize AX)
-3. **Configures your harness** — sets up hooks so spans flow automatically
-
-No Python packages, `grpcio`, or `opentelemetry-proto` need to be installed in your environment. The collector ships with everything it needs.
+2. **Writes config** — saves backend credentials and harness settings to `~/.arize/harness/config.json`
+3. **Starts a background collector** — a lightweight local process at `127.0.0.1:4318` that handles all backend export (HTTP for Phoenix, gRPC for Arize AX)
+4. **Configures your harness** — sets up hooks so spans flow automatically
 
 ### Uninstall
 
@@ -87,13 +86,13 @@ All configuration lives in `~/.arize/harness/config.json`, written by the instal
 |-------|----------|---------|-------------|
 | `user_id` | No | — | User identifier added to all spans as `user.id` |
 
-**Per-harness settings**
+**Per-harness project names** (under `harnesses.<name>`) — sets the project name in Arize/Phoenix
 
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `harnesses.claude-code.project_name` | No | `claude-code` | Project name for Claude Code / Agent SDK |
-| `harnesses.codex.project_name` | No | `codex` | Project name for OpenAI Codex |
-| `harnesses.cursor.project_name` | No | `cursor` | Project name for Cursor IDE |
+| Name | Field | Default |
+|------|-------|---------|
+| `claude-code` | `project_name` | `claude-code` |
+| `codex` | `project_name` | `codex` |
+| `cursor` | `project_name` | `cursor` |
 
 The collector handles all backend-specific transport (HTTP for Phoenix, gRPC for Arize AX). Harnesses only need `jq` and `curl`.
 
