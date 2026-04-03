@@ -37,13 +37,16 @@ def load_config(config_path=None):
     """Load and return the config dict from the YAML file.
 
     Returns an empty dict if the file does not exist.
-    Raises ValueError on malformed YAML.
+    Raises ValueError on malformed YAML or non-mapping content.
     """
     path = config_path or CONFIG_FILE
     if not os.path.isfile(path):
         return {}
     with open(path, "r") as f:
-        data = yaml.safe_load(f)
+        try:
+            data = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise ValueError(f"Malformed YAML in {path}: {e}")
     if data is None:
         return {}
     if not isinstance(data, dict):
@@ -102,9 +105,9 @@ def save_config(config, config_path=None):
     """Write config dict to the YAML file with chmod 600."""
     path = config_path or CONFIG_FILE
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False)
-    os.chmod(path, 0o600)
 
 
 # --- CLI helpers ---

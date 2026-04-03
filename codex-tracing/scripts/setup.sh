@@ -31,7 +31,16 @@ ENV_FILE="${CODEX_CONFIG_DIR}/arize-env.sh"
 _AK_PYTHON="${SHARED_BASE}/venv/bin/python3"
 _AK_CONFIG_PY="${REPO_DIR}/core/config.py"
 
-# --- Config helpers (require venv + config.py) ---
+# --- Validate Python + PyYAML availability ---
+if [[ ! -x "$_AK_PYTHON" ]]; then
+  _AK_PYTHON="python3"
+fi
+if ! "$_AK_PYTHON" -c "import yaml" 2>/dev/null; then
+  err "PyYAML not available. Run install.sh first to set up the collector venv."
+  exit 1
+fi
+
+# --- Config helpers (require python + config.py) ---
 _cfg_get() { "${_AK_PYTHON}" "${_AK_CONFIG_PY}" get "$1" 2>/dev/null; }
 _cfg_set() { "${_AK_PYTHON}" "${_AK_CONFIG_PY}" set "$1" "$2"; }
 

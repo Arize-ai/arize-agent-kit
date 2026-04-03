@@ -20,8 +20,12 @@ def _load_config():
     """Load config from ~/.arize/harness/config.yaml."""
     if not os.path.isfile(CONFIG_FILE):
         return None
-    with open(CONFIG_FILE, "r") as f:
-        return yaml.safe_load(f)
+    try:
+        with open(CONFIG_FILE, "r") as f:
+            return yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        print(f"[arize] Warning: malformed config.yaml: {e}", file=sys.stderr)
+        return None
 
 
 def _resolve_project_name(span_data, config):

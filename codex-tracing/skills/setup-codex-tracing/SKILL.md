@@ -136,7 +136,7 @@ mkdir -p ~/.arize/harness/{bin,run,logs}
 CONFIG_FILE=~/.arize/harness/config.yaml
 if [ -f "$CONFIG_FILE" ]; then
   # Merge: add/update harnesses.codex, preserve existing backend settings
-  python3 ~/.arize/harness/core/config.py set harnesses.codex.project_name codex
+  ~/.arize/harness/venv/bin/python3 ~/.arize/harness/core/config.py set harnesses.codex.project_name codex
 else
   cat > "$CONFIG_FILE" << 'EOF'
 collector:
@@ -161,7 +161,7 @@ mkdir -p ~/.arize/harness/{bin,run,logs}
 CONFIG_FILE=~/.arize/harness/config.yaml
 if [ -f "$CONFIG_FILE" ]; then
   # Merge: add/update harnesses.codex, preserve existing backend settings
-  python3 ~/.arize/harness/core/config.py set harnesses.codex.project_name codex
+  ~/.arize/harness/venv/bin/python3 ~/.arize/harness/core/config.py set harnesses.codex.project_name codex
 else
   cat > "$CONFIG_FILE" << 'EOF'
 collector:

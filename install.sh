@@ -376,9 +376,14 @@ CFGEOF
   }
 
   # --- Deferred harness merge (now that venv with pyyaml exists) ---
-  if [[ "$defer_harness_merge" == true ]] && [[ -x "${SHARED_VENV_DIR}/bin/python3" ]]; then
-    _cfg_set "harnesses.${harness_name}.project_name" "${harness_project}"
-    info "Added harness '${harness_name}' to ${SHARED_CONFIG}"
+  if [[ "$defer_harness_merge" == true ]]; then
+    if [[ -x "${SHARED_VENV_DIR}/bin/python3" ]]; then
+      _cfg_set "harnesses.${harness_name}.project_name" "${harness_project}"
+      info "Added harness '${harness_name}' to ${SHARED_CONFIG}"
+    else
+      warn "Could not add harness '${harness_name}' to config — venv not available"
+      warn "Re-run the installer after fixing the venv to register the harness"
+    fi
   fi
 
   # --- Create launcher script ---
