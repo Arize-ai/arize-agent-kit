@@ -80,7 +80,7 @@ Then proceed to [Configure Settings](#configure-settings). If the user is on an 
 
 ## Configure Settings
 
-**Important:** Users must run this setup before tracing will work. The shared collector requires `~/.arize/harness/config.json` to exist -- it will not start without it.
+**Important:** Users must run this setup before tracing will work. The shared collector requires `~/.arize/harness/config.yaml` to exist -- it will not start without it.
 
 ### Ask the user for:
 
@@ -94,43 +94,39 @@ Then proceed to [Configure Settings](#configure-settings). If the user is on an 
 
 ### Write the shared collector config
 
-The config file at `~/.arize/harness/config.json` is the single source of truth for backend credentials and per-harness project naming. Create the directory structure if needed: `mkdir -p ~/.arize/harness/{bin,run,logs,state/cursor}`
+The config file at `~/.arize/harness/config.yaml` is the single source of truth for backend credentials and per-harness project naming. Create the directory structure if needed: `mkdir -p ~/.arize/harness/{bin,run,logs,state/cursor}`
 
-**Important: read-merge-write.** If `~/.arize/harness/config.json` already exists, read it first, then merge in the new or updated fields (e.g., add/update the `harnesses.cursor` entry) while preserving existing backend credentials. Only prompt for backend credentials if no existing config is found.
+**Important: read-merge-write.** If `~/.arize/harness/config.yaml` already exists, read it first, then merge in the new or updated fields (e.g., add/update the `harnesses.cursor` entry) while preserving existing backend credentials. Only prompt for backend credentials if no existing config is found.
 
 **Phoenix:**
-```json
-{
-  "collector": { "host": "127.0.0.1", "port": 4318 },
-  "backend": {
-    "target": "phoenix",
-    "phoenix": {
-      "endpoint": "<endpoint>",
-      "api_key": ""
-    }
-  },
-  "harnesses": {
-    "cursor": { "project_name": "cursor" }
-  }
-}
+```yaml
+collector:
+  host: "127.0.0.1"
+  port: 4318
+backend:
+  target: "phoenix"
+  phoenix:
+    endpoint: "<endpoint>"
+    api_key: ""
+harnesses:
+  cursor:
+    project_name: "cursor"
 ```
 
 **Arize AX:**
-```json
-{
-  "collector": { "host": "127.0.0.1", "port": 4318 },
-  "backend": {
-    "target": "arize",
-    "arize": {
-      "endpoint": "otlp.arize.com:443",
-      "api_key": "<key>",
-      "space_id": "<id>"
-    }
-  },
-  "harnesses": {
-    "cursor": { "project_name": "cursor" }
-  }
-}
+```yaml
+collector:
+  host: "127.0.0.1"
+  port: 4318
+backend:
+  target: "arize"
+  arize:
+    endpoint: "otlp.arize.com:443"
+    api_key: "<key>"
+    space_id: "<id>"
+harnesses:
+  cursor:
+    project_name: "cursor"
 ```
 
 If the user has a custom OTLP endpoint, set it in `backend.arize.endpoint`.
@@ -175,7 +171,7 @@ If the user already has a `.cursor/hooks.json` with other hooks, merge the Arize
 ### Confirm
 
 Tell the user:
-- Shared collector config saved to `~/.arize/harness/config.json`
+- Shared collector config saved to `~/.arize/harness/config.yaml`
 - Cursor hooks activated via `.cursor/hooks.json`
 - The shared collector must be running for spans to be exported (check with `curl -sf http://127.0.0.1:4318/health`)
 - After saving, open a new Cursor session and traces will appear in their Phoenix UI or Arize AX dashboard under the project name
@@ -213,11 +209,11 @@ Common issues and fixes:
 |---------|-----|
 | Traces not appearing | Verify collector is running: `curl -sf http://127.0.0.1:4318/health`. Check hook log: `tail -20 /tmp/arize-cursor.log` |
 | Collector not running | Start it: `source ~/.arize/harness/core/collector_ctl.sh && collector_start`. Check logs: `~/.arize/harness/logs/collector.log` |
-| Collector config missing | Run `install.sh cursor` or create `~/.arize/harness/config.json` manually (include `harnesses.cursor` section) |
+| Collector config missing | Run `install.sh cursor` or create `~/.arize/harness/config.yaml` manually (include `harnesses.cursor` section) |
 | Phoenix unreachable | Verify Phoenix is running: `curl -sf <endpoint>/v1/traces` |
 | Hooks not firing | Verify `.cursor/hooks.json` exists in the project root and paths are correct (use absolute paths) |
 | Shell/MCP spans missing input | State push failed -- check that `~/.arize/harness/state/cursor/` is writable |
 | Want to test without sending | Set `ARIZE_DRY_RUN=true` env var before launching Cursor |
 | Want verbose logging | Set `ARIZE_VERBOSE=true` env var before launching Cursor |
-| Wrong project name | Set `harnesses.cursor.project_name` in `~/.arize/harness/config.json` (default: `"cursor"`) |
+| Wrong project name | Set `harnesses.cursor.project_name` in `~/.arize/harness/config.yaml` (default: `"cursor"`) |
 | Spans missing user attribution | Set `ARIZE_USER_ID` env var before launching Cursor |

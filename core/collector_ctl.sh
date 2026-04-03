@@ -9,7 +9,7 @@
 
 # --- Shared layout ---
 _AK_BASE="${HOME}/.arize/harness"
-_AK_CONFIG="${_AK_BASE}/config.json"
+_AK_CONFIG="${_AK_BASE}/config.yaml"
 _AK_PID_FILE="${_AK_BASE}/run/collector.pid"
 _AK_LOG_FILE="${_AK_BASE}/logs/collector.log"
 _AK_BIN="${_AK_BASE}/bin/arize-collector"
@@ -23,10 +23,17 @@ _ctl_source="${BASH_SOURCE[0]:-$0}"
 _ctl_dir="$(cd "$(dirname "$_ctl_source")" 2>/dev/null && pwd)"
 _AK_COLLECTOR_PY="${_ctl_dir}/collector.py"
 
+# Helper: read a dotted key from config.yaml via core/config.py
+_cfg_get() {
+  local _cfg_py="${HOME}/.arize/harness/venv/bin/python3"
+  [[ -x "$_cfg_py" ]] || _cfg_py="python3"
+  "$_cfg_py" "${_ctl_dir}/config.py" get "$1" 2>/dev/null
+}
+
 # Read host/port from config if available
-if command -v jq >/dev/null 2>&1 && [[ -f "$_AK_CONFIG" ]]; then
-  _cfg_host=$(jq -r '.collector.host // empty' "$_AK_CONFIG" 2>/dev/null) || true
-  _cfg_port=$(jq -r '.collector.port // empty' "$_AK_CONFIG" 2>/dev/null) || true
+if [[ -f "$_AK_CONFIG" ]]; then
+  _cfg_host=$(_cfg_get "collector.host") || true
+  _cfg_port=$(_cfg_get "collector.port") || true
   [[ -n "${_cfg_host:-}" ]] && _AK_HOST="$_cfg_host"
   [[ -n "${_cfg_port:-}" ]] && _AK_PORT="$_cfg_port"
 fi
@@ -59,9 +66,9 @@ collector_start() {
     return 0
   fi
 
-  # Config is required — collector reads all settings from config.json
+  # Config is required — collector reads all settings from config.yaml
   if [[ ! -f "$_AK_CONFIG" ]]; then
-    _ak_log "ERROR: No config.json found at $_AK_CONFIG — cannot start collector"
+    _ak_log "ERROR: No config.yaml found at $_AK_CONFIG — cannot start collector"
     _ak_log "Run install.sh or use the setup skill to create it"
     return 1
   fi
@@ -83,7 +90,7 @@ collector_start() {
     return 0
   elif lsof -i ":${_AK_PORT}" -sTCP:LISTEN -t >/dev/null 2>&1; then
     _ak_log "ERROR: Port ${_AK_PORT} is already in use by another process"
-    _ak_log "Set collector.port in ~/.arize/harness/config.json to use a different port"
+    _ak_log "Set collector.port in ~/.arize/harness/config.yaml to use a different port"
     return 1
   fi
 

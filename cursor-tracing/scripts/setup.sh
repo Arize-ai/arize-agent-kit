@@ -18,19 +18,33 @@ echo ""
 echo -e "${GREEN}▸ ARIZE${NC} Cursor Tracing Setup"
 echo ""
 
-# --- Prerequisites ---
-command -v jq &>/dev/null || { err "jq is required. Install: brew install jq"; exit 1; }
-
 # --- Paths ---
 SHARED_BASE="${HOME}/.arize/harness"
-SHARED_CONFIG="${SHARED_BASE}/config.json"
+SHARED_CONFIG="${SHARED_BASE}/config.yaml"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 HOOKS_SRC="${SCRIPT_DIR}/../hooks"
+
+_AK_PYTHON="${SHARED_BASE}/venv/bin/python3"
+_AK_CONFIG_PY="${REPO_DIR}/core/config.py"
+
+# --- Validate Python + PyYAML availability ---
+if [[ ! -x "$_AK_PYTHON" ]]; then
+  _AK_PYTHON="python3"
+fi
+if ! "$_AK_PYTHON" -c "import yaml" 2>/dev/null; then
+  err "PyYAML not available. Run install.sh first to set up the collector venv."
+  exit 1
+fi
+
+# --- Config helpers (require python + config.py) ---
+_cfg_get() { "${_AK_PYTHON}" "${_AK_CONFIG_PY}" get "$1" 2>/dev/null; }
+_cfg_set() { "${_AK_PYTHON}" "${_AK_CONFIG_PY}" set "$1" "$2"; }
 
 # --- Check for existing config ---
 existing_backend=""
 if [[ -f "$SHARED_CONFIG" ]]; then
-  existing_backend=$(jq -r '.backend.target // empty' "$SHARED_CONFIG" 2>/dev/null) || true
+  existing_backend=$(_cfg_get "backend.target") || true
 fi
 
 if [[ -n "$existing_backend" ]]; then
@@ -39,10 +53,7 @@ if [[ -n "$existing_backend" ]]; then
   echo ""
 
   # Add cursor harness entry
-  tmp_config="${SHARED_CONFIG}.tmp.$$"
-  jq '.harnesses.cursor.project_name = "cursor"' \
-    "$SHARED_CONFIG" > "$tmp_config" && mv "$tmp_config" "$SHARED_CONFIG"
-  chmod 600 "$SHARED_CONFIG"
+  _cfg_set "harnesses.cursor.project_name" "cursor"
   info "Added cursor harness to existing config"
 else
   # --- No existing config — prompt for backend ---
@@ -84,58 +95,46 @@ else
       ;;
   esac
 
-  # --- Write config.json ---
+  # --- Write config.yaml ---
   mkdir -p "${SHARED_BASE}/bin" "${SHARED_BASE}/run" "${SHARED_BASE}/logs"
 
   case "$TARGET" in
     phoenix)
       cat > "$SHARED_CONFIG" <<EOF
-{
-  "collector": {
-    "host": "127.0.0.1",
-    "port": 4318
-  },
-  "backend": {
-    "target": "phoenix",
-    "phoenix": {
-      "endpoint": "${phoenix_endpoint}",
-      "api_key": ""
-    },
-    "arize": {
-      "endpoint": "otlp.arize.com:443",
-      "api_key": "",
-      "space_id": ""
-    }
-  },
-  "harnesses": {
-    "cursor": { "project_name": "cursor" }
-  }
-}
+collector:
+  host: "127.0.0.1"
+  port: 4318
+backend:
+  target: "phoenix"
+  phoenix:
+    endpoint: "${phoenix_endpoint}"
+    api_key: ""
+  arize:
+    endpoint: "otlp.arize.com:443"
+    api_key: ""
+    space_id: ""
+harnesses:
+  cursor:
+    project_name: "cursor"
 EOF
       ;;
     arize)
       cat > "$SHARED_CONFIG" <<EOF
-{
-  "collector": {
-    "host": "127.0.0.1",
-    "port": 4318
-  },
-  "backend": {
-    "target": "arize",
-    "phoenix": {
-      "endpoint": "http://localhost:6006",
-      "api_key": ""
-    },
-    "arize": {
-      "endpoint": "${otlp_endpoint}",
-      "api_key": "${api_key}",
-      "space_id": "${space_id}"
-    }
-  },
-  "harnesses": {
-    "cursor": { "project_name": "cursor" }
-  }
-}
+collector:
+  host: "127.0.0.1"
+  port: 4318
+backend:
+  target: "arize"
+  phoenix:
+    endpoint: "http://localhost:6006"
+    api_key: ""
+  arize:
+    endpoint: "${otlp_endpoint}"
+    api_key: "${api_key}"
+    space_id: "${space_id}"
+harnesses:
+  cursor:
+    project_name: "cursor"
 EOF
       ;;
   esac
@@ -155,10 +154,7 @@ echo ""
 echo -e "${BLUE}Optional:${NC} Set a user ID to identify your spans (useful for teams)."
 read -rp "User ID (leave blank to skip): " user_id
 if [[ -n "$user_id" ]]; then
-  tmp_config="${SHARED_CONFIG}.tmp.$$"
-  jq --arg uid "$user_id" '.user_id = $uid' \
-    "$SHARED_CONFIG" > "$tmp_config" && mv "$tmp_config" "$SHARED_CONFIG"
-  chmod 600 "$SHARED_CONFIG"
+  _cfg_set "user_id" "$user_id"
   info "User ID set: $user_id"
 fi
 

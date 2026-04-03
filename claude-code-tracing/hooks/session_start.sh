@@ -5,7 +5,7 @@ source "$(dirname "$0")/common.sh"
 check_requirements
 
 # Ensure the shared collector is running (idempotent, no-op if already up).
-# The collector requires ~/.arize/harness/config.json to exist — for marketplace
+# The collector requires ~/.arize/harness/config.yaml to exist — for marketplace
 # installs, users must run the setup skill first to create it.
 # collector_ctl.sh falls back to running collector.py directly if the
 # installed launcher at ~/.arize/harness/bin/arize-collector doesn't exist.
