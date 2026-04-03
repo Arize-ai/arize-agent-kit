@@ -15,7 +15,6 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 ## Prerequisites
 
 - **`bash`** (4.0+)
-- **`jq`** — JSON manipulation (`brew install jq` on macOS, `apt-get install jq` on Linux)
 - **`curl`** — HTTP requests (pre-installed on most systems)
 
 No Python installation is required. The shared collector (installed automatically) handles all backend export.
@@ -44,36 +43,38 @@ bash cursor-tracing/scripts/setup.sh
 
 ## Configuration
 
-The single source of truth for backend credentials, collector settings, and per-harness configuration is `~/.arize/harness/config.json`. Each harness gets its own entry under `harnesses` with a dedicated `project_name`.
+The single source of truth for backend credentials, collector settings, and per-harness configuration is `~/.arize/harness/config.yaml`. Each harness gets its own entry under `harnesses` with a dedicated `project_name`.
 
 ### Phoenix (self-hosted)
 
-```json
-{
-  "collector": { "host": "127.0.0.1", "port": 4318 },
-  "backend": {
-    "target": "phoenix",
-    "phoenix": { "endpoint": "http://localhost:6006", "api_key": "" }
-  },
-  "harnesses": {
-    "cursor": { "project_name": "cursor" }
-  }
-}
+```yaml
+collector:
+  host: "127.0.0.1"
+  port: 4318
+backend:
+  target: "phoenix"
+  phoenix:
+    endpoint: "http://localhost:6006"
+    api_key: ""
+harnesses:
+  cursor:
+    project_name: "cursor"
 ```
 
 ### Arize AX (cloud)
 
-```json
-{
-  "collector": { "host": "127.0.0.1", "port": 4318 },
-  "backend": {
-    "target": "arize",
-    "arize": { "api_key": "<your-api-key>", "space_id": "<your-space-id>" }
-  },
-  "harnesses": {
-    "cursor": { "project_name": "cursor" }
-  }
-}
+```yaml
+collector:
+  host: "127.0.0.1"
+  port: 4318
+backend:
+  target: "arize"
+  arize:
+    api_key: "<your-api-key>"
+    space_id: "<your-space-id>"
+harnesses:
+  cursor:
+    project_name: "cursor"
 ```
 
 ## Activating Hooks
@@ -148,12 +149,11 @@ State files are keyed by `conversation_id` to isolate concurrent sessions. Stale
 | Problem | Solution |
 |---------|----------|
 | **Spans not appearing** | 1. Verify collector is running: `curl -sf http://127.0.0.1:4318/health` 2. Check hook log: `tail -20 /tmp/arize-cursor.log` 3. Check collector log: `tail -20 ~/.arize/harness/logs/collector.log` |
-| **Collector not running** | Verify config exists: `cat ~/.arize/harness/config.json`. Start it: `source core/collector_ctl.sh && collector_start`. Check log: `tail -20 ~/.arize/harness/logs/collector.log` |
-| **"jq required" error** | Install jq: `brew install jq` (macOS) or `apt-get install jq` (Linux) |
+| **Collector not running** | Verify config exists: `cat ~/.arize/harness/config.yaml`. Start it: `source core/collector_ctl.sh && collector_start`. Check log: `tail -20 ~/.arize/harness/logs/collector.log` |
 | **Shell/MCP spans missing input** | State push failed — check that `~/.arize/harness/state/cursor/` is writable. Enable verbose logging: `ARIZE_VERBOSE=true` |
 | **Hooks not firing** | Verify `.cursor/hooks.json` exists in your project root and the handler path is correct (absolute path) |
 | **Duplicate or stale state files** | Reset state: `rm -rf ~/.arize/harness/state/cursor/state_*.json`. Stale files are normally garbage-collected automatically |
-| **Spans not appearing in Arize AX** | Verify `api_key` and `space_id` in `~/.arize/harness/config.json`. Check collector log: `grep ERROR ~/.arize/harness/logs/collector.log` |
+| **Spans not appearing in Arize AX** | Verify `api_key` and `space_id` in `~/.arize/harness/config.yaml`. Check collector log: `grep ERROR ~/.arize/harness/logs/collector.log` |
 
 For more verbose output, enable debug logging:
 
@@ -164,7 +164,7 @@ tail -f /tmp/arize-cursor.log
 
 ## Environment Variables (fallback)
 
-The config file `~/.arize/harness/config.json` is the primary and recommended way to configure tracing. The environment variables below serve as a fallback or for overriding specific values at runtime.
+The config file `~/.arize/harness/config.yaml` is the primary and recommended way to configure tracing. The environment variables below serve as a fallback or for overriding specific values at runtime.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -177,7 +177,7 @@ The config file `~/.arize/harness/config.json` is the primary and recommended wa
 | `ARIZE_COLLECTOR_HOST` | No | `127.0.0.1` | Shared collector listen address |
 | `ARIZE_COLLECTOR_PORT` | No | `4318` | Shared collector listen port |
 
-Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.) are configured in `~/.arize/harness/config.json` and read by the collector. They do not need to be set as environment variables.
+Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.) are configured in `~/.arize/harness/config.yaml` and read by the collector. They do not need to be set as environment variables.
 
 ## Directory Structure
 

@@ -108,7 +108,7 @@ Then proceed to [Configure Codex](#configure-codex).
 ## Configure Codex
 
 This section configures:
-1. **Shared collector config** at `~/.arize/harness/config.json`
+1. **Shared collector config** at `~/.arize/harness/config.yaml`
 2. **Environment variables** in `~/.codex/arize-env.sh`
 3. **Notify hook** in `~/.codex/config.toml`
 4. **Event buffer** (auto-configured) — captures Codex events for rich span trees
@@ -126,30 +126,30 @@ Store this as `INTEGRATION_PATH` for the notify hook config.
 
 ### Step 1: Write the shared collector config
 
-Write `~/.arize/harness/config.json` with the backend credentials. The config file is the single source of truth for collector and backend settings.
+Write `~/.arize/harness/config.yaml` with the backend credentials. The config file is the single source of truth for collector and backend settings.
 
-**Important: read-merge-write.** If `~/.arize/harness/config.json` already exists, read it first, add or update the `harnesses.codex` entry, and preserve existing backend credentials. Only prompt the user for backend credentials if there is no existing config.
+**Important: read-merge-write.** If `~/.arize/harness/config.yaml` already exists, read it first, add or update the `harnesses.codex` entry, and preserve existing backend credentials. Only prompt the user for backend credentials if there is no existing config.
 
 **Phoenix:**
 ```bash
 mkdir -p ~/.arize/harness/{bin,run,logs}
-CONFIG_FILE=~/.arize/harness/config.json
+CONFIG_FILE=~/.arize/harness/config.yaml
 if [ -f "$CONFIG_FILE" ]; then
   # Merge: add/update harnesses.codex, preserve existing backend settings
-  tmp=$(mktemp)
-  jq '.harnesses.codex = {"project_name": "codex"}' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+  python3 ~/.arize/harness/core/config.py set harnesses.codex.project_name codex
 else
   cat > "$CONFIG_FILE" << 'EOF'
-{
-  "collector": { "host": "127.0.0.1", "port": 4318 },
-  "backend": {
-    "target": "phoenix",
-    "phoenix": { "endpoint": "http://localhost:6006", "api_key": "" }
-  },
-  "harnesses": {
-    "codex": { "project_name": "codex" }
-  }
-}
+collector:
+  host: "127.0.0.1"
+  port: 4318
+backend:
+  target: "phoenix"
+  phoenix:
+    endpoint: "http://localhost:6006"
+    api_key: ""
+harnesses:
+  codex:
+    project_name: "codex"
 EOF
 fi
 chmod 600 "$CONFIG_FILE"
@@ -158,24 +158,27 @@ chmod 600 "$CONFIG_FILE"
 **Arize AX:**
 ```bash
 mkdir -p ~/.arize/harness/{bin,run,logs}
-CONFIG_FILE=~/.arize/harness/config.json
+CONFIG_FILE=~/.arize/harness/config.yaml
 if [ -f "$CONFIG_FILE" ]; then
   # Merge: add/update harnesses.codex, preserve existing backend settings
-  tmp=$(mktemp)
-  jq '.harnesses.codex = {"project_name": "codex"}' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+  python3 ~/.arize/harness/core/config.py set harnesses.codex.project_name codex
 else
   cat > "$CONFIG_FILE" << 'EOF'
-{
-  "collector": { "host": "127.0.0.1", "port": 4318 },
-  "backend": {
-    "target": "arize",
-    "phoenix": { "endpoint": "http://localhost:6006", "api_key": "" },
-    "arize": { "endpoint": "otlp.arize.com:443", "api_key": "<key>", "space_id": "<space-id>" }
-  },
-  "harnesses": {
-    "codex": { "project_name": "codex" }
-  }
-}
+collector:
+  host: "127.0.0.1"
+  port: 4318
+backend:
+  target: "arize"
+  phoenix:
+    endpoint: "http://localhost:6006"
+    api_key: ""
+  arize:
+    endpoint: "otlp.arize.com:443"
+    api_key: "<key>"
+    space_id: "<space-id>"
+harnesses:
+  codex:
+    project_name: "codex"
 EOF
 fi
 chmod 600 "$CONFIG_FILE"
@@ -272,13 +275,12 @@ source ~/.codex/arize-env.sh && echo "ARIZE_TRACE_ENABLED=$ARIZE_TRACE_ENABLED"
 
 3. **Check shared collector is running:**
 ```bash
-curl -sf http://127.0.0.1:4318/health | jq .
+curl -sf http://127.0.0.1:4318/health
 ```
 
 4. **Check collector is running:**
 ```bash
-curl -sf http://127.0.0.1:4318/health | jq .
-curl -sf http://127.0.0.1:4318/health | jq .
+curl -sf http://127.0.0.1:4318/health
 ```
 
 5. **Phoenix connectivity** (if using Phoenix):
@@ -295,7 +297,7 @@ Should print: `[arize] DRY RUN:` followed by the span name.
 ### Confirm
 
 Tell the user:
-- Configuration saved to `~/.codex/config.toml`, `~/.codex/arize-env.sh`, and `~/.arize/harness/config.json`
+- Configuration saved to `~/.codex/config.toml`, `~/.codex/arize-env.sh`, and `~/.arize/harness/config.yaml`
 - The shared collector (port 4318) exports spans to the configured backend
 - The shared collector (port 4318) captures Codex native events for child-span assembly
 - Traces will appear as rich span trees with child spans for tool calls and API requests
@@ -331,9 +333,8 @@ Common issues and fixes:
 |---------|-----|
 | Traces not appearing | Check `ARIZE_TRACE_ENABLED` is `true` in `~/.codex/arize-env.sh` |
 | Notify hook not firing | Verify `notify` line in `~/.codex/config.toml` points to correct path |
-| "jq required" error | Install jq: `brew install jq` (macOS) or `apt install jq` (Linux) |
 | Phoenix unreachable | Verify Phoenix is running: `curl -sf <endpoint>/v1/traces` |
-| Shared collector not running | Check config: `cat ~/.arize/harness/config.json`. Start: `source core/collector_ctl.sh && collector_start` |
+| Shared collector not running | Check config: `cat ~/.arize/harness/config.yaml`. Start: `source core/collector_ctl.sh && collector_start` |
 | No output in terminal | Notify runs in background; check `/tmp/arize-codex.log` and `~/.arize/harness/logs/collector.log` |
 | Want to test without sending | Set `ARIZE_DRY_RUN=true` in env or `export ARIZE_DRY_RUN=true` |
 | Want verbose logging | Set `ARIZE_VERBOSE=true` in env or `export ARIZE_VERBOSE=true` |
