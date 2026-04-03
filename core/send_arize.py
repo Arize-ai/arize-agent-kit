@@ -11,16 +11,17 @@ import base64
 import json
 import os
 import sys
+import yaml
 
-CONFIG_FILE = os.path.expanduser("~/.arize/harness/config.json")
+CONFIG_FILE = os.path.expanduser("~/.arize/harness/config.yaml")
 
 
 def _load_config():
-    """Load config from ~/.arize/harness/config.json."""
+    """Load config from ~/.arize/harness/config.yaml."""
     if not os.path.isfile(CONFIG_FILE):
         return None
     with open(CONFIG_FILE, "r") as f:
-        return json.load(f)
+        return yaml.safe_load(f)
 
 
 def _resolve_project_name(span_data, config):
@@ -243,7 +244,7 @@ def main():
         print(f"[arize] Invalid JSON: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Arize AX credentials: config.json if it exists, otherwise env vars
+    # Arize AX credentials: config.yaml if it exists, otherwise env vars
     config = _load_config()
     if config:
         arize_cfg = config.get("backend", {}).get("arize", {})
@@ -254,7 +255,7 @@ def main():
         space_id = os.environ.get("ARIZE_SPACE_ID")
 
     if not api_key or not space_id:
-        print("[arize] ARIZE_API_KEY and ARIZE_SPACE_ID required (set in config.json or env)", file=sys.stderr)
+        print("[arize] ARIZE_API_KEY and ARIZE_SPACE_ID required (set in config.yaml or env)", file=sys.stderr)
         sys.exit(1)
 
     success = send_to_arize_grpc(span_data, api_key, space_id)

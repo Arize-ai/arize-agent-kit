@@ -6,7 +6,7 @@ Accepts OTLP JSON span payloads on POST /v1/spans from any harness,
 exports to the configured backend (Phoenix REST or Arize AX gRPC),
 and reports health on GET /health.
 
-Reads configuration from ~/.arize/harness/config.json.
+Reads configuration from ~/.arize/harness/config.yaml.
 Writes PID to ~/.arize/harness/run/collector.pid.
 Logs to ~/.arize/harness/logs/collector.log.
 
@@ -18,6 +18,7 @@ expected to be bundled with the collector — not in the user's environment.
 import base64
 import json
 import os
+import yaml
 import signal
 import sys
 import threading
@@ -28,7 +29,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 # --- Paths ---
 BASE_DIR = os.path.expanduser("~/.arize/harness")
-CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+CONFIG_FILE = os.path.join(BASE_DIR, "config.yaml")
 PID_DIR = os.path.join(BASE_DIR, "run")
 PID_FILE = os.path.join(PID_DIR, "collector.pid")
 LOG_DIR = os.path.join(BASE_DIR, "logs")
@@ -84,7 +85,7 @@ def _get_last_error():
 # --- Config ---
 
 def load_config():
-    """Load config from ~/.arize/harness/config.json.
+    """Load config from ~/.arize/harness/config.yaml.
 
     Config file is required — run install.sh or the setup skill to create it.
     """
@@ -95,7 +96,7 @@ def load_config():
         )
 
     with open(CONFIG_FILE, "r") as f:
-        cfg = json.load(f)
+        cfg = yaml.safe_load(f)
 
     backend = cfg.get("backend", {})
     target = backend.get("target", "")
@@ -787,7 +788,7 @@ def main():
     # Load config
     try:
         _config = load_config()
-    except (FileNotFoundError, ValueError, json.JSONDecodeError) as e:
+    except (FileNotFoundError, ValueError, yaml.YAMLError) as e:
         sys.stderr.write(f"[collector] Config error: {e}\n")
         sys.exit(1)
 
