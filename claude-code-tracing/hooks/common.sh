@@ -74,7 +74,7 @@ ensure_session_initialized() {
   set_state "trace_count" "0"
   set_state "tool_count" "0"
 
-  # ARIZE_USER_ID support: env var takes precedence, then hook input JSON
+  # user_id priority: env var / config.json (already resolved in core/common.sh), then hook input JSON
   local user_id="${ARIZE_USER_ID:-}"
   if [[ -z "$user_id" ]]; then
     user_id=$(echo "$input" | jq -r '.user_id // empty' 2>/dev/null || echo "")

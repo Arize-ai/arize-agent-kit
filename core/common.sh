@@ -120,6 +120,14 @@ fi
 ARIZE_COLLECTOR_PORT="${ARIZE_COLLECTOR_PORT:-4318}"
 _COLLECTOR_URL="http://${ARIZE_COLLECTOR_HOST}:${ARIZE_COLLECTOR_PORT}"
 
+# Read user_id from config.json if not set via env var
+if [[ -z "${ARIZE_USER_ID:-}" && -f "$_ARIZE_SHARED_CONFIG" ]] && command -v jq &>/dev/null; then
+  _cfg_user_id=$(jq -r '.user_id // empty' "$_ARIZE_SHARED_CONFIG" 2>/dev/null) || true
+  if [[ -n "${_cfg_user_id:-}" ]]; then
+    ARIZE_USER_ID="$_cfg_user_id"
+  fi
+fi
+
 # --- Target Detection ---
 get_target() {
   if [[ -n "$PHOENIX_ENDPOINT" ]]; then echo "phoenix"

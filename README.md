@@ -42,7 +42,7 @@ No Python packages, `grpcio`, or `opentelemetry-proto` need to be installed in y
 ### Uninstall
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- uninstall
+curl -fsSL $INSTALL | bash -s -- uninstall
 ```
 
 This stops the background collector, removes the collector runtime, and cleans up harness-specific configuration. You will be prompted before any user-owned config (credentials, state files) is deleted.
@@ -51,85 +51,53 @@ This stops the background collector, removes the collector runtime, and cleans u
 
 All configuration lives in `~/.arize/harness/config.json`, written by the installer. This file is the single source of truth for backend credentials, collector settings, and per-harness project names.
 
-### config.json Schema
+### config.json Fields
 
-```json
-{
-  "collector": { "host": "127.0.0.1", "port": 4318 },
-  "backend": {
-    "target": "phoenix|arize",
-    "phoenix": { "endpoint": "...", "api_key": "..." },
-    "arize": { "endpoint": "...", "api_key": "...", "space_id": "..." }
-  },
-  "harnesses": {
-    "claude-code": { "project_name": "claude-code" },
-    "codex": { "project_name": "codex" },
-    "cursor": { "project_name": "cursor" }
-  }
-}
-```
+**Collector**
 
-- **`collector`** — Host and port for the local OTLP collector. Default port is `4318`. To change it, set `collector.port` in `config.json` — this only needs to be done once and applies to all harnesses.
-- **`backend.target`** — Which backend to export to (`phoenix` or `arize`).
-- **`backend.phoenix` / `backend.arize`** — Credentials for the selected backend.
-- **`harnesses.<name>.project_name`** — Per-harness project name used in Arize/Phoenix.
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `collector.host` | No | `127.0.0.1` | Collector listen address |
+| `collector.port` | No | `4318` | Collector listen port |
 
-> **Port conflict?** If port 4318 is already in use, the collector will fail to start. Set `collector.port` to a different value (e.g. `4319`) in `~/.arize/harness/config.json`. The installer will also prompt for this during setup.
+**Backend**
 
-### Backend Requirements
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `backend.target` | Yes | — | `phoenix` or `arize` |
 
-| Backend | Config fields |
-|---------|---------------|
-| **Phoenix** | `backend.phoenix.endpoint`, `backend.phoenix.api_key` |
-| **Arize AX** | `backend.arize.api_key`, `backend.arize.space_id`, `backend.arize.endpoint` |
+**Phoenix backend** (`backend.target: "phoenix"`)
 
-Both backends are served by the shared collector. Harnesses only need `jq` and `curl` to build and submit spans locally. The collector handles all backend-specific transport (HTTP for Phoenix, gRPC for Arize AX) — no Python packages required in the user environment.
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `backend.phoenix.endpoint` | Yes | `http://localhost:6006` | Phoenix server URL |
+| `backend.phoenix.api_key` | No | — | Phoenix API key (if auth is enabled) |
 
-## Architecture
+**Arize AX backend** (`backend.target: "arize"`)
 
-Harness integrations build OpenInference spans locally and submit them to a shared background collector at `http://127.0.0.1:4318`. The collector owns backend export to Phoenix or Arize AX, including credentials, retries, and logging. Harnesses do not export directly to backends.
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `backend.arize.api_key` | Yes | — | Arize AX API key |
+| `backend.arize.space_id` | Yes | — | Arize AX space ID |
+| `backend.arize.endpoint` | No | `otlp.arize.com:443` | Arize OTLP gRPC endpoint (for on-prem) |
 
-```text
-Claude Code hooks ─┐
-Codex hooks       ─┼─> POST http://127.0.0.1:4318/v1/spans ──> Phoenix / Arize AX
-Cursor hooks      ─┘         (shared background collector)
-```
+**User**
 
-The installer writes all shared runtime files under `~/.arize/harness/`:
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `user_id` | No | — | User identifier added to all spans as `user.id` |
 
-| Path | Purpose |
-|------|---------|
-| `config.json` | Collector settings, backend target/credentials, and per-harness project names (`harnesses`) |
-| `bin/arize-collector` | Collector launcher script |
-| `run/collector.pid` | PID of the running collector process |
-| `logs/collector.log` | Collector log output |
+**Per-harness settings**
 
-The collector starts automatically during install and runs in the background. Check its status with:
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `harnesses.claude-code.project_name` | No | `claude-code` | Project name for Claude Code / Agent SDK |
+| `harnesses.codex.project_name` | No | `codex` | Project name for OpenAI Codex |
+| `harnesses.cursor.project_name` | No | `cursor` | Project name for Cursor IDE |
 
-```bash
-curl -s http://127.0.0.1:4318/health | python3 -m json.tool
-```
+The collector handles all backend-specific transport (HTTP for Phoenix, gRPC for Arize AX). Harnesses only need `jq` and `curl`.
 
 See [COLLECTOR_ARCHITECTURE.md](COLLECTOR_ARCHITECTURE.md) for the full collector contract.
-
-## Repository Layout
-
-```
-core/                   Shared span building, state primitives, collector, and sending
-claude-code-tracing/    Claude Code (CLI and Agent SDK) integration
-codex-tracing/          OpenAI Codex CLI integration
-cursor-tracing/         Cursor IDE integration
-install.sh              Curl-pipe installer (shared collector + harness config)
-DEVELOPMENT.md          Guide for adding new harness adapters
-```
-
-## Testing
-
-Validate span output without sending data:
-
-```bash
-ARIZE_DRY_RUN=true <your-harness-command>
-```
 
 ## Contributing
 

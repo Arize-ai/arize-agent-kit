@@ -156,17 +156,15 @@ Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.
 
 ### User Identification
 
-Set `ARIZE_USER_ID` to tag all spans with a `user.id` attribute. This is useful for team environments where multiple users share a project:
+Set `user_id` in `~/.arize/harness/config.json` to tag all spans with a `user.id` attribute. This is useful for team environments where multiple users share a project:
 
 ```json
 {
-  "env": {
-    "ARIZE_USER_ID": "alice@example.com"
-  }
+  "user_id": "alice@example.com"
 }
 ```
 
-The interactive setup (`scripts/setup.sh`) prompts for this value. If not set via the environment variable, the plugin also checks for a `user_id` field in the hook input JSON.
+The `ARIZE_USER_ID` environment variable can also be used and takes precedence over the config file. The hook input JSON `user_id` field is used as a final fallback.
 
 ## Usage
 
