@@ -2,3 +2,5 @@
 .workbench/
 .agents/
 .claude/
+
+__pycache__/
