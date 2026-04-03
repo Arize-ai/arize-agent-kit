@@ -67,42 +67,44 @@ bash install.sh uninstall
 notify = ["bash", "/path/to/arize-agent-kit/codex-tracing/hooks/notify.sh"]
 ```
 
-2. Create the shared collector config at `~/.arize/harness/config.json` with your backend and harness settings (see [Configuration](#configuration) below and [COLLECTOR_ARCHITECTURE.md](../COLLECTOR_ARCHITECTURE.md) for the full schema).
+2. Create the shared collector config at `~/.arize/harness/config.yaml` with your backend and harness settings (see [Configuration](#configuration) below and [COLLECTOR_ARCHITECTURE.md](../COLLECTOR_ARCHITECTURE.md) for the full schema).
 
 3. Optionally create `~/.codex/arize-env.sh` for env-var overrides (see [Environment Variables](#environment-variables)).
 
 ## Configuration
 
-The single source of truth is `~/.arize/harness/config.json`. The notify hook and collector both read from this file. Environment variables in `~/.codex/arize-env.sh` are still supported as overrides but are no longer the primary configuration mechanism.
+The single source of truth is `~/.arize/harness/config.yaml`. The notify hook and collector both read from this file. Environment variables in `~/.codex/arize-env.sh` are still supported as overrides but are no longer the primary configuration mechanism.
 
 **Phoenix** (self-hosted):
 
-```json
-{
-  "collector": { "host": "127.0.0.1", "port": 4318 },
-  "backend": {
-    "target": "phoenix",
-    "phoenix": { "endpoint": "http://localhost:6006", "api_key": "" }
-  },
-  "harnesses": {
-    "codex": { "project_name": "codex" }
-  }
-}
+```yaml
+collector:
+  host: "127.0.0.1"
+  port: 4318
+backend:
+  target: "phoenix"
+  phoenix:
+    endpoint: "http://localhost:6006"
+    api_key: ""
+harnesses:
+  codex:
+    project_name: "codex"
 ```
 
 **Arize AX** (cloud):
 
-```json
-{
-  "collector": { "host": "127.0.0.1", "port": 4318 },
-  "backend": {
-    "target": "arize",
-    "arize": { "api_key": "<your-api-key>", "space_id": "<your-space-id>" }
-  },
-  "harnesses": {
-    "codex": { "project_name": "codex" }
-  }
-}
+```yaml
+collector:
+  host: "127.0.0.1"
+  port: 4318
+backend:
+  target: "arize"
+  arize:
+    api_key: "<your-api-key>"
+    space_id: "<your-space-id>"
+harnesses:
+  codex:
+    project_name: "codex"
 ```
 
 Env-var overrides (optional) can still be placed in `~/.codex/arize-env.sh`, which the notify hook sources automatically.
@@ -138,17 +140,17 @@ When Codex OTLP export is enabled, `notify.sh` drains buffered events for the cu
 
 ## Environment Variables
 
-These env vars are **optional overrides**. Prefer setting values in `~/.arize/harness/config.json` (see [Configuration](#configuration)). If set, env vars take precedence over the config file.
+These env vars are **optional overrides**. Prefer setting values in `~/.arize/harness/config.yaml` (see [Configuration](#configuration)). If set, env vars take precedence over the config file.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `ARIZE_TRACE_ENABLED` | No | `true` | Enable or disable tracing |
-| `ARIZE_API_KEY` | No | config.json | Arize AX API key (override) |
-| `ARIZE_SPACE_ID` | No | config.json | Arize AX space ID (override) |
+| `ARIZE_API_KEY` | No | config.yaml | Arize AX API key (override) |
+| `ARIZE_SPACE_ID` | No | config.yaml | Arize AX space ID (override) |
 | `ARIZE_OTLP_ENDPOINT` | No | `otlp.arize.com:443` | OTLP gRPC endpoint (on-prem Arize) |
-| `PHOENIX_ENDPOINT` | No | config.json | Phoenix collector URL (override) |
-| `PHOENIX_API_KEY` | No | config.json | Phoenix API key (override) |
-| `ARIZE_PROJECT_NAME` | No | config.json | Project name (override; defaults to harness `project_name`) |
+| `PHOENIX_ENDPOINT` | No | config.yaml | Phoenix collector URL (override) |
+| `PHOENIX_API_KEY` | No | config.yaml | Phoenix API key (override) |
+| `ARIZE_PROJECT_NAME` | No | config.yaml | Project name (override; defaults to harness `project_name`) |
 | `ARIZE_USER_ID` | No | - | User identifier added to all spans as `user.id` |
 | `ARIZE_DRY_RUN` | No | `false` | Print spans to log instead of sending |
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
@@ -181,7 +183,7 @@ collector_status   # Check if running (exit code 0/1)
 collector_ensure   # Start if not already running
 ```
 
-Config: `~/.arize/harness/config.json`.  PID: `~/.arize/harness/run/collector.pid`.  Log: `~/.arize/harness/logs/collector.log`.
+Config: `~/.arize/harness/config.yaml`.  PID: `~/.arize/harness/run/collector.pid`.  Log: `~/.arize/harness/logs/collector.log`.
 
 The shared collector also buffers Codex's native OTLP log events (`POST /v1/logs`) by thread ID for child-span assembly. No separate event buffer process is needed.
 
@@ -211,20 +213,20 @@ core/send_arize.py    Arize AX gRPC sender (legacy fallback)
 
 1. Verify Phoenix is running: `curl -s http://localhost:6006/healthz`
 2. Check the shared collector: `curl -s http://127.0.0.1:4318/health`
-3. Check config: `cat ~/.arize/harness/config.json` (and `~/.codex/arize-env.sh` if using env-var overrides)
+3. Check config: `cat ~/.arize/harness/config.yaml` (and `~/.codex/arize-env.sh` if using env-var overrides)
 4. Check the shared collector log: `tail -20 ~/.arize/harness/logs/collector.log`
 5. Check the harness log: `tail -20 /tmp/arize-codex.log`
 6. Test with dry run: `ARIZE_DRY_RUN=true codex`
 
 **Spans not appearing in Arize AX**
 
-1. Verify `ARIZE_API_KEY` and `ARIZE_SPACE_ID` in `~/.arize/harness/config.json`
+1. Verify `ARIZE_API_KEY` and `ARIZE_SPACE_ID` in `~/.arize/harness/config.yaml`
 2. Check the shared collector: `curl -s http://127.0.0.1:4318/health`
 3. Check the shared collector log for gRPC errors: `grep ERROR ~/.arize/harness/logs/collector.log`
 
 **Shared collector not starting**
 
-1. Check config exists: `cat ~/.arize/harness/config.json`
+1. Check config exists: `cat ~/.arize/harness/config.yaml`
 2. Check if port 4318 is in use: `lsof -i :4318`
 3. Check PID file: `cat ~/.arize/harness/run/collector.pid`
 4. Check log: `tail -20 ~/.arize/harness/logs/collector.log`
@@ -234,10 +236,6 @@ core/send_arize.py    Arize AX gRPC sender (legacy fallback)
 1. Ensure native OTLP export is enabled in Codex config (`[otel]` section pointing to `127.0.0.1:4318`)
 2. Verify the collector is running: `curl -s http://127.0.0.1:4318/health` (check `event_buffer` in response)
 3. Enable debug dumps: `export ARIZE_TRACE_DEBUG=true` and check `~/.arize/harness/state/codex/debug/`
-
-**"jq required" error**
-
-Install jq: `brew install jq` (macOS) or `apt-get install jq` (Linux).
 
 **Session state issues**
 
