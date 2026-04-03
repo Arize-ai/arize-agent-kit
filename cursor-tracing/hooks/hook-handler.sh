@@ -13,7 +13,7 @@ set -euo pipefail
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # --- Source cursor adapter (which sources core/common.sh) ---
-# Config is read from ~/.arize/harness/config.json by the shared collector.
+# Config is read from ~/.arize/harness/config.yaml by the shared collector.
 source "${HOOK_DIR}/common.sh"
 
 # --- Read input from stdin ---
