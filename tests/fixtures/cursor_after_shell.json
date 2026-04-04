@@ -1,0 +1,1 @@
+{"hook_event_name": "afterShellExecution", "conversation_id": "conv-1", "generation_id": "gen-1", "command": "ls -la", "output": "total 0", "exit_code": "0"}
