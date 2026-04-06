@@ -24,6 +24,8 @@ arize-hook-permission-request = "core.hooks.claude.handlers:permission_request"
 arize-hook-session-end = "core.hooks.claude.handlers:session_end"
 # Codex hook
 arize-hook-codex-notify = "core.hooks.codex.handlers:notify"
+# Codex proxy
+arize-codex-proxy = "core.hooks.codex.proxy:main"
 # Cursor hook
 arize-hook-cursor = "core.hooks.cursor.handlers:main"
 
