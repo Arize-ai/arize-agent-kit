@@ -15,6 +15,67 @@ from pathlib import Path
 import yaml
 
 
+# ---------------------------------------------------------------------------
+# Environment helper — reads tracing-related env vars with defaults
+# ---------------------------------------------------------------------------
+
+class _Env:
+    """Lazy accessor for tracing-related environment variables.
+
+    Property reads are live (not cached) so tests can monkeypatch os.environ.
+    """
+
+    @property
+    def trace_enabled(self) -> bool:
+        return os.environ.get("ARIZE_TRACE_ENABLED", "true").lower() == "true"
+
+    @property
+    def project_name(self) -> str:
+        return os.environ.get("ARIZE_PROJECT_NAME", "")
+
+    @property
+    def user_id(self) -> str:
+        return os.environ.get("ARIZE_USER_ID", "")
+
+    @property
+    def verbose(self) -> bool:
+        return os.environ.get("ARIZE_VERBOSE", "").lower() == "true"
+
+    @property
+    def dry_run(self) -> bool:
+        return os.environ.get("ARIZE_DRY_RUN", "false").lower() == "true"
+
+    @property
+    def log_file(self) -> str:
+        return os.environ.get("ARIZE_LOG_FILE", "/tmp/arize-agent-kit.log")
+
+
+env = _Env()
+
+
+# ---------------------------------------------------------------------------
+# ID and timestamp generation
+# ---------------------------------------------------------------------------
+
+def generate_trace_id() -> str:
+    """Generate a 32-hex-char trace ID (replaces uuidgen | tr -d '-')."""
+    return os.urandom(16).hex()
+
+
+def generate_span_id() -> str:
+    """Generate a 16-hex-char span ID (replaces uuidgen | tr -d '-' | cut -c1-16)."""
+    return os.urandom(8).hex()
+
+
+def get_timestamp_ms() -> int:
+    """Current time in milliseconds since epoch (replaces date +%s%3N)."""
+    return int(time.time() * 1000)
+
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
 def _is_verbose() -> bool:
     return os.environ.get("ARIZE_VERBOSE", "").lower() == "true"
 
