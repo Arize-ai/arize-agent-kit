@@ -35,6 +35,11 @@ def _log(msg: str) -> None:
 
 def _is_process_alive(pid: int) -> bool:
     """Check whether a process with the given PID is alive."""
+    if pid <= 0:
+        # Guard: PID 0 is the kernel/idle process, negative PIDs target
+        # process groups on Unix. Neither is a valid collector PID.
+        return False
+
     if os.name == "nt":
         # Windows: try OpenProcess, fall back to tasklist
         try:
