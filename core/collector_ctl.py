@@ -32,6 +32,9 @@ def _log(msg: str) -> None:
     sys.stderr.write(f"[arize] {msg}\n")
     sys.stderr.flush()
 
+def _is_windows():
+    """Check if the operating system is Windows."""
+    return os.name == "nt"
 
 def _is_process_alive(pid: int) -> bool:
     """Check whether a process with the given PID is alive."""
@@ -40,7 +43,7 @@ def _is_process_alive(pid: int) -> bool:
         # process groups on Unix. Neither is a valid collector PID.
         return False
 
-    if os.name == "nt":
+    if _is_windows():
         # Windows: try OpenProcess, fall back to tasklist
         try:
             import ctypes
@@ -183,7 +186,7 @@ def collector_start() -> bool:
     # Launch process
     log_fd = open(COLLECTOR_LOG_FILE, "a")
     try:
-        if os.name == "nt":
+        if _is_windows():
             proc = subprocess.Popen(
                 cmd,
                 stdout=log_fd,
@@ -240,7 +243,7 @@ def collector_stop() -> str:
     if _is_process_alive(pid):
         # Send SIGTERM
         try:
-            if os.name == "nt":
+            if _is_windows():
                 try:
                     os.kill(pid, signal.SIGTERM)
                 except OSError:
