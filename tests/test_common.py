@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Tests for core.common — FileLock and StateManager."""
+import os
 import threading
 import time
 from pathlib import Path
@@ -7,7 +8,47 @@ from pathlib import Path
 import pytest
 import yaml
 
-from core.common import FileLock, StateManager
+from core.common import FileLock, StateManager, debug_dump, error, log
+
+
+# ── Logging tests ──────────────────────────────────────────────────────────
+
+
+class TestLogging:
+    def test_log_verbose_on(self, capsys, monkeypatch):
+        """log() writes to stderr when ARIZE_VERBOSE=true."""
+        monkeypatch.setenv("ARIZE_VERBOSE", "true")
+        log("test message")
+        assert "test message" in capsys.readouterr().err
+
+    def test_log_verbose_off(self, capsys, monkeypatch):
+        """log() is silent when ARIZE_VERBOSE is not set."""
+        monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
+        log("test message")
+        assert capsys.readouterr().err == ""
+
+    def test_error_always_writes(self, capsys):
+        """error() always writes to stderr."""
+        error("something broke")
+        assert "something broke" in capsys.readouterr().err
+
+    def test_debug_dump_off(self, tmp_path, monkeypatch):
+        """debug_dump() does nothing when ARIZE_TRACE_DEBUG is not true."""
+        monkeypatch.delenv("ARIZE_TRACE_DEBUG", raising=False)
+        debug_dump("test_label", {"key": "val"})
+        # no files should be created in debug dir
+
+    def test_debug_dump_on(self, tmp_path, monkeypatch):
+        """debug_dump() writes YAML file when ARIZE_TRACE_DEBUG=true."""
+        monkeypatch.setenv("ARIZE_TRACE_DEBUG", "true")
+        debug_dir = tmp_path / "debug"
+        monkeypatch.setattr("core.constants.STATE_BASE_DIR", tmp_path)
+        debug_dump("test_label", {"key": "val"})
+        assert debug_dir.exists()
+        files = list(debug_dir.glob("test_label_*.yaml"))
+        assert len(files) == 1
+        data = yaml.safe_load(files[0].read_text())
+        assert data == {"key": "val"}
 
 
 # ── FileLock tests ──────────────────────────────────────────────────────────
