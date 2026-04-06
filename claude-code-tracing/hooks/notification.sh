@@ -14,6 +14,8 @@ trace_id=$(get_state "current_trace_id")
 session_id=$(get_state "session_id")
 message=$(echo "$input" | jq -r '.message // empty' 2>/dev/null || echo "")
 title=$(echo "$input" | jq -r '.title // empty' 2>/dev/null || echo "")
+message=$(redact_content "$ARIZE_LOG_PROMPTS" "$message")
+title=$(redact_content "$ARIZE_LOG_PROMPTS" "$title")
 notif_type=$(echo "$input" | jq -r '.notification_type // "info"' 2>/dev/null || echo "info")
 
 span_id=$(generate_uuid | tr -d '-' | cut -c1-16)

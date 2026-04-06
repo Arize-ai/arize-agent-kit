@@ -53,6 +53,9 @@ fi
 output=$(printf '%s' "$output" | head -c 5000)
 [[ -z "$output" ]] && output="(No response)"
 
+# Prompt is already redacted at capture time in user_prompt_submit.sh.
+# Model responses are always included — they are the primary value of tracing.
+
 # Compute total token count
 total_tokens=$((in_tokens + out_tokens))
 

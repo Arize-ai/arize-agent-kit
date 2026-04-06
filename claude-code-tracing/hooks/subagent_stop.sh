@@ -69,6 +69,9 @@ if [[ -n "$transcript_path" && -f "$transcript_path" ]]; then
   subagent_output=$(echo "$subagent_output" | head -c 5000)
 fi
 
+# Redact subagent output unless opted in
+subagent_output=$(redact_content "$ARIZE_LOG_TOOL_CONTENT" "$subagent_output")
+
 # Fall back to current time if no start time found
 [[ -z "$start_time" ]] && start_time="$end_time"
 

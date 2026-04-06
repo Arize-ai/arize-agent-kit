@@ -87,6 +87,9 @@ fi
 user_prompt=$(printf '%s' "$user_prompt" | head -c 5000)
 assistant_output=$(printf '%s' "$assistant_output" | head -c 5000)
 [[ -z "$assistant_output" ]] && assistant_output="(No response)"
+
+# Redact user prompt unless opted in. Model responses are always included.
+user_prompt=$(redact_content "$ARIZE_LOG_PROMPTS" "$user_prompt")
 debug_dump "${debug_prefix}_text" "$(jq -nc --arg user "$user_prompt" --arg assistant "$assistant_output" '{input:$user,assistant:$assistant}')"
 
 # --- Generate span IDs ---
@@ -338,6 +341,7 @@ if [[ "$event_count" -gt 0 ]]; then
     if [[ -n "$result" && "$result" != "null" ]]; then
       result_time_ns=$(echo "$result" | jq -r '.time_ns // "0"' 2>/dev/null)
       tool_output=$(echo "$result" | jq -r '.attrs.output // .attrs.result // .attrs["tool.output"] // ""' 2>/dev/null | head -c 2000)
+      tool_output=$(redact_content "$ARIZE_LOG_TOOL_CONTENT" "$tool_output")
     fi
 
     # Convert nanosecond timestamps to milliseconds for build_span

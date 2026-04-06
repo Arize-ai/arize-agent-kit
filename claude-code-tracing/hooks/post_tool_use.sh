@@ -73,6 +73,15 @@ span_id=$(generate_uuid | tr -d '-' | cut -c1-16)
 
 user_id=$(get_state "user_id")
 
+# Redact content based on logging level
+tool_input=$(redact_content "$ARIZE_LOG_TOOL_CONTENT" "$tool_input")
+tool_response=$(redact_content "$ARIZE_LOG_TOOL_CONTENT" "$tool_response")
+tool_description=$(redact_content "$ARIZE_LOG_TOOL_DETAILS" "$tool_description")
+[[ -n "$tool_command" ]] && tool_command=$(redact_content "$ARIZE_LOG_TOOL_DETAILS" "$tool_command")
+[[ -n "$tool_file_path" ]] && tool_file_path=$(redact_content "$ARIZE_LOG_TOOL_DETAILS" "$tool_file_path")
+[[ -n "$tool_url" ]] && tool_url=$(redact_content "$ARIZE_LOG_TOOL_DETAILS" "$tool_url")
+[[ -n "$tool_query" ]] && tool_query=$(redact_content "$ARIZE_LOG_TOOL_DETAILS" "$tool_query")
+
 # Build base attributes
 attrs=$(jq -n \
   --arg sid "$session_id" --arg tool "$tool_name" \
