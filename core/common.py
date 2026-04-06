@@ -7,10 +7,46 @@ in common.sh lines 46-109.
 """
 import os
 import shutil
+import sys
 import time
 from pathlib import Path
 
 import yaml
+
+
+def _is_verbose() -> bool:
+    return os.environ.get("ARIZE_VERBOSE", "").lower() == "true"
+
+
+def log(msg: str) -> None:
+    """Verbose log — only written when ARIZE_VERBOSE=true. Goes to stderr."""
+    if _is_verbose():
+        print(f"[arize] {msg}", file=sys.stderr, flush=True)
+
+
+def error(msg: str) -> None:
+    """Error log — always written. Goes to stderr."""
+    print(f"[arize:error] {msg}", file=sys.stderr, flush=True)
+
+
+def debug_dump(label: str, data: object) -> None:
+    """Trace-level debug dump — only when ARIZE_TRACE_DEBUG=true.
+
+    Writes YAML files to {STATE_DIR}/debug/{label}_{timestamp}.yaml.
+    Used by Codex hooks for detailed payload inspection.
+    """
+    if os.environ.get("ARIZE_TRACE_DEBUG", "").lower() != "true":
+        return
+    try:
+        from core.constants import STATE_BASE_DIR
+        debug_dir = STATE_BASE_DIR / "debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        ts = int(time.time() * 1000)
+        dump_file = debug_dir / f"{label}_{ts}.yaml"
+        dump_file.write_text(yaml.safe_dump(data, default_flow_style=False), encoding="utf-8")
+    except Exception:
+        pass  # debug dumps must never cause failures
+
 
 # --- Platform-specific lock implementation detection ---
 try:
@@ -220,8 +256,8 @@ class StateManager:
                 data = self._read_safe()
                 data[key] = str(value)
                 self._write(data)
-        except Exception:
-            pass
+        except Exception as e:
+            error(f"set_state failed for key={key}: {e}")
 
     def delete(self, key: str) -> None:
         """Remove a key. No-op if missing. Acquires lock."""
@@ -232,8 +268,8 @@ class StateManager:
                 data = self._read_safe()
                 data.pop(key, None)
                 self._write(data)
-        except Exception:
-            pass
+        except Exception as e:
+            error(f"del_state failed for key={key}: {e}")
 
     def increment(self, key: str) -> None:
         """Increment a numeric string value. Acquires lock.
@@ -254,8 +290,8 @@ class StateManager:
                     num = 0
                 data[key] = str(num + 1)
                 self._write(data)
-        except Exception:
-            pass
+        except Exception as e:
+            error(f"inc_state failed for key={key}: {e}")
 
     def _lock(self) -> FileLock:
         """Return a FileLock for this state file."""
