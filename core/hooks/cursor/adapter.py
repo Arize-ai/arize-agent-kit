@@ -12,12 +12,10 @@ import hashlib
 import os
 import re
 
-from pathlib import Path
-
 import yaml
 
 from core.constants import HARNESSES, STATE_BASE_DIR
-from core.common import FileLock, log, error
+from core.common import FileLock, env, log, error, get_timestamp_ms
 
 # --- Module-level constants from HARNESSES["cursor"] ---
 _HARNESS = HARNESSES["cursor"]
@@ -109,10 +107,10 @@ def state_pop(key: str) -> "dict | None":
     stack_file = STATE_DIR / f"{key}.stack.yaml"
     lock_path = STATE_DIR / f".lock_{key}"
 
-    if not stack_file.exists():
-        return None
-
     with FileLock(lock_path):
+        if not stack_file.exists():
+            return None
+
         try:
             data = yaml.safe_load(stack_file.read_text()) or []
         except yaml.YAMLError:
@@ -196,8 +194,7 @@ def state_cleanup_generation(gen_id: str) -> None:
 
 def check_requirements() -> bool:
     """Check tracing enabled, ensure state directory exists."""
-    trace_enabled = os.environ.get("ARIZE_TRACE_ENABLED", "").lower() == "true"
-    if not trace_enabled:
+    if not env.trace_enabled:
         return False
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     return True
