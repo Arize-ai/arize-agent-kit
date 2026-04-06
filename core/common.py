@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Shared library for arize-agent-kit: state management and file locking.
+"""Shared library for arize-agent-kit: state management, file locking, and span building.
 
-Provides FileLock (cross-platform file locking) and StateManager (per-session
-key-value state backed by YAML files). Replaces the jq-based state functions
-in common.sh lines 46-109.
+Provides FileLock (cross-platform file locking), StateManager (per-session
+key-value state backed by YAML files), and OTLP span building functions.
+Replaces the jq-based state functions in common.sh lines 46-109 and
+build_span/build_multi_span from common.sh lines 277-317 / codex common.sh lines 110-145.
 """
 import os
 import shutil
@@ -334,3 +335,171 @@ class StateManager:
             except OSError:
                 pass
             raise
+
+
+# ── OTLP Span Building ────────────────────────────────────────────────────
+
+# Map string kind names to OTLP SpanKind integer values.
+# Case-insensitive lookup (caller passes "LLM", "TOOL", etc.)
+SPAN_KIND_MAP: dict = {
+    # kind 1 = SPAN_KIND_INTERNAL (used for LLM, CHAIN, TOOL, INTERNAL in OpenInference)
+    "": 1, "llm": 1, "chain": 1, "tool": 1, "internal": 1,
+    "span_kind_internal": 1,
+    # kind 2 = SPAN_KIND_SERVER
+    "server": 2, "span_kind_server": 2,
+    # kind 3 = SPAN_KIND_CLIENT
+    "client": 3, "span_kind_client": 3,
+    # kind 4 = SPAN_KIND_PRODUCER
+    "producer": 4, "span_kind_producer": 4,
+    # kind 5 = SPAN_KIND_CONSUMER
+    "consumer": 5, "span_kind_consumer": 5,
+    # kind 0 = SPAN_KIND_UNSPECIFIED
+    "unspecified": 0, "span_kind_unspecified": 0,
+}
+
+
+def _resolve_kind(kind: str) -> int:
+    """Resolve a span kind string to an OTLP SpanKind integer.
+
+    Case-insensitive lookup in SPAN_KIND_MAP. If not found and numeric, parse
+    as int. Otherwise default to 1 (SPAN_KIND_INTERNAL).
+    """
+    lookup = SPAN_KIND_MAP.get(kind.lower())
+    if lookup is not None:
+        return lookup
+    # Numeric string (matches bash: if [[ "$kind" =~ ^[0-9]+$ ]])
+    try:
+        return int(kind)
+    except (ValueError, TypeError):
+        return 1
+
+
+def _to_otlp_attr_value(value) -> dict:
+    """Convert a Python value to OTLP attribute value dict.
+
+    Matches the jq type-detection logic in build_span:
+    - bool → {"boolValue": v}          (check BEFORE int — bool is subclass of int)
+    - int → {"intValue": v}
+    - float with no fractional part → {"intValue": int(v)}   (matches jq: floor == value)
+    - float with fractional part → {"doubleValue": v}
+    - everything else → {"stringValue": str(v)}
+    """
+    if isinstance(value, bool):
+        return {"boolValue": value}
+    if isinstance(value, int):
+        return {"intValue": value}
+    if isinstance(value, float):
+        if value == int(value):
+            return {"intValue": int(value)}
+        return {"doubleValue": value}
+    return {"stringValue": str(value)}
+
+
+def _attrs_to_otlp(attrs: dict) -> list:
+    """Convert a flat Python dict to OTLP attribute list.
+
+    Input:  {"session.id": "abc", "llm.token_count.prompt": 100}
+    Output: [{"key": "session.id", "value": {"stringValue": "abc"}},
+             {"key": "llm.token_count.prompt", "value": {"intValue": 100}}]
+    """
+    return [{"key": k, "value": _to_otlp_attr_value(v)} for k, v in attrs.items()]
+
+
+def build_span(
+    name: str,
+    kind: str,
+    span_id: str,
+    trace_id: str,
+    parent_span_id: str = "",
+    start_ms: "int | str" = 0,
+    end_ms: "int | str" = 0,
+    attrs: "dict | None" = None,
+    service_name: str = "arize-agent-kit",
+    scope_name: str = "arize-agent-kit",
+) -> dict:
+    """Build an OTLP JSON span payload.
+
+    Returns a dict matching the exact structure produced by core/common.sh:build_span().
+
+    Timestamp handling: start_ms and end_ms are in milliseconds. The OTLP format
+    requires nanoseconds as strings. Bash appends "000000" (line 312):
+        "startTimeUnixNano":"${start}000000"
+    Python does the same: f"{int(start_ms)}000000"
+
+    If end_ms is empty/None/0, defaults to start_ms (matches bash: end="${7:-$start}").
+    """
+    if attrs is None:
+        attrs = {}
+
+    start = int(start_ms) if start_ms else 0
+    end = int(end_ms) if end_ms else start
+
+    kind_value = _resolve_kind(kind or "")
+
+    span_obj = {
+        "traceId": trace_id,
+        "spanId": span_id,
+        "name": name,
+        "kind": kind_value,
+        "startTimeUnixNano": f"{start}000000",
+        "endTimeUnixNano": f"{end}000000",
+        "attributes": _attrs_to_otlp(attrs),
+        "status": {"code": 1},
+    }
+
+    # parentSpanId only included if non-empty (matches bash conditional)
+    if parent_span_id:
+        span_obj["parentSpanId"] = parent_span_id
+
+    return {
+        "resourceSpans": [{
+            "resource": {
+                "attributes": [
+                    {"key": "service.name", "value": {"stringValue": service_name}}
+                ]
+            },
+            "scopeSpans": [{
+                "scope": {"name": scope_name},
+                "spans": [span_obj]
+            }]
+        }]
+    }
+
+
+def build_multi_span(
+    span_payloads: list,
+    service_name: str = "arize-agent-kit",
+    scope_name: str = "arize-agent-kit",
+) -> dict:
+    """Merge multiple build_span() outputs into a single resourceSpans payload.
+
+    Extracts the span object from each payload's
+    resourceSpans[0].scopeSpans[0].spans[0] and combines them under
+    one resource/scope envelope.
+
+    Returns {} if no valid spans found (matches bash: echo "{}"; return 1).
+    """
+    spans = []
+    for payload in span_payloads:
+        try:
+            span = payload["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+            spans.append(span)
+        except (KeyError, IndexError, TypeError):
+            continue
+
+    if not spans:
+        return {}
+
+    return {
+        "resourceSpans": [{
+            "resource": {
+                "attributes": [
+                    {"key": "service.name", "value": {"stringValue": service_name}}
+                ]
+            },
+            "scopeSpans": [{
+                "scope": {"name": scope_name},
+                "spans": spans
+            }]
+        }]
+    }

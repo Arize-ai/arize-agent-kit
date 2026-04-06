@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Tests for core.common — FileLock and StateManager."""
+"""Tests for core.common — FileLock, StateManager, and span building."""
+import json
 import os
 import threading
 import time
@@ -8,7 +9,19 @@ from pathlib import Path
 import pytest
 import yaml
 
-from core.common import FileLock, StateManager, debug_dump, error, log
+from core.common import (
+    SPAN_KIND_MAP,
+    FileLock,
+    StateManager,
+    _attrs_to_otlp,
+    _resolve_kind,
+    _to_otlp_attr_value,
+    build_multi_span,
+    build_span,
+    debug_dump,
+    error,
+    log,
+)
 
 
 # ── Logging tests ──────────────────────────────────────────────────────────
@@ -307,3 +320,254 @@ class TestStateManager:
         # Verify the file is valid YAML
         data = yaml.safe_load(sm.state_file.read_text())
         assert isinstance(data, dict)
+
+
+# ── Attribute conversion tests ─────────────────────────────────────────────
+
+
+class TestOtlpAttrValue:
+    def test_string(self):
+        assert _to_otlp_attr_value("hello") == {"stringValue": "hello"}
+
+    def test_int(self):
+        assert _to_otlp_attr_value(42) == {"intValue": 42}
+
+    def test_float_fractional(self):
+        assert _to_otlp_attr_value(3.14) == {"doubleValue": 3.14}
+
+    def test_float_whole(self):
+        """Float with no fractional part becomes intValue (matches jq floor == value)."""
+        assert _to_otlp_attr_value(3.0) == {"intValue": 3}
+
+    def test_bool_true(self):
+        """bool must be detected before int (bool is subclass of int in Python)."""
+        assert _to_otlp_attr_value(True) == {"boolValue": True}
+
+    def test_bool_false(self):
+        assert _to_otlp_attr_value(False) == {"boolValue": False}
+
+    def test_none_becomes_string(self):
+        assert _to_otlp_attr_value(None) == {"stringValue": "None"}
+
+    def test_list_becomes_string(self):
+        assert _to_otlp_attr_value([1, 2]) == {"stringValue": "[1, 2]"}
+
+
+class TestAttrsToOtlp:
+    def test_mixed_types(self):
+        result = _attrs_to_otlp({"a": "b", "c": 1})
+        assert len(result) == 2
+        assert result[0] == {"key": "a", "value": {"stringValue": "b"}}
+        assert result[1] == {"key": "c", "value": {"intValue": 1}}
+
+    def test_empty_dict(self):
+        assert _attrs_to_otlp({}) == []
+
+
+# ── Kind mapping tests ─────────────────────────────────────────────────────
+
+
+class TestResolveKind:
+    @pytest.mark.parametrize("kind,expected", [
+        ("LLM", 1), ("llm", 1), ("Llm", 1),
+        ("TOOL", 1), ("tool", 1),
+        ("CHAIN", 1), ("chain", 1),
+        ("INTERNAL", 1), ("internal", 1),
+        ("", 1),
+    ])
+    def test_internal_kinds(self, kind, expected):
+        assert _resolve_kind(kind) == expected
+
+    @pytest.mark.parametrize("kind,expected", [
+        ("SERVER", 2), ("server", 2),
+        ("CLIENT", 3), ("client", 3),
+        ("PRODUCER", 4), ("producer", 4),
+        ("CONSUMER", 5), ("consumer", 5),
+    ])
+    def test_other_kinds(self, kind, expected):
+        assert _resolve_kind(kind) == expected
+
+    def test_unspecified(self):
+        assert _resolve_kind("UNSPECIFIED") == 0
+        assert _resolve_kind("unspecified") == 0
+
+    def test_numeric_string(self):
+        assert _resolve_kind("3") == 3
+
+    def test_unknown_defaults_to_1(self):
+        assert _resolve_kind("UNKNOWN_KIND") == 1
+
+
+# ── build_span tests ──────────────────────────────────────────────────────
+
+
+class TestBuildSpan:
+    def test_basic_structure(self):
+        result = build_span(
+            name="Turn 1", kind="LLM",
+            span_id="aabb", trace_id="ccdd",
+            start_ms=1000, end_ms=2000,
+        )
+        rs = result["resourceSpans"]
+        assert len(rs) == 1
+        spans = rs[0]["scopeSpans"][0]["spans"]
+        assert len(spans) == 1
+        assert spans[0]["name"] == "Turn 1"
+
+    def test_parent_absent_when_empty(self):
+        result = build_span(
+            name="root", kind="LLM",
+            span_id="aa", trace_id="bb",
+            parent_span_id="",
+            start_ms=1000, end_ms=2000,
+        )
+        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert "parentSpanId" not in span
+
+    def test_parent_absent_when_none(self):
+        result = build_span(
+            name="root", kind="LLM",
+            span_id="aa", trace_id="bb",
+            parent_span_id=None,
+            start_ms=1000, end_ms=2000,
+        )
+        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert "parentSpanId" not in span
+
+    def test_parent_present(self):
+        result = build_span(
+            name="child", kind="LLM",
+            span_id="aa", trace_id="bb",
+            parent_span_id="abc123",
+            start_ms=1000, end_ms=2000,
+        )
+        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert span["parentSpanId"] == "abc123"
+
+    def test_timestamp_formatting(self):
+        result = build_span(
+            name="t", kind="LLM",
+            span_id="aa", trace_id="bb",
+            start_ms=1711987200000, end_ms=1711987201000,
+        )
+        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert span["startTimeUnixNano"] == "1711987200000000000"
+        assert span["endTimeUnixNano"] == "1711987201000000000"
+
+    def test_end_defaults_to_start_when_empty(self):
+        result = build_span(
+            name="t", kind="LLM",
+            span_id="aa", trace_id="bb",
+            start_ms=5000, end_ms="",
+        )
+        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert span["endTimeUnixNano"] == "5000000000"
+
+    def test_end_defaults_to_start_when_none(self):
+        result = build_span(
+            name="t", kind="LLM",
+            span_id="aa", trace_id="bb",
+            start_ms=5000, end_ms=None,
+        )
+        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert span["endTimeUnixNano"] == "5000000000"
+
+    def test_end_defaults_to_start_when_zero(self):
+        result = build_span(
+            name="t", kind="LLM",
+            span_id="aa", trace_id="bb",
+            start_ms=5000, end_ms=0,
+        )
+        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert span["endTimeUnixNano"] == "5000000000"
+
+    def test_service_and_scope_names(self):
+        result = build_span(
+            name="t", kind="LLM",
+            span_id="aa", trace_id="bb",
+            start_ms=1000,
+            service_name="my-svc", scope_name="my-scope",
+        )
+        resource = result["resourceSpans"][0]["resource"]
+        assert resource["attributes"][0]["value"]["stringValue"] == "my-svc"
+        scope = result["resourceSpans"][0]["scopeSpans"][0]["scope"]
+        assert scope["name"] == "my-scope"
+
+    def test_attributes_converted(self):
+        result = build_span(
+            name="t", kind="LLM",
+            span_id="aa", trace_id="bb",
+            start_ms=1000,
+            attrs={"key": "val", "count": 5},
+        )
+        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert len(span["attributes"]) == 2
+        assert span["attributes"][0] == {"key": "key", "value": {"stringValue": "val"}}
+        assert span["attributes"][1] == {"key": "count", "value": {"intValue": 5}}
+
+    def test_golden_fixture(self):
+        """Build a span with known inputs and compare against golden fixture."""
+        result = build_span(
+            name="Turn 1",
+            kind="LLM",
+            span_id="abcdef1234567890",
+            trace_id="0123456789abcdef0123456789abcdef",
+            parent_span_id="",
+            start_ms=1711987200000,
+            end_ms=1711987201000,
+            attrs={"session.id": "sess-1", "input.value": "hello"},
+            service_name="test-service",
+            scope_name="test-scope",
+        )
+        fixture_path = Path(__file__).parent / "fixtures" / "golden_span.json"
+        expected = json.loads(fixture_path.read_text())
+        assert result == expected
+
+
+# ── build_multi_span tests ────────────────────────────────────────────────
+
+
+class TestBuildMultiSpan:
+    def _make_payload(self, name: str, span_id: str) -> dict:
+        return build_span(
+            name=name, kind="LLM",
+            span_id=span_id, trace_id="trace1",
+            start_ms=1000, end_ms=2000,
+        )
+
+    def test_merge_three(self):
+        payloads = [self._make_payload(f"span{i}", f"id{i}") for i in range(3)]
+        result = build_multi_span(payloads, "svc", "scope")
+        spans = result["resourceSpans"][0]["scopeSpans"][0]["spans"]
+        assert len(spans) == 3
+        assert [s["name"] for s in spans] == ["span0", "span1", "span2"]
+
+    def test_merge_one(self):
+        payloads = [self._make_payload("only", "id0")]
+        result = build_multi_span(payloads, "svc", "scope")
+        spans = result["resourceSpans"][0]["scopeSpans"][0]["spans"]
+        assert len(spans) == 1
+
+    def test_merge_empty(self):
+        result = build_multi_span([], "svc", "scope")
+        assert result == {}
+
+    def test_malformed_skipped(self):
+        """Malformed payload in the middle is skipped, others preserved."""
+        good1 = self._make_payload("good1", "id1")
+        bad = {"resourceSpans": [{"scopeSpans": []}]}  # missing spans key
+        good2 = self._make_payload("good2", "id2")
+        result = build_multi_span([good1, bad, good2], "svc", "scope")
+        spans = result["resourceSpans"][0]["scopeSpans"][0]["spans"]
+        assert len(spans) == 2
+        assert spans[0]["name"] == "good1"
+        assert spans[1]["name"] == "good2"
+
+    def test_service_and_scope_from_args(self):
+        """service_name and scope_name from function args, not input payloads."""
+        payload = self._make_payload("s", "id0")
+        result = build_multi_span([payload], "override-svc", "override-scope")
+        resource = result["resourceSpans"][0]["resource"]
+        assert resource["attributes"][0]["value"]["stringValue"] == "override-svc"
+        scope = result["resourceSpans"][0]["scopeSpans"][0]["scope"]
+        assert scope["name"] == "override-scope"
