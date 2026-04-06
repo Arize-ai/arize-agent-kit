@@ -6,10 +6,13 @@ key-value state backed by YAML files), and OTLP span building functions.
 Replaces the jq-based state functions in common.sh lines 46-109 and
 build_span/build_multi_span from common.sh lines 277-317 / codex common.sh lines 110-145.
 """
+import json as _json
 import os
 import shutil
 import sys
 import time
+import urllib.request
+import urllib.error
 from pathlib import Path
 
 import yaml
@@ -48,6 +51,61 @@ class _Env:
     @property
     def log_file(self) -> str:
         return os.environ.get("ARIZE_LOG_FILE", "/tmp/arize-agent-kit.log")
+
+    @property
+    def collector_host(self) -> str:
+        val = os.environ.get("ARIZE_COLLECTOR_HOST", "")
+        if val:
+            return val
+        try:
+            from core.config import load_config, get_value
+            cfg = load_config()
+            v = get_value(cfg, "collector.host")
+            if v:
+                return str(v)
+        except Exception:
+            pass
+        from core.constants import DEFAULT_COLLECTOR_HOST
+        return DEFAULT_COLLECTOR_HOST
+
+    @property
+    def collector_port(self) -> int:
+        val = os.environ.get("ARIZE_COLLECTOR_PORT", "")
+        if val:
+            try:
+                return int(val)
+            except ValueError:
+                pass
+        try:
+            from core.config import load_config, get_value
+            cfg = load_config()
+            v = get_value(cfg, "collector.port")
+            if v is not None:
+                return int(v)
+        except Exception:
+            pass
+        from core.constants import DEFAULT_COLLECTOR_PORT
+        return DEFAULT_COLLECTOR_PORT
+
+    @property
+    def collector_url(self) -> str:
+        return f"http://{self.collector_host}:{self.collector_port}"
+
+    @property
+    def phoenix_endpoint(self) -> str:
+        return os.environ.get("PHOENIX_ENDPOINT", "")
+
+    @property
+    def api_key(self) -> str:
+        return os.environ.get("ARIZE_API_KEY", "")
+
+    @property
+    def space_id(self) -> str:
+        return os.environ.get("ARIZE_SPACE_ID", "")
+
+    @property
+    def direct_send(self) -> bool:
+        return os.environ.get("ARIZE_DIRECT_SEND", "").lower() == "true"
 
 
 env = _Env()
@@ -108,6 +166,105 @@ def debug_dump(label: str, data: object) -> None:
         dump_file.write_text(yaml.safe_dump(data, default_flow_style=False), encoding="utf-8")
     except Exception:
         pass  # debug dumps must never cause failures
+
+
+# ---------------------------------------------------------------------------
+# Target detection and span sending
+# ---------------------------------------------------------------------------
+
+def get_target() -> str:
+    """Detect backend target from env vars.
+
+    Returns "phoenix", "arize", or "none".
+    """
+    if env.phoenix_endpoint:
+        return "phoenix"
+    if env.api_key and env.space_id:
+        return "arize"
+    return "none"
+
+
+def _send_to_collector(span_dict: dict) -> bool:
+    """POST span to the local collector. Returns True on success."""
+    url = f"{env.collector_url}/v1/spans"
+    try:
+        body = _json.dumps(span_dict).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return 200 <= resp.status < 300
+    except Exception as e:
+        log(f"Collector send failed ({url}): {e}")
+        return False
+
+
+def _extract_span_name(span_dict: dict) -> str:
+    """Extract the first span name from an OTLP payload."""
+    try:
+        return span_dict["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["name"]
+    except (KeyError, IndexError, TypeError):
+        return "unknown"
+
+
+def send_span(span_dict: dict) -> bool:
+    """Send a span payload. Tries collector first, falls back to direct send.
+
+    Never raises. Returns True on success, False on failure.
+    """
+    try:
+        if env.dry_run:
+            log(f"[dry-run] would send span: {_extract_span_name(span_dict)}")
+            return True
+
+        if env.verbose:
+            log(f"span payload: {_json.dumps(span_dict)}")
+
+        # Try collector first (unless direct send requested)
+        if not env.direct_send:
+            if _send_to_collector(span_dict):
+                return True
+
+        # Direct send fallback
+        target = get_target()
+        if target == "phoenix":
+            # Phoenix send via urllib
+            try:
+                from core.config import load_config, get_value
+                cfg = load_config()
+                project = get_value(cfg, "project_name") or env.project_name or "default"
+            except Exception:
+                project = env.project_name or "default"
+            url = f"{env.phoenix_endpoint}/v1/projects/{project}/spans"
+            body = _json.dumps(span_dict).encode("utf-8")
+            headers = {"Content-Type": "application/json"}
+            if env.api_key:
+                headers["Authorization"] = f"Bearer {env.api_key}"
+            req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    return 200 <= resp.status < 300
+            except Exception as e:
+                error(f"Phoenix send failed: {e}")
+                return False
+        elif target == "arize":
+            try:
+                from core.send_arize import send_to_arize
+                return send_to_arize(span_dict)
+            except ImportError:
+                error("send_arize not available (missing opentelemetry-proto/grpcio)")
+                return False
+            except Exception as e:
+                error(f"Arize send failed: {e}")
+                return False
+        else:
+            error("No backend configured (set PHOENIX_ENDPOINT or ARIZE_API_KEY+ARIZE_SPACE_ID)")
+            return False
+    except Exception as e:
+        error(f"send_span failed: {e}")
+        return False
 
 
 # --- Platform-specific lock implementation detection ---
