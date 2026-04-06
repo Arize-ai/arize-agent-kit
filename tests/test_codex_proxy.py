@@ -159,8 +159,11 @@ class TestMain:
         env_file.parent.mkdir(parents=True)
         env_file.write_text("TRACED=1\n")
 
-        def fake_load(path):
+        original_load = _load_env_file
+
+        def tracking_load(path):
             call_order.append("load_env")
+            original_load(path)
 
         def fake_ensure():
             call_order.append("collector_ensure")
@@ -172,17 +175,11 @@ class TestMain:
         codex.write_text("#!/bin/sh\nexit 0\n")
         codex.chmod(codex.stat().st_mode | stat.S_IEXEC)
 
-        with mock.patch("core.hooks.codex.proxy._load_env_file", side_effect=fake_load), \
-             mock.patch("core.hooks.codex.proxy.Path") as MockPath, \
+        with mock.patch("core.hooks.codex.proxy.Path.home", return_value=tmp_path), \
+             mock.patch("core.hooks.codex.proxy._load_env_file", side_effect=tracking_load), \
              mock.patch("core.collector_ctl.collector_ensure", side_effect=fake_ensure), \
              mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=codex), \
              mock.patch("os.execvp"):
-            # Make Path.home() return tmp_path so the env file path matches
-            MockPath.home.return_value = tmp_path
-            MockPath.__truediv__ = Path.__truediv__
-            # But for _find_real_codex we already mocked the return
-            # We need the real Path for the env_file.is_file() check
-            # Simplify: just mock at a higher level
             main()
 
         assert call_order == ["load_env", "collector_ensure"]
@@ -227,3 +224,25 @@ class TestMain:
             main()
 
         mock_exec.assert_called_once()
+
+    def test_windows_uses_subprocess_run(self, tmp_path):
+        """On Windows (os.name == 'nt'), subprocess.run is used instead of execvp."""
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        codex = bin_dir / "codex"
+        codex.write_text("#!/bin/sh\nexit 0\n")
+        codex.chmod(codex.stat().st_mode | stat.S_IEXEC)
+
+        fake_result = mock.Mock()
+        fake_result.returncode = 42
+
+        with mock.patch("core.collector_ctl.collector_ensure"), \
+             mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=codex), \
+             mock.patch("os.name", "nt"), \
+             mock.patch("subprocess.run", return_value=fake_result) as mock_run, \
+             pytest.raises(SystemExit) as exc_info:
+            main()
+
+        mock_run.assert_called_once()
+        assert str(codex) == mock_run.call_args[0][0][0]
+        assert exc_info.value.code == 42
