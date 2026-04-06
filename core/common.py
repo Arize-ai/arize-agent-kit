@@ -2,8 +2,7 @@
 """Shared library for arize-agent-kit: state management and file locking.
 
 Provides FileLock (cross-platform file locking) and StateManager (per-session
-key-value state backed by YAML files). Replaces the jq-based state functions
-in common.sh lines 46-109.
+key-value state backed by YAML files).
 """
 import os
 import shutil
@@ -36,7 +35,7 @@ class FileLock:
 
     The lock_path can be a file or directory path:
     - fcntl/msvcrt mode: creates/opens lock_path as a file
-    - mkdir fallback: creates lock_path as a directory (matches bash behavior)
+    - mkdir fallback: creates lock_path as a directory
     """
 
     def __init__(self, lock_path: Path, timeout: float = 3.0) -> None:
@@ -135,7 +134,7 @@ class FileLock:
                 return
             except FileExistsError:
                 if time.monotonic() >= deadline:
-                    # Force-acquire: remove and recreate (matches bash lines 67-70)
+                    # Force-acquire: remove and recreate
                     try:
                         shutil.rmtree(self.lock_path)
                     except OSError:
@@ -157,8 +156,7 @@ class FileLock:
 class StateManager:
     """Per-session key-value state backed by a YAML file.
 
-    All values are stored as strings (matching bash behavior where jq
-    reads/writes everything as string arguments via --arg).
+    All values are stored as strings for consistency.
 
     The state_file and lock_path are set by the adapter when resolving
     the session (e.g., state_<session_id>.yaml with .lock_<session_id>).
@@ -179,7 +177,7 @@ class StateManager:
 
         If file doesn't exist, create with empty dict.
         If file exists but is corrupted, overwrite with empty dict.
-        Matches bash init_state() at common.sh:49-59.
+        Idempotent: safe to call multiple times.
         """
         self.state_dir.mkdir(parents=True, exist_ok=True)
         if self.state_file is None:
@@ -198,8 +196,7 @@ class StateManager:
     def get(self, key: str) -> "str | None":
         """Read a value by key. Returns None if key missing or file missing.
 
-        Does NOT acquire lock (read-only, matches bash get_state which
-        doesn't call _lock_state).
+        Does NOT acquire lock (read-only).
         """
         data = self._read_safe()
         val = data.get(key)
@@ -210,7 +207,7 @@ class StateManager:
     def set(self, key: str, value: str) -> None:
         """Set a key-value pair. Acquires lock.
 
-        Value is always stored as string (matches bash: jq --arg v "$2").
+        Value is always stored as string.
         Uses atomic write: write to .tmp.{pid} then rename.
         """
         if self.state_file is None:
@@ -240,7 +237,7 @@ class StateManager:
 
         Missing key treated as "0" -> becomes "1".
         Non-numeric value treated as 0 -> becomes "1".
-        Matches bash inc_state() at common.sh:101-108.
+        Atomic increment with file locking.
         """
         if self.state_file is None:
             return

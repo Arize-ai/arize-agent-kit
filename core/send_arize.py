@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Send OTLP spans to Arize AX via gRPC.
-Phoenix uses REST API directly from bash - no Python needed.
+Phoenix uses REST API directly via the collector - no separate sender needed.
 
 Install dependencies:
   pip install opentelemetry-proto grpcio

@@ -6,9 +6,9 @@ Trace AI coding sessions to [Arize AX](https://arize.com) or [Phoenix](https://g
 
 | Harness | Integration | Install Method |
 |---------|-------------|----------------|
-| [Claude Code CLI / Agent SDK](claude-code-tracing/README.md) | `claude-code-tracing` | Marketplace or `install.sh` |
-| [OpenAI Codex CLI](codex-tracing/README.md) | `codex-tracing` | `install.sh` |
-| [Cursor IDE](cursor-tracing/README.md) | `cursor-tracing` | `install.sh` |
+| [Claude Code CLI / Agent SDK](claude-code-tracing/README.md) | `claude-code-tracing` | Marketplace or `python3 install.py` |
+| [OpenAI Codex CLI](codex-tracing/README.md) | `codex-tracing` | `python3 install.py` |
+| [Cursor IDE](cursor-tracing/README.md) | `cursor-tracing` | `python3 install.py` |
 
 Claude Code CLI and the Claude Agent SDK share the same plugin, hooks, and configuration — one install covers both.
 
@@ -21,14 +21,15 @@ claude plugin marketplace add Arize-ai/arize-agent-kit
 claude plugin install claude-code-tracing@arize-agent-kit
 ```
 
-**Any harness (curl):**
+**Any harness (CLI):**
 
 ```bash
-INSTALL="https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh"
+git clone https://github.com/Arize-ai/arize-agent-kit.git
+cd arize-agent-kit
 
-curl -fsSL $INSTALL | bash -s -- claude   # Claude Code / Agent SDK
-curl -fsSL $INSTALL | bash -s -- codex    # OpenAI Codex
-curl -fsSL $INSTALL | bash -s -- cursor   # Cursor IDE
+python3 install.py claude   # Claude Code / Agent SDK
+python3 install.py codex    # OpenAI Codex
+python3 install.py cursor   # Cursor IDE
 ```
 
 The installer:
@@ -41,7 +42,7 @@ The installer:
 ### Uninstall
 
 ```bash
-curl -fsSL $INSTALL | bash -s -- uninstall
+python3 install.py uninstall
 ```
 
 This stops the background collector, removes the collector runtime, and cleans up harness-specific configuration. You will be prompted before any user-owned config (credentials, state files) is deleted.

@@ -133,7 +133,7 @@ If the user has a custom OTLP endpoint, set it in `backend.arize.endpoint`.
 
 ### Activate Cursor hooks
 
-Cursor uses a `.cursor/hooks.json` file in the project root to route hook events to the handler script. The handler lives in the arize-agent-kit installation at `~/.arize/harness/cursor-tracing/hooks/hook-handler.sh`.
+Cursor uses a `.cursor/hooks.json` file in the project root to route hook events to the handler. The handler is the `arize-hook-cursor` CLI command installed with the package.
 
 Create `.cursor/hooks.json` in the user's project (or merge into it if it already exists):
 
@@ -141,18 +141,18 @@ Create `.cursor/hooks.json` in the user's project (or merge into it if it alread
 {
   "version": 1,
   "hooks": {
-    "beforeSubmitPrompt": [{ "command": "bash ~/.arize/harness/cursor-tracing/hooks/hook-handler.sh" }],
-    "afterAgentResponse": [{ "command": "bash ~/.arize/harness/cursor-tracing/hooks/hook-handler.sh" }],
-    "afterAgentThought": [{ "command": "bash ~/.arize/harness/cursor-tracing/hooks/hook-handler.sh" }],
-    "beforeShellExecution": [{ "command": "bash ~/.arize/harness/cursor-tracing/hooks/hook-handler.sh" }],
-    "afterShellExecution": [{ "command": "bash ~/.arize/harness/cursor-tracing/hooks/hook-handler.sh" }],
-    "beforeMCPExecution": [{ "command": "bash ~/.arize/harness/cursor-tracing/hooks/hook-handler.sh" }],
-    "afterMCPExecution": [{ "command": "bash ~/.arize/harness/cursor-tracing/hooks/hook-handler.sh" }],
-    "beforeReadFile": [{ "command": "bash ~/.arize/harness/cursor-tracing/hooks/hook-handler.sh" }],
-    "afterFileEdit": [{ "command": "bash ~/.arize/harness/cursor-tracing/hooks/hook-handler.sh" }],
-    "stop": [{ "command": "bash ~/.arize/harness/cursor-tracing/hooks/hook-handler.sh" }],
-    "beforeTabFileRead": [{ "command": "bash ~/.arize/harness/cursor-tracing/hooks/hook-handler.sh" }],
-    "afterTabFileEdit": [{ "command": "bash ~/.arize/harness/cursor-tracing/hooks/hook-handler.sh" }]
+    "beforeSubmitPrompt": [{ "command": "arize-hook-cursor" }],
+    "afterAgentResponse": [{ "command": "arize-hook-cursor" }],
+    "afterAgentThought": [{ "command": "arize-hook-cursor" }],
+    "beforeShellExecution": [{ "command": "arize-hook-cursor" }],
+    "afterShellExecution": [{ "command": "arize-hook-cursor" }],
+    "beforeMCPExecution": [{ "command": "arize-hook-cursor" }],
+    "afterMCPExecution": [{ "command": "arize-hook-cursor" }],
+    "beforeReadFile": [{ "command": "arize-hook-cursor" }],
+    "afterFileEdit": [{ "command": "arize-hook-cursor" }],
+    "stop": [{ "command": "arize-hook-cursor" }],
+    "beforeTabFileRead": [{ "command": "arize-hook-cursor" }],
+    "afterTabFileEdit": [{ "command": "arize-hook-cursor" }]
   }
 }
 ```
@@ -163,7 +163,7 @@ If the user already has a `.cursor/hooks.json` with other hooks, merge the Arize
 
 1. **Collector running**: Run `curl -sf http://127.0.0.1:4318/health` to check the shared collector. If not running, start it:
    ```bash
-   source ~/.arize/harness/core/collector_ctl.sh && collector_start
+   arize-collector-ctl start
    ```
 2. **Phoenix** (if applicable): Run `curl -sf <endpoint>/v1/traces >/dev/null` to check connectivity.
 3. **Hooks active**: Verify `.cursor/hooks.json` exists in the project root and contains the Arize hook entries.
@@ -208,8 +208,8 @@ Common issues and fixes:
 | Problem | Fix |
 |---------|-----|
 | Traces not appearing | Verify collector is running: `curl -sf http://127.0.0.1:4318/health`. Check hook log: `tail -20 /tmp/arize-cursor.log` |
-| Collector not running | Start it: `source ~/.arize/harness/core/collector_ctl.sh && collector_start`. Check logs: `~/.arize/harness/logs/collector.log` |
-| Collector config missing | Run `install.sh cursor` or create `~/.arize/harness/config.yaml` manually (include `harnesses.cursor` section) |
+| Collector not running | Start it: `arize-collector-ctl start`. Check logs: `~/.arize/harness/logs/collector.log` |
+| Collector config missing | Run `python3 install.py cursor` or create `~/.arize/harness/config.yaml` manually (include `harnesses.cursor` section) |
 | Phoenix unreachable | Verify Phoenix is running: `curl -sf <endpoint>/v1/traces` |
 | Hooks not firing | Verify `.cursor/hooks.json` exists in the project root and paths are correct (use absolute paths) |
 | Shell/MCP spans missing input | State push failed -- check that `~/.arize/harness/state/cursor/` is writable |

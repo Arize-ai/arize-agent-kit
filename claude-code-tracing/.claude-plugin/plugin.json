@@ -23,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session_start.sh\""
+            "command": "arize-hook-session-start"
           }
         ]
       }
@@ -33,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_submit.sh\""
+            "command": "arize-hook-user-prompt-submit"
           }
         ]
       }
@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_use.sh\""
+            "command": "arize-hook-pre-tool-use"
           }
         ]
       }
@@ -53,7 +53,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.sh\""
+            "command": "arize-hook-post-tool-use"
           }
         ]
       }
@@ -63,7 +63,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/stop.sh\""
+            "command": "arize-hook-stop"
           }
         ]
       }
@@ -73,7 +73,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/subagent_stop.sh\""
+            "command": "arize-hook-subagent-stop"
           }
         ]
       }
@@ -83,7 +83,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/notification.sh\""
+            "command": "arize-hook-notification"
           }
         ]
       }
@@ -93,7 +93,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/permission_request.sh\""
+            "command": "arize-hook-permission-request"
           }
         ]
       }
@@ -103,7 +103,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session_end.sh\""
+            "command": "arize-hook-session-end"
           }
         ]
       }

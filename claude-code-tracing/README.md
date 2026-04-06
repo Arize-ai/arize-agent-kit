@@ -25,7 +25,7 @@ Claude hooks --> POST http://127.0.0.1:4318/v1/spans --> Phoenix
                       (shared collector)              \-> Arize AX
 ```
 
-The collector is installed and started automatically by `install.sh`. See [COLLECTOR_ARCHITECTURE.md](../COLLECTOR_ARCHITECTURE.md) for the full design.
+The collector is installed and started automatically by `install.py`. See [COLLECTOR_ARCHITECTURE.md](../COLLECTOR_ARCHITECTURE.md) for the full design.
 
 ## Installation
 
@@ -36,10 +36,12 @@ claude plugin marketplace add Arize-ai/arize-agent-kit
 claude plugin install claude-code-tracing@arize-agent-kit
 ```
 
-### Curl installer
+### Python installer
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- claude
+git clone https://github.com/Arize-ai/arize-agent-kit.git
+cd arize-agent-kit
+python3 install.py claude
 ```
 
 The installer:
@@ -77,7 +79,7 @@ git clone https://github.com/Arize-ai/arize-agent-kit.git
 Run the interactive setup after installation:
 
 ```bash
-bash claude-code-tracing/scripts/setup.sh
+arize-setup-claude
 ```
 
 The setup script will:
@@ -136,7 +138,7 @@ The plugin works identically with both Claude Code CLI and the Claude Agent SDK.
 
 The one difference is that the Agent SDK does not fire a `SessionStart` event. The `UserPromptSubmit` hook performs lazy session initialization when it detects no prior session state, so tracing starts automatically on the first prompt.
 
-Hook commands are written with absolute paths by `install.sh` into `~/.claude/settings.json`. The `plugin.json` also declares hooks using `${CLAUDE_PLUGIN_ROOT}` for marketplace installs, but the `settings.json` entries are what fire reliably across all environments.
+Hook commands are written with absolute paths by `install.py` into `~/.claude/settings.json`. The `plugin.json` also declares hooks using Python CLI entry points for marketplace installs, but the `settings.json` entries are what fire reliably across all environments.
 
 ## Environment Variables (fallback)
 
@@ -199,27 +201,19 @@ curl -sf http://127.0.0.1:4318/health
 
 ```
 claude-code-tracing/
-  .claude-plugin/plugin.json   Hook registrations (9 hooks)
-  hooks/common.sh              Adapter: PID-based state, session resolution, GC
-  hooks/session_start.sh       SessionStart hook
-  hooks/user_prompt_submit.sh  UserPromptSubmit hook (with lazy init)
-  hooks/pre_tool_use.sh        PreToolUse hook
-  hooks/post_tool_use.sh       PostToolUse hook
-  hooks/stop.sh                Stop hook
-  hooks/subagent_stop.sh       SubagentStop hook
-  hooks/notification.sh        Notification hook
-  hooks/permission_request.sh  PermissionRequest hook
-  hooks/session_end.sh         SessionEnd hook
-  scripts/setup.sh             Interactive configuration wizard
+  .claude-plugin/plugin.json   Hook registrations (9 hooks, Python CLI entry points)
+  hooks/adapter.py             Adapter: PID-based state, session resolution, GC
+  hooks/                       9 hook entry points (Python CLI commands)
+  scripts/                     Setup scripts
   skills/                      Claude Code skill for guided setup
 ```
 
 Shared logic lives in `core/` at the repository root:
 
 ```
-core/common.sh         Env vars, logging, state primitives, span building, local submission
+core/common.py         State management (FileLock, StateManager)
 core/collector.py      Shared background collector/exporter
-core/collector_ctl.sh  Collector lifecycle management (start/stop/status/ensure)
+core/collector_ctl.py  Collector lifecycle management (start/stop/status/ensure)
 ```
 
 ## Troubleshooting
@@ -228,7 +222,7 @@ core/collector_ctl.sh  Collector lifecycle management (start/stop/status/ensure)
 
 1. Verify hooks are registered in `~/.claude/settings.json` under the `hooks` key (each event should have a command pointing to the corresponding hook script)
 2. Verify the collector is running: `curl -sf http://127.0.0.1:4318/health`
-3. If the collector is not running, start it: `source core/collector_ctl.sh && collector_start`
+3. If the collector is not running, start it: `arize-collector-ctl start`
 4. Check the hook log: `tail -20 /tmp/arize-claude-code.log`
 5. Check the collector log: `tail -20 ~/.arize/harness/logs/collector.log`
 6. Test with dry run: `ARIZE_DRY_RUN=true ARIZE_VERBOSE=true claude`
@@ -237,7 +231,7 @@ core/collector_ctl.sh  Collector lifecycle management (start/stop/status/ensure)
 **Collector not running**
 
 1. Verify the shared config exists: `cat ~/.arize/harness/config.yaml`
-2. Start the collector: `source core/collector_ctl.sh && collector_start`
+2. Start the collector: `arize-collector-ctl start`
 3. Check collector logs for startup errors: `tail -20 ~/.arize/harness/logs/collector.log`
 
 **Session state issues**

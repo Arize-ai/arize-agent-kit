@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Collector lifecycle management: start, stop, status, ensure.
 
-Replaces collector_ctl.sh with a cross-platform Python implementation.
+Cross-platform collector lifecycle management.
 All paths come from core.constants — never hardcoded here.
 """
 
