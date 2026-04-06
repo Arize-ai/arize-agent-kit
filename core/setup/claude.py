@@ -143,7 +143,11 @@ def _run() -> None:
         _save_settings(settings_path, settings)
         print_color(f"✓ User ID set: {user_id}", "green")
 
-    # 6. Summary
+    # 6. Write config.yaml for the collector
+    write_config(target, credentials, "claude-code", "claude-code", user_id=user_id)
+    info("Wrote shared collector config to ~/.arize/harness/config.yaml")
+
+    # 7. Summary
     print("")
     print(f"Configuration saved to {settings_path}")
     print("")

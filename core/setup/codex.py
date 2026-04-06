@@ -60,7 +60,7 @@ def _update_toml_otel_section(toml_path: Path, collector_port: int) -> None:
             if stripped == "[otel]" or stripped.startswith("[otel."):
                 in_otel = True
                 continue
-            if in_otel and stripped.startswith("[") and not stripped.startswith("[otel"):
+            if in_otel and stripped.startswith("[") and stripped != "[otel]" and not stripped.startswith("[otel."):
                 in_otel = False
             if not in_otel:
                 filtered.append(line)

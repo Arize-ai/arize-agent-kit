@@ -48,7 +48,7 @@ def err(msg: str) -> None:
         sys.stderr.write(f"[arize] {msg}\n")
 
 
-def prompt_backend() -> tuple:
+def prompt_backend() -> tuple[str, dict]:
     """Interactive backend selection.
 
     Returns:
