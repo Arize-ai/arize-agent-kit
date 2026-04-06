@@ -28,6 +28,10 @@ arize-hook-codex-notify = "core.hooks.codex.handlers:notify"
 arize-codex-proxy = "core.hooks.codex.proxy:main"
 # Cursor hook
 arize-hook-cursor = "core.hooks.cursor.handlers:main"
+# Setup wizards
+arize-setup-claude = "core.setup.claude:main"
+arize-setup-codex = "core.setup.codex:main"
+arize-setup-cursor = "core.setup.cursor:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
