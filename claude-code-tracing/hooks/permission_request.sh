@@ -16,6 +16,7 @@ trace_id=$(get_state "current_trace_id")
 permission=$(echo "$input" | jq -r '.permission // empty' 2>/dev/null || echo "")
 tool=$(echo "$input" | jq -r '.tool_name // empty' 2>/dev/null || echo "")
 tool_input=$(echo "$input" | jq -c '.tool_input // empty' 2>/dev/null || echo "")
+tool_input=$(redact_content "$ARIZE_LOG_TOOL_DETAILS" "$tool_input")
 
 span_id=$(generate_uuid | tr -d '-' | cut -c1-16)
 ts=$(get_timestamp_ms)

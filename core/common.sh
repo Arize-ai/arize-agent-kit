@@ -25,11 +25,36 @@ ARIZE_VERBOSE="${ARIZE_VERBOSE:-false}"
 ARIZE_TRACE_DEBUG="${ARIZE_TRACE_DEBUG:-false}"
 ARIZE_LOG_FILE="${ARIZE_LOG_FILE:-/tmp/arize-agent-kit.log}"
 
+# --- Content redaction controls ---
+# Prompts, tool arguments, and tool output may contain credentials, PII, or
+# confidential data. These flags control what is included in exported spans.
+# When a flag is off, spans record only content length: <redacted (N chars)>.
+#
+# ARIZE_LOG_PROMPTS:      User prompts (default: on). Model responses are always included.
+# ARIZE_LOG_TOOL_DETAILS: What was requested — bash commands, file paths, URLs, grep patterns (default: off).
+# ARIZE_LOG_TOOL_CONTENT: What was returned — full tool output such as file contents, command output, API responses (default: off).
+ARIZE_LOG_PROMPTS="${ARIZE_LOG_PROMPTS:-true}"
+ARIZE_LOG_TOOL_DETAILS="${ARIZE_LOG_TOOL_DETAILS:-false}"
+ARIZE_LOG_TOOL_CONTENT="${ARIZE_LOG_TOOL_CONTENT:-false}"
+
 # --- Logging ---
 _log_to_file() { [[ -n "$ARIZE_LOG_FILE" ]] && echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$ARIZE_LOG_FILE" || true; }
 log() { [[ "$ARIZE_VERBOSE" == "true" ]] && { echo "[arize] $*" >&2; _log_to_file "$*"; } || true; }
 log_always() { echo "[arize] $*" >&2; _log_to_file "$*"; }
 error() { echo "[arize] ERROR: $*" >&2; _log_to_file "ERROR: $*"; }
+
+# --- Content Redaction Helpers ---
+# Returns redacted placeholder with content length, or the original content if logging is enabled.
+# Usage: redact_content "$ARIZE_LOG_PROMPTS" "$content"
+redact_content() {
+  local flag_value="$1" content="$2"
+  if [[ "$flag_value" == "true" ]]; then
+    printf '%s' "$content"
+  else
+    local len=${#content}
+    printf '<redacted (%d chars)>' "$len"
+  fi
+}
 
 # --- Utilities ---
 generate_uuid() {

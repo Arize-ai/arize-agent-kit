@@ -87,7 +87,8 @@ case "$choice" in
 
   2|arize|ax|AX)
     echo ""
-    read -p "Arize API Key: " api_key
+    read -sp "Arize API Key: " api_key
+    echo ""
     read -p "Arize Space ID: " space_id
 
     if [[ -z "$api_key" || -z "$space_id" ]]; then
@@ -128,6 +129,32 @@ if [[ -n "$user_id" ]]; then
     '.env = (.env // {}) + {"ARIZE_USER_ID": $uid}' \
     "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
   echo -e "${GREEN}✓${NC} User ID set: $user_id"
+fi
+
+# Content logging levels
+echo ""
+echo -e "${YELLOW}Security:${NC} Traces can contain sensitive data — credentials, PII, file contents."
+echo "Tool details and tool content are redacted by default. Prompts are included"
+echo "by default for debugging visibility. Adjust these settings to match your"
+echo "security requirements."
+echo ""
+
+echo -e "  Log user prompts? [Y/n]: \c"
+read -p "" log_prompts
+echo -e "  Log what tools were asked to do (commands, file paths, URLs)? [y/N]: \c"
+read -p "" log_tool_details
+echo -e "  Log what tools returned (file contents, command output)? [y/N]: \c"
+read -p "" log_tool_content
+
+log_env='{"ARIZE_LOG_PROMPTS": "true"}'
+[[ "$log_prompts" =~ ^[Nn]$ ]] && log_env='{}'
+[[ "$log_tool_details" =~ ^[Yy]$ ]] && log_env=$(echo "$log_env" | jq '. + {"ARIZE_LOG_TOOL_DETAILS": "true"}')
+[[ "$log_tool_content" =~ ^[Yy]$ ]] && log_env=$(echo "$log_env" | jq '. + {"ARIZE_LOG_TOOL_CONTENT": "true"}')
+
+if [[ "$log_env" != "{}" ]]; then
+  ensure_settings_file
+  jq --argjson logging "$log_env" '.env = (.env // {}) + $logging' \
+    "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
 fi
 
 echo ""
