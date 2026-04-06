@@ -1,0 +1,251 @@
+#!/usr/bin/env python3
+"""Tests for core.hooks.cursor.adapter — Cursor-specific adapter module."""
+import hashlib
+import os
+import threading
+from pathlib import Path
+
+import pytest
+import yaml
+
+from core.hooks.cursor import adapter
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _patch_state_dir(tmp_path, monkeypatch):
+    """Redirect STATE_DIR to a temp directory for every test."""
+    state_dir = tmp_path / "state" / "cursor"
+    state_dir.mkdir(parents=True)
+    monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
+    return state_dir
+
+
+# ── trace_id_from_generation ──────────────────────────────────────────────
+
+
+class TestTraceIdFromGeneration:
+    def test_returns_32_hex(self):
+        result = adapter.trace_id_from_generation("gen-abc")
+        assert len(result) == 32
+        int(result, 16)  # must be valid hex
+
+    def test_deterministic(self):
+        a = adapter.trace_id_from_generation("gen-abc")
+        b = adapter.trace_id_from_generation("gen-abc")
+        assert a == b
+
+    def test_different_inputs_differ(self):
+        a = adapter.trace_id_from_generation("gen-abc")
+        b = adapter.trace_id_from_generation("gen-xyz")
+        assert a != b
+
+    def test_matches_md5(self):
+        """Verify output matches: echo -n 'gen-abc' | md5sum | cut -c1-32"""
+        expected = hashlib.md5(b"gen-abc").hexdigest()[:32]
+        assert adapter.trace_id_from_generation("gen-abc") == expected
+
+
+# ── span_id_16 ────────────────────────────────────────────────────────────
+
+
+class TestSpanId16:
+    def test_returns_16_hex(self):
+        result = adapter.span_id_16()
+        assert len(result) == 16
+        int(result, 16)
+
+    def test_unique(self):
+        a = adapter.span_id_16()
+        b = adapter.span_id_16()
+        assert a != b
+
+
+# ── sanitize ──────────────────────────────────────────────────────────────
+
+
+class TestSanitize:
+    def test_unchanged(self):
+        assert adapter.sanitize("hello") == "hello"
+
+    def test_slash(self):
+        assert adapter.sanitize("foo/bar") == "foo_bar"
+
+    def test_preserves_dots_hyphens_underscores(self):
+        assert adapter.sanitize("foo.bar-baz_qux") == "foo.bar-baz_qux"
+
+    def test_special_chars(self):
+        assert adapter.sanitize("a@b#c$d") == "a_b_c_d"
+
+    def test_empty(self):
+        assert adapter.sanitize("") == ""
+
+
+# ── truncate_attr ─────────────────────────────────────────────────────────
+
+
+class TestTruncateAttr:
+    def test_shorter_unchanged(self):
+        assert adapter.truncate_attr("short") == "short"
+
+    def test_longer_truncated(self, monkeypatch):
+        monkeypatch.setattr(adapter, "MAX_ATTR_CHARS", 5)
+        assert adapter.truncate_attr("abcdefgh") == "abcde"
+
+    def test_exact_length(self, monkeypatch):
+        monkeypatch.setattr(adapter, "MAX_ATTR_CHARS", 5)
+        assert adapter.truncate_attr("abcde") == "abcde"
+
+    def test_custom_max_chars(self):
+        assert adapter.truncate_attr("abcdefgh", max_chars=3) == "abc"
+
+    def test_env_var_respected(self, monkeypatch):
+        monkeypatch.setattr(adapter, "MAX_ATTR_CHARS", 4)
+        assert adapter.truncate_attr("abcdefgh") == "abcd"
+
+
+# ── state_push / state_pop ────────────────────────────────────────────────
+
+
+class TestStateStack:
+    def test_push_pop_single(self):
+        adapter.state_push("test_key", {"a": 1})
+        result = adapter.state_pop("test_key")
+        assert result == {"a": 1}
+
+    def test_lifo_order(self):
+        adapter.state_push("k", {"val": "A"})
+        adapter.state_push("k", {"val": "B"})
+        assert adapter.state_pop("k") == {"val": "B"}
+        assert adapter.state_pop("k") == {"val": "A"}
+
+    def test_pop_empty_returns_none(self):
+        assert adapter.state_pop("nonexistent") is None
+
+    def test_pop_corrupted_returns_none(self):
+        stack_file = adapter.STATE_DIR / "bad.stack.yaml"
+        stack_file.write_text(":::not valid yaml{{{")
+        assert adapter.state_pop("bad") is None
+
+    def test_push_creates_file(self):
+        adapter.state_push("new_key", {"x": 1})
+        stack_file = adapter.STATE_DIR / "new_key.stack.yaml"
+        assert stack_file.exists()
+
+    def test_pop_last_leaves_empty_list(self):
+        adapter.state_push("k2", {"x": 1})
+        adapter.state_pop("k2")
+        stack_file = adapter.STATE_DIR / "k2.stack.yaml"
+        data = yaml.safe_load(stack_file.read_text())
+        assert data == []
+
+    def test_concurrent_push(self):
+        """5 threads push concurrently — all values present, no corruption."""
+        errors = []
+
+        def push_val(i):
+            try:
+                adapter.state_push("concurrent", {"i": i})
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=push_val, args=(i,)) for i in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors
+        stack_file = adapter.STATE_DIR / "concurrent.stack.yaml"
+        data = yaml.safe_load(stack_file.read_text())
+        assert isinstance(data, list)
+        assert len(data) == 5
+        values = sorted(d["i"] for d in data)
+        assert values == [0, 1, 2, 3, 4]
+
+    def test_stack_file_valid_yaml(self):
+        adapter.state_push("yaml_check", {"a": 1})
+        adapter.state_push("yaml_check", {"b": 2})
+        stack_file = adapter.STATE_DIR / "yaml_check.stack.yaml"
+        data = yaml.safe_load(stack_file.read_text())
+        assert isinstance(data, list)
+        assert len(data) == 2
+
+
+# ── gen_root_span ─────────────────────────────────────────────────────────
+
+
+class TestGenRootSpan:
+    def test_save_and_get(self):
+        adapter.gen_root_span_save("gen-1", "span123")
+        assert adapter.gen_root_span_get("gen-1") == "span123"
+
+    def test_get_no_save(self):
+        assert adapter.gen_root_span_get("gen-missing") == ""
+
+    def test_get_empty_gen_id(self):
+        assert adapter.gen_root_span_get("") == ""
+
+    def test_save_overwrites(self):
+        adapter.gen_root_span_save("gen-2", "old_span")
+        adapter.gen_root_span_save("gen-2", "new_span")
+        assert adapter.gen_root_span_get("gen-2") == "new_span"
+
+
+# ── state_cleanup_generation ──────────────────────────────────────────────
+
+
+class TestStateCleanupGeneration:
+    def test_cleanup_removes_all_files(self):
+        gen_id = "gen-cleanup"
+        safe = adapter.sanitize(gen_id)
+
+        # Create root file
+        adapter.gen_root_span_save(gen_id, "span1")
+        # Create stack files
+        adapter.state_push(f"before_{safe}_shell", {"cmd": "ls"})
+        adapter.state_push(f"before_{safe}_mcp", {"tool": "read"})
+
+        adapter.state_cleanup_generation(gen_id)
+
+        assert not (adapter.STATE_DIR / f"root_{safe}").exists()
+        assert not list(adapter.STATE_DIR.glob(f"*{safe}*.stack.yaml"))
+
+    def test_cleanup_no_files_no_error(self):
+        adapter.state_cleanup_generation("gen-nonexistent")  # should not raise
+
+    def test_cleanup_preserves_other_generations(self):
+        adapter.gen_root_span_save("gen-keep", "span_keep")
+        adapter.gen_root_span_save("gen-remove", "span_remove")
+
+        adapter.state_cleanup_generation("gen-remove")
+
+        assert adapter.gen_root_span_get("gen-keep") == "span_keep"
+
+    def test_cleanup_nonempty_lock_dir(self):
+        gen_id = "gen-lockdir"
+        safe = adapter.sanitize(gen_id)
+        lock_dir = adapter.STATE_DIR / f".lock_before_{safe}_shell"
+        lock_dir.mkdir(parents=True)
+        # Put a file inside so rmdir fails
+        (lock_dir / "stale").write_text("x")
+
+        adapter.state_cleanup_generation(gen_id)
+        # dir should still exist (rmdir fails on non-empty), but no crash
+        assert lock_dir.exists()
+
+
+# ── check_requirements ────────────────────────────────────────────────────
+
+
+class TestCheckRequirements:
+    def test_enabled(self, monkeypatch):
+        monkeypatch.setattr(adapter.env, "trace_enabled", True)
+        assert adapter.check_requirements() is True
+        assert adapter.STATE_DIR.exists()
+
+    def test_disabled(self, monkeypatch):
+        monkeypatch.setattr(adapter.env, "trace_enabled", False)
+        assert adapter.check_requirements() is False
