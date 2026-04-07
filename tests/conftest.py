@@ -116,10 +116,13 @@ def capture_log(tmp_path):
     return log_file, read_log
 
 
-def load_fixture(name: str):
+@pytest.fixture
+def load_fixture():
     """Load a JSON fixture file from tests/fixtures/ by filename.
 
-    Returns parsed dict/list.
+    Returns a callable that takes a filename and returns parsed dict/list.
     """
-    fixture_path = Path(__file__).parent / "fixtures" / name
-    return json.loads(fixture_path.read_text())
+    def _load(name: str):
+        fixture_path = Path(__file__).parent / "fixtures" / name
+        return json.loads(fixture_path.read_text())
+    return _load

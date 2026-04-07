@@ -26,7 +26,6 @@ from core.hooks.codex.handlers import (
 )
 from core.common import StateManager
 
-from conftest import load_fixture
 
 
 # ---------------------------------------------------------------------------
@@ -798,7 +797,7 @@ class TestMultiSpanAssembly:
 
 class TestIntegration:
 
-    def test_full_handle_notify_with_fixture(self, tmp_harness_dir, monkeypatch, drain_server):
+    def test_full_handle_notify_with_fixture(self, tmp_harness_dir, monkeypatch, drain_server, load_fixture):
         """Full _handle_notify with codex_notify.json fixture + mock drain."""
         import core.hooks.codex.adapter as adapter
         import core.constants as c

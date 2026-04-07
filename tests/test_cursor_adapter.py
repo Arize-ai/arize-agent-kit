@@ -242,10 +242,10 @@ class TestStateCleanupGeneration:
 
 class TestCheckRequirements:
     def test_enabled(self, monkeypatch):
-        monkeypatch.setattr(adapter.env, "trace_enabled", True)
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         assert adapter.check_requirements() is True
         assert adapter.STATE_DIR.exists()
 
     def test_disabled(self, monkeypatch):
-        monkeypatch.setattr(adapter.env, "trace_enabled", False)
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "false")
         assert adapter.check_requirements() is False

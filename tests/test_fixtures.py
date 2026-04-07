@@ -4,7 +4,6 @@ import urllib.request
 
 import yaml
 
-from tests.conftest import load_fixture
 
 
 class TestTmpHarnessDir:
@@ -70,26 +69,26 @@ class TestMockCollector:
 class TestLoadFixture:
     """Verify load_fixture returns parsed dicts for all fixture files."""
 
-    def test_claude_session_start(self):
+    def test_claude_session_start(self, load_fixture):
         data = load_fixture("claude_session_start.json")
         assert data["session_id"] == "sess-abc123"
         assert "cwd" in data
 
-    def test_claude_stop(self):
+    def test_claude_stop(self, load_fixture):
         data = load_fixture("claude_stop.json")
         assert data["session_id"] == "sess-abc123"
         assert "transcript_path" in data
 
-    def test_codex_notify(self):
+    def test_codex_notify(self, load_fixture):
         data = load_fixture("codex_notify.json")
         assert data["type"] == "agent-turn-complete"
         assert data["thread-id"] == "thread-1"
 
-    def test_cursor_before_submit(self):
+    def test_cursor_before_submit(self, load_fixture):
         data = load_fixture("cursor_before_submit.json")
         assert data["hook_event_name"] == "beforeSubmitPrompt"
 
-    def test_cursor_after_shell(self):
+    def test_cursor_after_shell(self, load_fixture):
         data = load_fixture("cursor_after_shell.json")
         assert data["hook_event_name"] == "afterShellExecution"
         assert data["exit_code"] == "0"

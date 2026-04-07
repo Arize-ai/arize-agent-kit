@@ -266,7 +266,9 @@ class TestEntryPointConsistency:
                 cmd = match.group()
                 # Skip partial matches that are not real commands
                 # (e.g., arize-agent-kit is a package name, not a CLI command)
-                if cmd in ("arize-agent-kit", "arize-ai", "arize-env"):
+                if cmd in ("arize-agent-kit", "arize-ai", "arize-env",
+                          "arize-claude-code", "arize-codex", "arize-cursor",
+                          "arize-collector"):
                     continue
                 assert cmd in scripts, \
                     f"{f.relative_to(REPO_ROOT)}: references CLI command '{cmd}' not in pyproject.toml"
