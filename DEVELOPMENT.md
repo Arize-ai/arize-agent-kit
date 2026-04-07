@@ -11,262 +11,279 @@ The system has two layers:
 
 Harnesses are responsible for span construction and session state. The collector is responsible for backend export, credentials, retries, and logging. New harnesses should submit spans to the collector via `POST http://127.0.0.1:4318/v1/spans` rather than implementing direct export logic. See [COLLECTOR_ARCHITECTURE.md](COLLECTOR_ARCHITECTURE.md) for the full collector contract.
 
+## Dev Setup
+
+```bash
+# Clone and install in editable mode with dev dependencies
+git clone https://github.com/Arize-ai/arize-agent-kit.git
+cd arize-agent-kit
+pip install -e ".[dev]"
+
+# Run tests
+pytest
+
+# Run a specific test file
+pytest tests/test_common.py
+
+# Run with verbose output
+pytest -v
+```
+
+After `pip install -e .`, all CLI entry points are available in your PATH:
+
+```bash
+arize-collector-ctl status       # Check collector status
+arize-config get backend.target  # Read config values
+```
+
 ## Repo Structure
 
 ```
 core/
-  common.sh          # Shared: env vars, logging, utils, state primitives, span building, sending
+  __init__.py        # Package init
+  constants.py       # Single source of truth for all paths
+  config.py          # YAML config helper (CLI: arize-config)
   collector.py       # Shared: background collector/exporter (stdlib HTTP + Phoenix/Arize export)
-  collector_ctl.sh   # Shared: collector lifecycle (start/stop/status/ensure)
-  send_arize.py      # Legacy: Arize AX gRPC sender (kept for ARIZE_DIRECT_SEND fallback)
+  collector_ctl.py   # Shared: collector lifecycle (CLI: arize-collector-ctl)
+  common.py          # Shared: span building, sending, state, logging, IDs
+  send_arize.py      # Arize AX gRPC sender (used by collector)
+  hooks/
+    __init__.py
+    claude/
+      __init__.py
+      adapter.py     # Claude-specific session resolution, GC, init
+      handlers.py    # One exported function per Claude Code hook event
+    codex/
+      __init__.py
+      adapter.py     # Codex-specific session resolution, GC, event drain
+      handlers.py    # Notify handler
+      proxy.py       # Codex proxy script
+    cursor/
+      __init__.py
+      adapter.py     # Cursor-specific state stack, ID generation, sanitize
+      handlers.py    # 12-event dispatcher
 
-claude-code-tracing/ # Claude Code CLI / Agent SDK adapter
-  hooks/common.sh    # Adapter: PID-based state, session resolution, GC, sources core/common.sh
-  hooks/*.sh         # 9 hook scripts (SessionStart, Stop, PostToolUse, etc.)
-  scripts/setup.sh   # Interactive setup wizard
-  .claude-plugin/    # plugin.json for Claude Code marketplace
+claude-code-tracing/ # Claude Code CLI / Agent SDK — docs, plugin.json, skill
+codex-tracing/       # OpenAI Codex CLI — docs, skill, setup script
+cursor-tracing/      # Cursor IDE — docs, skill, setup script
 
-codex-tracing/       # OpenAI Codex CLI adapter
-  hooks/common.sh    # Adapter: thread-id state, debug_dump, multi-span, sources core/common.sh
-  hooks/notify.sh    # Single event handler (Codex uses one hook for all events)
-  scripts/           # collector.py, collector_ctl.sh (Codex-specific event buffer)
-  skills/            # setup-codex-tracing/SKILL.md
-  README.md          # Codex-specific setup and usage
-
-install.sh           # Installer: shared collector setup + harness config
-marketplace.json     # Claude Code marketplace listing
+install.py           # Cross-platform installer
+tests/
+  conftest.py        # Shared fixtures
+  test_*.py          # One test file per module
+pyproject.toml       # Package definition, CLI entry points, pytest config
 ```
 
 ## How core/ Relates to Adapters
 
-`core/common.sh` contains all logic that is identical across harnesses:
+`core/common.py` contains all logic that is identical across harnesses:
 
-- Environment variable declarations and defaults
-- Logging (`log`, `log_always`, `error`, `_log_to_file`)
-- Utilities (`generate_uuid`, `get_timestamp_ms`)
-- State primitives (`init_state`, `get_state`, `set_state`, `del_state`, `inc_state`, locking)
+- Logging (`log`, `error`, `debug_dump`)
+- Utilities (`generate_trace_id`, `generate_span_id`, `get_timestamp_ms`)
+- State primitives (`init_state`, `get_state`, `set_state`, `del_state`, `inc_state`, file locking)
 - Target detection (`get_target`)
 - Span building (`build_span`, `build_multi_span`)
-- Span sending (`send_span`, `send_to_phoenix`, `send_to_arize`)
-- Requirements check (`check_requirements`)
+- Span sending (`send_span`, `send_to_collector`)
 
-Each adapter's `hooks/common.sh` does three things:
+Each adapter module (`core/hooks/<harness>/adapter.py`) provides:
 
-1. Sets adapter-specific variables (`ARIZE_SERVICE_NAME`, `ARIZE_SCOPE_NAME`, `STATE_DIR`, `ARIZE_LOG_FILE`)
-2. Sources `core/common.sh` via relative path from `${BASH_SOURCE[0]}`
-3. Defines adapter-specific functions (session resolution, GC strategy, `ensure_session_initialized`)
+1. Adapter-specific constants (`SERVICE_NAME`, `SCOPE_NAME`, `STATE_DIR`, `LOG_FILE`)
+2. Session resolution logic (Claude uses PID-based keys; Codex uses thread-id; Cursor uses conversation_id)
+3. Session initialization and garbage collection
 
-The core `build_span()` and `build_multi_span()` read `ARIZE_SERVICE_NAME` and `ARIZE_SCOPE_NAME` to fill in the OTLP resource and scope fields. Adapters set these before sourcing core.
+The core `build_span()` function takes `service_name` and `scope_name` parameters to fill in the OTLP resource and scope fields. Adapters pass these from their constants.
 
 ## Adding a new harness
 
 Follow these steps to add tracing support for a new AI coding harness.
 
-### Step 1: Create the adapter directory
+### Step 1: Create the adapter module
 
 ```
-<harness>-tracing/
-  hooks/
-    common.sh
-  .claude-plugin/
-    plugin.json        # If the harness supports Claude Code plugin format
-  skills/
-    setup-<harness>-tracing/
-      SKILL.md
-  README.md
+core/hooks/<harness>/
+  __init__.py
+  adapter.py     # Adapter-specific session resolution, GC, init
+  handlers.py    # Hook entry point(s)
 ```
 
-### Step 2: Write the adapter common.sh
+### Step 2: Write the adapter
 
-```bash
-#!/bin/bash
-set -euo pipefail
+```python
+#!/usr/bin/env python3
+"""Adapter for <harness> tracing."""
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ADAPTER_DIR="$(dirname "$SCRIPT_DIR")"
-CORE_DIR="$(cd "$ADAPTER_DIR/../core" && pwd)"
+from pathlib import Path
+from core.constants import HARNESS_STATE_DIR
+from core.common import (
+    generate_trace_id, generate_span_id, get_timestamp_ms,
+    init_state, get_state, set_state, log
+)
 
 # --- Adapter identity ---
-export ARIZE_SERVICE_NAME="<harness>"
-export ARIZE_SCOPE_NAME="arize-<harness>-plugin"
+SERVICE_NAME = "<harness>"
+SCOPE_NAME = "arize-<harness>-plugin"
 
 # --- Adapter-specific state ---
-export STATE_DIR="${HOME}/.arize/harness/state/<harness>"
-export ARIZE_LOG_FILE="${ARIZE_LOG_FILE:-/tmp/arize-<harness>.log}"
+STATE_DIR = HARNESS_STATE_DIR / "<harness>"
+LOG_FILE = Path("/tmp/arize-<harness>.log")
 
-# --- Source shared core ---
-# After sourcing, all core functions are available: build_span, send_span,
-# state primitives, logging, check_requirements, etc.
-# Hook scripts call check_requirements as their first action after sourcing
-# this adapter common.sh — it verifies tracing is enabled, jq exists, and
-# creates STATE_DIR. See Step 3 for the hook script pattern.
-source "$CORE_DIR/common.sh"
 
-# --- Session resolution (harness-specific) ---
-# Implement resolve_session() based on how the harness identifies sessions.
-# Claude uses PID-based keys; Codex uses thread-id from the event payload.
-resolve_session() {
-  local session_key="${1:-}"
-  [[ -z "$session_key" ]] && session_key=$(generate_uuid)
-  STATE_FILE="${STATE_DIR}/state_${session_key}.json"
-  _LOCK_DIR="${STATE_DIR}/.lock_${session_key}"
-  init_state
-}
+def resolve_session(session_key: str = "") -> dict:
+    """Resolve session state file based on harness-specific key."""
+    if not session_key:
+        session_key = generate_trace_id()[:16]
+    state_file = STATE_DIR / f"state_{session_key}.yaml"
+    init_state(state_file)
+    return {"state_file": state_file, "session_key": session_key}
 
-# --- Session initialization ---
-ensure_session_initialized() {
-  local session_key="${1:-}"
-  local cwd="${2:-$(pwd)}"
 
-  local existing_sid
-  existing_sid=$(get_state "session_id")
-  [[ -n "$existing_sid" ]] && return 0
+def ensure_session_initialized(state_file, session_key="", cwd=""):
+    """Initialize session state if not already present."""
+    existing = get_state(state_file, "session_id")
+    if existing:
+        return
 
-  local session_id="${session_key:-$(generate_uuid)}"
-  local project_name="${ARIZE_PROJECT_NAME:-$(basename "$cwd")}"
+    session_id = session_key or generate_trace_id()[:16]
+    set_state(state_file, "session_id", session_id)
+    set_state(state_file, "session_start_time", get_timestamp_ms())
+    set_state(state_file, "trace_count", 0)
+    set_state(state_file, "tool_count", 0)
+    log(f"Session initialized: {session_id}")
 
-  set_state "session_id" "$session_id"
-  set_state "session_start_time" "$(get_timestamp_ms)"
-  set_state "project_name" "$project_name"
-  set_state "trace_count" "0"
-  set_state "tool_count" "0"
 
-  # ARIZE_USER_ID support
-  local user_id="${ARIZE_USER_ID:-}"
-  [[ -n "$user_id" ]] && set_state "user_id" "$user_id"
-
-  log "Session initialized: $session_id"
-}
-
-# --- Garbage collection (harness-specific) ---
-# Implement based on how stale sessions can be detected.
-# This is optional — leave as a no-op if the harness manages its own lifecycle.
-# Claude uses PID liveness checks; Codex uses file age with a 24h threshold.
-gc_stale_state_files() {
-  # Example: remove state files older than 24 hours
-  local now_s max_age_s
-  now_s=$(date +%s)
-  max_age_s=86400
-  for f in "${STATE_DIR}"/state_*.json; do
-    [[ -f "$f" ]] || continue
-    # Cross-platform: stat -f %m is macOS (BSD), stat -c %Y is Linux (GNU).
-    # The fallback to $now_s ensures the file is never GC'd if both fail.
-    local file_age_s=$(( now_s - $(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo "$now_s") ))
-    if (( file_age_s > max_age_s )); then
-      rm -f "$f"
-      log "GC: removed stale state file $(basename "$f")"
-    fi
-  done
-}
+def gc_stale_state_files():
+    """Remove stale state files older than 24 hours."""
+    import time
+    now = time.time()
+    max_age = 86400
+    for f in STATE_DIR.glob("state_*.yaml"):
+        age = now - f.stat().st_mtime
+        if age > max_age:
+            f.unlink(missing_ok=True)
+            log(f"GC: removed stale state file {f.name}")
 ```
 
-### Step 3: Write hook scripts
+### Step 3: Write hook handlers
 
-Each hook script follows this pattern:
+Each handler is a CLI entry point function:
 
-```bash
-#!/bin/bash
-source "$(dirname "$0")/common.sh"
-check_requirements
+```python
+#!/usr/bin/env python3
+"""Hook handlers for <harness>."""
 
-input=$(cat)
-# ... parse input JSON with jq ...
-# ... resolve session, build span, send span ...
+import json
+import sys
+from core.common import build_span, send_span, error
+from core.hooks.<harness>.adapter import (
+    SERVICE_NAME, SCOPE_NAME, resolve_session
+)
+
+
+def my_hook():
+    """Entry point for arize-hook-<harness>-<event>."""
+    try:
+        input_json = json.loads(sys.stdin.read() or "{}")
+        _handle(input_json)
+    except Exception as e:
+        error(f"<harness> hook failed: {e}")
+    # No stdout output unless the harness expects a response
 ```
 
-Hook scripts call `send_span` which submits the span payload to the shared collector at `http://127.0.0.1:4318/v1/spans`. New harnesses should not implement direct backend export — the collector handles Phoenix and Arize AX export for all harnesses.
+Hook handlers call `send_span()` which submits the span payload to the shared collector at `http://127.0.0.1:4318/v1/spans`. New harnesses should not implement direct backend export — the collector handles Phoenix and Arize AX export for all harnesses.
 
-Include `ARIZE_USER_ID` in spans:
+### Step 4: Register CLI entry points
 
-```bash
-user_id=$(get_state "user_id")
-attrs=$(jq -nc \
-  --arg key "value" \
-  --arg uid "$user_id" \
-  '{"key": $key} + (if $uid != "" then {"user.id": $uid} else {} end)')
+Add entry points in `pyproject.toml`:
+
+```toml
+[project.scripts]
+arize-hook-<harness>-<event> = "core.hooks.<harness>.handlers:<function>"
 ```
 
-### Step 4: Update install.sh and marketplace.json
+### Step 5: Update install.py
 
-- Add a `setup_<harness>` function to `install.sh` for harness-specific configuration (hooks, env files, etc.)
-- The shared collector setup is handled automatically by `setup_shared_collector` — your harness setup function does not need to start or configure the collector
-- Add to `marketplace.json` if the harness supports the Claude Code plugin format
+Add a `setup_<harness>` function to `install.py` for harness-specific configuration (hooks, env files, etc.). The shared collector setup is handled automatically — your harness setup function does not need to start or configure the collector.
 
-### Step 5: Write a README.md
+### Step 6: Write a README.md
 
-Follow the pattern in existing adapter READMEs: features, configuration table, quick setup, troubleshooting.
+Follow the pattern in existing adapter READMEs: features, configuration table, quick setup, troubleshooting. Place it in `<harness>-tracing/README.md`.
 
 ## Core API Reference
 
 ### Span Building
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `build_span` | `name kind span_id trace_id [parent] start [end] [attrs_json]` | Build a single OTLP span JSON payload. Uses `$ARIZE_SERVICE_NAME` and `$ARIZE_SCOPE_NAME`. |
-| `build_multi_span` | `full_payload1 full_payload2 ...` | Batch multiple spans into one OTLP request. Each input must be a complete `build_span()` output (already wrapped with resource/scope). The function unwraps each payload to extract the inner span objects, then re-wraps all spans under a single resource/scope envelope using the current `$ARIZE_SERVICE_NAME` and `$ARIZE_SCOPE_NAME`. Do **not** pass raw span objects — pass full `build_span()` outputs. |
-
-**`build_span` parameters:**
-
-- `name` — Span name (e.g., `"tool_use"`, `"user_prompt"`)
-- `kind` — Span kind: `INTERNAL`, `SERVER`, `CLIENT`, `PRODUCER`, `CONSUMER`, or numeric `0-5`
-- `span_id` — 16-char hex string
-- `trace_id` — 32-char hex string
-- `parent` — Parent span ID (empty string for root spans)
-- `start` — Start time in milliseconds since epoch
-- `end` — End time in milliseconds (defaults to `start`)
-- `attrs_json` — JSON object of key-value attributes (defaults to `"{}"`)
+| Function | Description |
+|----------|-------------|
+| `build_span(name, kind, span_id, trace_id, parent, start, end, attrs)` | Build a single OTLP span JSON payload |
+| `build_multi_span(*payloads)` | Batch multiple spans into one OTLP request |
 
 ### Span Sending
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `send_span` | `span_json` | Submit span to the shared collector at `http://127.0.0.1:4318/v1/spans`. Handles dry run and verbose modes. The collector routes to the configured backend (Phoenix or Arize AX). |
-| `send_to_collector` | `span_json` | Low-level curl POST to the shared collector endpoint. Called by `send_span`. |
-| `send_to_phoenix` | `span_json` | (Legacy fallback) Send directly to Phoenix REST API. Only used when `ARIZE_DIRECT_SEND=true` and the collector is unreachable. |
-| `send_to_arize` | `span_json` | (Legacy fallback) Send to Arize AX via `core/send_arize.py`. Only used when `ARIZE_DIRECT_SEND=true` and the collector is unreachable. Requires Python with `opentelemetry-proto` and `grpcio`. |
-| `get_target` | (none) | (Legacy) Returns `"phoenix"`, `"arize"`, or `"none"` based on env vars. Used only by the legacy direct-send fallback path. |
+| Function | Description |
+|----------|-------------|
+| `send_span(span_json)` | Submit span to the shared collector at `http://127.0.0.1:4318/v1/spans` |
+| `send_to_collector(span_json)` | Low-level HTTP POST to the shared collector endpoint |
 
 ### State Management
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `init_state` | (none) | Create `$STATE_DIR` and initialize `$STATE_FILE` as empty JSON if missing. |
-| `get_state` | `key` | Read a value from the session state file. Returns empty string if missing. |
-| `set_state` | `key value` | Write a key-value pair to state (with locking). |
-| `del_state` | `key` | Remove a key from state (with locking). |
-| `inc_state` | `key` | Atomically increment a numeric state value (with locking). |
+| Function | Description |
+|----------|-------------|
+| `init_state(state_file)` | Create state directory and initialize state file if missing |
+| `get_state(state_file, key)` | Read a value from the session state file |
+| `set_state(state_file, key, value)` | Write a key-value pair to state (with file locking) |
+| `del_state(state_file, key)` | Remove a key from state (with file locking) |
+| `inc_state(state_file, key)` | Atomically increment a numeric state value (with file locking) |
 
-State files are JSON, keyed per-session. Locking uses `mkdir`-based advisory locks via `$_LOCK_DIR`. Each adapter sets `$STATE_FILE` and `$_LOCK_DIR` in its `resolve_session()`.
+State files use YAML format (`yaml.safe_load`/`yaml.safe_dump`). File locking uses `fcntl.flock` on Unix, `msvcrt.locking` on Windows, wrapped in a cross-platform helper.
 
 ### Logging
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `log` | `message` | Log to stderr and file (only when `ARIZE_VERBOSE=true`). |
-| `log_always` | `message` | Always log to stderr and file. |
-| `error` | `message` | Log error to stderr and file. |
-| `debug_dump` | `label data` | Write data to `$STATE_DIR/debug/` (only when `ARIZE_TRACE_DEBUG=true`). |
+| Function | Description |
+|----------|-------------|
+| `log(message)` | Log to file/stderr (only when `ARIZE_VERBOSE=true`) |
+| `error(message)` | Always log error to file/stderr |
+| `debug_dump(label, data)` | Write YAML data to debug dir (only when `ARIZE_TRACE_DEBUG=true`) |
 
 ### Utilities
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `generate_uuid` | (none) | Generate a lowercase UUID. Tries `uuidgen`, `/proc/sys/kernel/random/uuid`, then `od`. |
-| `get_timestamp_ms` | (none) | Current time in milliseconds. Tries `python3`, `date +%s%3N`, then `date +%s000`. |
-| `check_requirements` | (none) | Exit if tracing disabled; error if `jq` missing; create state dir. |
+| Function | Description |
+|----------|-------------|
+| `generate_trace_id()` | Generate a 32-hex trace ID via `os.urandom(16).hex()` |
+| `generate_span_id()` | Generate a 16-hex span ID via `os.urandom(8).hex()` |
+| `get_timestamp_ms()` | Current time in milliseconds via `int(time.time() * 1000)` |
+| `deterministic_trace_id(value)` | MD5-based deterministic trace ID via `hashlib.md5` |
 
-## Adapter Environment Variables
+## CLI Entry Points
 
-Each adapter must set these before sourcing `core/common.sh`:
+After `pip install .`, the following commands are available:
 
-| Variable | Purpose | Example |
-|----------|---------|---------|
-| `ARIZE_SERVICE_NAME` | OTLP `service.name` resource attribute | `"claude-code"`, `"codex"` |
-| `ARIZE_SCOPE_NAME` | OTLP instrumentation scope name | `"arize-claude-plugin"` |
-| `STATE_DIR` | Directory for per-session state files | `"$HOME/.arize/harness/state/claude-code"` |
-| `ARIZE_LOG_FILE` | Log file path (set by adapter as default) | `"/tmp/arize-codex.log"` |
+| Command | Module | Description |
+|---------|--------|-------------|
+| `arize-collector-ctl` | `core.collector_ctl:main` | Collector lifecycle: start/stop/status/ensure |
+| `arize-config` | `core.config:main` | Config helper: get/set values in config.yaml |
+| `arize-hook-session-start` | `core.hooks.claude.handlers:session_start` | Claude SessionStart hook |
+| `arize-hook-pre-tool-use` | `core.hooks.claude.handlers:pre_tool_use` | Claude PreToolUse hook |
+| `arize-hook-post-tool-use` | `core.hooks.claude.handlers:post_tool_use` | Claude PostToolUse hook |
+| `arize-hook-user-prompt-submit` | `core.hooks.claude.handlers:user_prompt_submit` | Claude UserPromptSubmit hook |
+| `arize-hook-stop` | `core.hooks.claude.handlers:stop` | Claude Stop hook |
+| `arize-hook-subagent-stop` | `core.hooks.claude.handlers:subagent_stop` | Claude SubagentStop hook |
+| `arize-hook-notification` | `core.hooks.claude.handlers:notification` | Claude Notification hook |
+| `arize-hook-permission-request` | `core.hooks.claude.handlers:permission_request` | Claude PermissionRequest hook |
+| `arize-hook-session-end` | `core.hooks.claude.handlers:session_end` | Claude SessionEnd hook |
+| `arize-hook-codex-notify` | `core.hooks.codex.handlers:notify` | Codex notify hook |
+| `arize-codex-proxy` | `core.hooks.codex.proxy:main` | Codex proxy script |
+| `arize-hook-cursor` | `core.hooks.cursor.handlers:main` | Cursor 12-event dispatcher |
 
 ## Testing
+
+Tests use pytest and live in the top-level `tests/` directory. One test file per module:
+
+```bash
+pytest                          # Run all tests
+pytest tests/test_common.py     # Run specific test file
+pytest -v                       # Verbose output
+pytest -k "test_build_span"     # Run specific test
+```
 
 ### Dry Run Mode
 
@@ -276,15 +293,9 @@ Validate span structure without sending to any backend:
 ARIZE_DRY_RUN=true ARIZE_TRACE_ENABLED=true <run-your-harness>
 ```
 
-Dry run prints span names to stderr. Combine with `ARIZE_VERBOSE=true` to see the full JSON:
-
-```bash
-ARIZE_DRY_RUN=true ARIZE_VERBOSE=true <run-your-harness>
-```
-
 ### Debug Mode
 
-Write raw span data to files for inspection (Codex adapter only, unless added to your adapter):
+Write raw span data to files for inspection:
 
 ```bash
 ARIZE_TRACE_DEBUG=true <run-your-harness>
@@ -293,19 +304,8 @@ ls ~/.arize/harness/state/<harness>/debug/
 
 ### Log File
 
-All adapters write to a log file by default. Tail it to watch spans in real time:
+All adapters write to a log file by default:
 
 ```bash
 tail -f /tmp/arize-<harness>.log
-```
-
-### Manual Span Test
-
-Source the adapter common and build a span directly:
-
-```bash
-source <harness>-tracing/hooks/common.sh
-span=$(build_span "test" "INTERNAL" "$(generate_uuid | tr -d '-' | head -c 16)" \
-  "$(generate_uuid | tr -d '-')" "" "$(get_timestamp_ms)" "" '{"test.key":"value"}')
-echo "$span" | jq .
 ```
