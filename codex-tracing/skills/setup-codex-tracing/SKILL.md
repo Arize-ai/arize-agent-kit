@@ -11,16 +11,16 @@ Configure OpenInference tracing for OpenAI Codex CLI sessions to Arize AX (cloud
 
 Codex tracing uses the shared collector at `127.0.0.1:4318` for both span export and event buffering:
 
-1. **Shared collector** (`core/collector.py`, port 4318) — background process shared by all harnesses. Accepts span exports (`POST /v1/spans`), buffers Codex OTLP log events (`POST /v1/logs`), and serves buffered events (`GET /drain/{id}`, `GET /flush/{id}`). Exports to Phoenix (REST) or Arize AX (gRPC). Managed via `core/collector_ctl.sh`.
+1. **Shared collector** (`core/collector.py`, port 4318) — background process shared by all harnesses. Accepts span exports (`POST /v1/spans`), buffers Codex OTLP log events (`POST /v1/logs`), and serves buffered events (`GET /drain/{id}`, `GET /flush/{id}`). Exports to Phoenix (REST) or Arize AX (gRPC). Managed via `arize-collector-ctl`.
 
-2. **Notify hook** (`notify.sh`) — Fires on `agent-turn-complete` events. Drains buffered events from the collector, transforms them into OpenInference child spans (TOOL spans for tool calls, LLM spans for API requests), enriches the parent Turn span with model name and token counts, and sends the complete span tree back to the collector for export.
+2. **Notify hook** (`arize-hook-codex-notify`) — Fires on `agent-turn-complete` events. Drains buffered events from the collector, transforms them into OpenInference child spans (TOOL spans for tool calls, LLM spans for API requests), enriches the parent Turn span with model name and token counts, and sends the complete span tree back to the collector for export.
 
 ```
 Codex CLI
   |
   |-- [otel] otlp-http --> POST /v1/logs --> collector (port 4318, buffers by thread-id)
   |
-  |-- notify hook (agent-turn-complete) --> notify.sh
+  |-- notify hook (agent-turn-complete) --> arize-hook-codex-notify
         |
         |--> GET /drain/{thread_id} (port 4318) --> get buffered events
         |--> Transform events into child spans
@@ -222,7 +222,7 @@ If the user wants to associate spans with a user ID, add `export ARIZE_USER_ID="
 Read `~/.codex/config.toml`. Add the `notify` line at the top level (NOT inside any `[section]`):
 
 ```toml
-notify = ["bash", "<PLUGIN_PATH>/hooks/notify.sh"]
+notify = ["arize-hook-codex-notify"]
 ```
 
 **Important:** If `notify` already exists in the config, update the existing line.
@@ -238,25 +238,23 @@ endpoint = "http://127.0.0.1:4318/v1/logs"
 protocol = "json"
 ```
 
-This routes Codex native telemetry to the shared collector, which buffers events until `notify.sh` drains them for child-span assembly.
+This routes Codex native telemetry to the shared collector, which buffers events until the notify handler drains them for child-span assembly.
 
 ### Step 5: Start the shared collector
 
 Start the shared collector:
 ```bash
-source <PLUGIN_PATH>/../core/collector_ctl.sh
-collector_start
+arize-collector-ctl start
 ```
 
-Start the collector:
+Ensure the collector is running:
 ```bash
-source core/collector_ctl.sh
-collector_ensure
+arize-collector-ctl ensure
 ```
 
 The collector is a single lightweight process (~5MB RSS, stdlib Python, zero CPU when idle).
 
-**Note:** The interactive installer (`./install.sh`) handles Steps 1-5 automatically.  The manual steps above are for users who prefer to configure things themselves or need to troubleshoot.
+**Note:** The interactive installer (`python3 install.py`) handles Steps 1-5 automatically.  The manual steps above are for users who prefer to configure things themselves or need to troubleshoot.
 
 ### Validate
 
@@ -285,12 +283,12 @@ curl -sf http://127.0.0.1:4318/health
 
 5. **Phoenix connectivity** (if using Phoenix):
 ```bash
-source ~/.codex/arize-env.sh && curl -sf ${PHOENIX_ENDPOINT}/v1/traces >/dev/null && echo "Phoenix reachable" || echo "Phoenix not reachable"
+curl -sf ${PHOENIX_ENDPOINT}/v1/traces >/dev/null && echo "Phoenix reachable" || echo "Phoenix not reachable"
 ```
 
 6. **Dry run test:**
 ```bash
-source ~/.codex/arize-env.sh && ARIZE_DRY_RUN=true bash <PLUGIN_PATH>/hooks/notify.sh '{"type":"agent-turn-complete","thread-id":"test-123","turn-id":"turn-1","cwd":"/tmp","input-messages":"hello","last-assistant-message":"hi there"}'
+ARIZE_DRY_RUN=true arize-hook-codex-notify '{"type":"agent-turn-complete","thread-id":"test-123","turn-id":"turn-1","cwd":"/tmp","input-messages":"hello","last-assistant-message":"hi there"}'
 ```
 Should print: `[arize] DRY RUN:` followed by the span name.
 
@@ -334,7 +332,7 @@ Common issues and fixes:
 | Traces not appearing | Check `ARIZE_TRACE_ENABLED` is `true` in `~/.codex/arize-env.sh` |
 | Notify hook not firing | Verify `notify` line in `~/.codex/config.toml` points to correct path |
 | Phoenix unreachable | Verify Phoenix is running: `curl -sf <endpoint>/v1/traces` |
-| Shared collector not running | Check config: `cat ~/.arize/harness/config.yaml`. Start: `source core/collector_ctl.sh && collector_start` |
+| Shared collector not running | Check config: `cat ~/.arize/harness/config.yaml`. Start: `arize-collector-ctl start` |
 | No output in terminal | Notify runs in background; check `/tmp/arize-codex.log` and `~/.arize/harness/logs/collector.log` |
 | Want to test without sending | Set `ARIZE_DRY_RUN=true` in env or `export ARIZE_DRY_RUN=true` |
 | Want verbose logging | Set `ARIZE_VERBOSE=true` in env or `export ARIZE_VERBOSE=true` |

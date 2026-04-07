@@ -173,7 +173,7 @@ echo '{}' > .claude/settings.local.json
 
 1. **Collector running**: Run `curl -sf http://127.0.0.1:4318/health` to check the shared collector. If not running, start it:
    ```bash
-   source core/collector_ctl.sh && collector_start
+   arize-collector-ctl start
    ```
 2. **Phoenix** (if applicable): Run `curl -sf <endpoint>/v1/traces >/dev/null` to check connectivity.
 
@@ -310,8 +310,8 @@ Common issues and fixes:
 | Problem | Fix |
 |---------|-----|
 | Traces not appearing | Check `ARIZE_TRACE_ENABLED` is `"true"` in Claude settings, and verify collector is running: `curl -sf http://127.0.0.1:4318/health` |
-| Collector not running | Start it: `source core/collector_ctl.sh && collector_start`. Check logs: `~/.arize/harness/logs/collector.log` |
-| Collector config missing | Run `install.sh` or create `~/.arize/harness/config.yaml` manually (include `harnesses` section) |
+| Collector not running | Start it: `arize-collector-ctl start`. Check logs: `~/.arize/harness/logs/collector.log` |
+| Collector config missing | Run `python3 install.py` or create `~/.arize/harness/config.yaml` manually (include `harnesses` section) |
 | Phoenix unreachable | Verify Phoenix is running: `curl -sf <endpoint>/v1/traces` |
 | No output in terminal | Hook stderr is discarded by Claude Code; check `/tmp/arize-claude-code.log` |
 | Want to test without sending | Set `ARIZE_DRY_RUN` to `"true"` in env config |

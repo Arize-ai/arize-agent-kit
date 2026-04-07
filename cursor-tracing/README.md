@@ -6,25 +6,24 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 
 - 12 hook-based span types covering the full Cursor session lifecycle
 - Before/after event merging for shell execution and MCP tool use via disk-backed state stack
-- Exports to Phoenix or Arize AX through the shared background collector — no Python dependencies required in hooks
+- Exports to Phoenix or Arize AX through the shared background collector
 - Deterministic trace IDs derived from Cursor's `generation_id`
-- Single handler script dispatches all hook events via `hook_event_name`
+- Single handler dispatches all hook events via `hook_event_name`
 - `ARIZE_USER_ID` support for team-level span attribution
 - Dry-run mode for validating span output without sending data
 
 ## Prerequisites
 
-- **`bash`** (4.0+)
-- **`curl`** — HTTP requests (pre-installed on most systems)
+- **Python 3.8+**
 
-No Python installation is required. The shared collector (installed automatically) handles all backend export.
+Hooks are installed via pip as console-script entry points. The shared collector (installed automatically) handles all backend export.
 
 ## Installation
 
-### Curl installer (recommended)
+### Python installer (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- cursor
+python3 install.py cursor
 ```
 
 The installer will:
@@ -38,7 +37,7 @@ The installer will:
 ```bash
 git clone https://github.com/Arize-ai/arize-agent-kit.git
 cd arize-agent-kit
-bash cursor-tracing/scripts/setup.sh
+arize-setup-cursor
 ```
 
 ## Configuration
@@ -81,20 +80,20 @@ harnesses:
 
 Cursor uses a single `hooks.json` file in your project's `.cursor/` directory to route all hook events to one handler script.
 
-If you used `install.sh cursor`, hooks.json is generated automatically with the correct absolute paths. For manual installs, create `.cursor/hooks.json` with the path to the handler:
+If you used `install.py cursor`, hooks.json is generated automatically. For manual installs, create `.cursor/hooks.json` pointing to the entry point:
 
 ```json
 {
   "hooks": {
-    "beforeSubmitPrompt": [{ "command": "bash /path/to/arize-agent-kit/cursor-tracing/hooks/hook-handler.sh" }],
-    "afterAgentResponse": [{ "command": "bash /path/to/arize-agent-kit/cursor-tracing/hooks/hook-handler.sh" }]
+    "beforeSubmitPrompt": [{ "command": "arize-hook-cursor" }],
+    "afterAgentResponse": [{ "command": "arize-hook-cursor" }]
   }
 }
 ```
 
-If your project already has a `.cursor/hooks.json`, merge the hook entries rather than overwriting the file. The setup script (`scripts/setup.sh`) handles this automatically.
+If your project already has a `.cursor/hooks.json`, merge the hook entries rather than overwriting the file. The setup script (`arize-setup-cursor`) handles this automatically.
 
-> **Note:** All 12 hook events route to the same `hook-handler.sh` script. The handler reads `hook_event_name` from the stdin JSON payload and dispatches to the appropriate logic via a `case` statement.
+> **Note:** All 12 hook events route to the same `arize-hook-cursor` handler. The handler reads `hook_event_name` from the stdin JSON payload and dispatches to the appropriate logic.
 
 ## Hook Events
 
@@ -124,16 +123,16 @@ Hooks build OTLP spans and POST them to the shared background collector at `http
 ```text
 Cursor IDE
   │
-  └─ hooks.json ──► hook-handler.sh ──► case $hook_event_name
+  └─ hooks.json ──► arize-hook-cursor ──► dispatch(hook_event_name)
                         │
-                        ├─ build_span() (OTLP format via core/common.sh)
+                        ├─ build_span() (OTLP format via core/common.py)
                         └─ send_span()  ──► POST http://127.0.0.1:4318/v1/spans
                                                   (shared collector)
                                                         ├──► Phoenix (REST)
                                                         └──► Arize AX (gRPC)
 ```
 
-The collector is installed and started automatically by `install.sh`. See [COLLECTOR_ARCHITECTURE.md](../COLLECTOR_ARCHITECTURE.md) for the full design.
+The collector is installed and started automatically by `install.py`. See [COLLECTOR_ARCHITECTURE.md](../COLLECTOR_ARCHITECTURE.md) for the full design.
 
 ## Shell/MCP State Merging
 
@@ -149,7 +148,7 @@ State files are keyed by `conversation_id` to isolate concurrent sessions. Stale
 | Problem | Solution |
 |---------|----------|
 | **Spans not appearing** | 1. Verify collector is running: `curl -sf http://127.0.0.1:4318/health` 2. Check hook log: `tail -20 /tmp/arize-cursor.log` 3. Check collector log: `tail -20 ~/.arize/harness/logs/collector.log` |
-| **Collector not running** | Verify config exists: `cat ~/.arize/harness/config.yaml`. Start it: `source core/collector_ctl.sh && collector_start`. Check log: `tail -20 ~/.arize/harness/logs/collector.log` |
+| **Collector not running** | Verify config exists: `cat ~/.arize/harness/config.yaml`. Start it: `arize-collector-ctl start`. Check log: `tail -20 ~/.arize/harness/logs/collector.log` |
 | **Shell/MCP spans missing input** | State push failed — check that `~/.arize/harness/state/cursor/` is writable. Enable verbose logging: `ARIZE_VERBOSE=true` |
 | **Hooks not firing** | Verify `.cursor/hooks.json` exists in your project root and the handler path is correct (absolute path) |
 | **Duplicate or stale state files** | Reset state: `rm -rf ~/.arize/harness/state/cursor/state_*.json`. Stale files are normally garbage-collected automatically |
@@ -183,18 +182,19 @@ Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.
 
 ```
 cursor-tracing/
-  hooks/common.sh       Adapter: sets ARIZE_SERVICE_NAME, sources core/common.sh
-  hooks/hook-handler.sh      Single handler for all 12 hook events (case dispatch)
   hooks.json            Cursor hooks configuration (copy to .cursor/hooks.json)
-  scripts/setup.sh      Interactive configuration and hooks installation
+  skills/               Cursor setup skill
 ```
 
 Shared logic lives in `core/` at the repository root:
 
 ```
-core/common.sh         Env vars, logging, state primitives, span building, local submission
-core/collector.py      Shared background collector/exporter
-core/collector_ctl.sh  Collector lifecycle management (start/stop/status/ensure)
+core/
+  hooks/cursor/adapter.py    Adapter: deterministic trace IDs, state stack, sanitize
+  hooks/cursor/handlers.py   Single dispatcher for all 12 hook events
+  common.py                  Env vars, logging, state, span building, sending
+  collector.py               Shared background collector/exporter
+  collector_ctl.py           Collector lifecycle management
 ```
 
 ## Links

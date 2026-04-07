@@ -9,7 +9,7 @@ This integration uses the shared collector at `127.0.0.1:4318` for both span exp
 ```
 Codex CLI
   │
-  ├─ notify hook ──► notify.sh ──► OpenInference LLM spans (per turn)
+  ├─ notify hook ──► notify handler ──► OpenInference LLM spans (per turn)
   │                     │
   │                     ├─ Drains buffered events from collector (GET /drain/{id})
   │                     └─ Sends built spans to collector (POST /v1/spans)
@@ -19,18 +19,18 @@ Codex CLI
                       └─ Buffers native Codex events by thread-id
 ```
 
-1. **Shared collector** (`core/collector.py`, port 4318) -- background process shared by all harnesses. Accepts span exports (`POST /v1/spans`), buffers Codex OTLP log events (`POST /v1/logs`), and serves buffered events (`GET /drain/{id}`, `GET /flush/{id}`). Exports to Phoenix or Arize AX. Managed via `core/collector_ctl.sh`.
+1. **Shared collector** (`core/collector.py`, port 4318) -- background process shared by all harnesses. Accepts span exports (`POST /v1/spans`), buffers Codex OTLP log events (`POST /v1/logs`), and serves buffered events (`GET /drain/{id}`, `GET /flush/{id}`). Exports to Phoenix or Arize AX. Managed via `core/collector_ctl.py` (`arize-collector-ctl`).
 
-2. **`notify.sh`** -- Codex calls this after every agent turn. It builds an OpenInference LLM span from the turn payload, drains buffered events from the collector, assembles child spans (TOOL, CHAIN), and submits the complete span tree back to the collector for export.
+2. **`notify handler`** (`handlers.py`) -- Codex calls this after every agent turn. It builds an OpenInference LLM span from the turn payload, drains buffered events from the collector, assembles child spans (TOOL, CHAIN), and submits the complete span tree back to the collector for export.
 
-When both the notify hook and native OTLP export are enabled, `notify.sh` builds a parent LLM span and attaches child spans from buffered event data, producing a rich trace tree per turn.
+When both the notify hook and native OTLP export are enabled, the notify handler builds a parent LLM span and attaches child spans from buffered event data, producing a rich trace tree per turn.
 
 ## Installation
 
 ### Curl installer (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.py | python3
 ```
 
 The installer detects Codex and guides you through configuration.
@@ -40,23 +40,23 @@ The installer detects Codex and guides you through configuration.
 ```bash
 git clone https://github.com/Arize-ai/arize-agent-kit.git
 cd arize-agent-kit/codex-tracing
-bash install.sh
+python3 install.py
 ```
 
 The installer supports interactive and non-interactive modes:
 
 ```bash
 # Interactive
-bash install.sh
+python3 install.py
 
 # Non-interactive: Phoenix
-bash install.sh --target phoenix
+python3 install.py --target phoenix
 
 # Non-interactive: Arize AX with native OTLP
-bash install.sh --target arize --otlp
+python3 install.py --target arize --otlp
 
 # Uninstall
-bash install.sh uninstall
+python3 install.py uninstall
 ```
 
 ### Manual setup
@@ -64,7 +64,7 @@ bash install.sh uninstall
 1. Set the notify hook in `~/.codex/config.toml`:
 
 ```toml
-notify = ["bash", "/path/to/arize-agent-kit/codex-tracing/hooks/notify.sh"]
+notify = ["arize-hook-codex-notify"]
 ```
 
 2. Create the shared collector config at `~/.arize/harness/config.yaml` with your backend and harness settings (see [Configuration](#configuration) below and [COLLECTOR_ARCHITECTURE.md](../COLLECTOR_ARCHITECTURE.md) for the full schema).
@@ -136,7 +136,7 @@ The parent LLM span includes:
 
 ### Multi-Span Assembly
 
-When Codex OTLP export is enabled, `notify.sh` drains buffered events for the current thread-id from the shared collector and builds child spans.  These are merged with the parent span into a single OTLP `resourceSpans` payload via `build_multi_span()`, producing a hierarchical trace tree.
+When Codex OTLP export is enabled, the notify handler drains buffered events for the current thread-id from the shared collector and builds child spans.  These are merged with the parent span into a single OTLP `resourceSpans` payload via `build_multi_span()`, producing a hierarchical trace tree.
 
 ## Environment Variables
 
@@ -172,15 +172,13 @@ Add this to `~/.codex/arize-env.sh` so it persists across sessions (this is one 
 
 ### Shared Collector (port 4318)
 
-The shared collector exports spans to the configured backend (Phoenix or Arize AX).  It is managed via `core/collector_ctl.sh`:
+The shared collector exports spans to the configured backend (Phoenix or Arize AX).  It is managed via `core/collector_ctl.py` (`arize-collector-ctl`):
 
 ```bash
-source core/collector_ctl.sh
-
-collector_start    # Start the shared collector
-collector_stop     # Stop it
-collector_status   # Check if running (exit code 0/1)
-collector_ensure   # Start if not already running
+arize-collector-ctl start    # Start the shared collector
+arize-collector-ctl stop     # Stop it
+arize-collector-ctl status   # Check if running (exit code 0/1)
+arize-collector-ctl ensure   # Start if not already running
 ```
 
 Config: `~/.arize/harness/config.yaml`.  PID: `~/.arize/harness/run/collector.pid`.  Log: `~/.arize/harness/logs/collector.log`.
@@ -191,20 +189,20 @@ The shared collector also buffers Codex's native OTLP log events (`POST /v1/logs
 
 ```
 codex-tracing/
-  hooks/common.sh              Adapter: thread-id state, debug dump, multi-span
-  hooks/notify.sh              Notify hook (LLM spans with child span assembly)
-  scripts/codex_proxy.sh       Proxy wrapper (ensures collector is running)
-  install.sh                   Interactive/non-interactive installer
   skills/                      Codex setup skill
 ```
 
 Shared logic lives in `core/` at the repository root:
 
 ```
-core/common.sh        Env vars, logging, state primitives, span building, sending
-core/collector.py     Shared collector: span export + event buffering
-core/collector_ctl.sh Collector lifecycle management
-core/send_arize.py    Arize AX gRPC sender (legacy fallback)
+core/
+  hooks/codex/adapter.py     Adapter: thread-id state, debug dump, multi-span
+  hooks/codex/handlers.py    Notify hook handler
+  hooks/codex/proxy.py       Proxy wrapper (ensures collector is running)
+  common.py                  Env vars, logging, state, span building, sending
+  collector.py               Shared collector: span export + event buffering
+  collector_ctl.py           Collector lifecycle management
+  send_arize.py              Arize AX gRPC sender (legacy fallback)
 ```
 
 ## Troubleshooting
