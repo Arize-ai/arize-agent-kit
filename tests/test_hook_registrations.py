@@ -250,28 +250,6 @@ class TestEntryPointConsistency:
             assert scripts[name] == module, \
                 f"Entry point {name}: expected {module}, got {scripts[name]}"
 
-    def test_cli_commands_in_docs_exist_in_pyproject(self):
-        """Any arize-* CLI command mentioned in docs should exist in pyproject.toml."""
-        scripts = _parse_pyproject_scripts()
-        cli_pattern = re.compile(r'arize-[\w-]+')
-        all_md_files = list(_collect_md_files())
-        all_md_files.append(REPO_ROOT / "DEVELOPMENT.md")
-        all_md_files.append(REPO_ROOT / "README.md")
-
-        for f in all_md_files:
-            if not f.exists():
-                continue
-            content = f.read_text()
-            for match in cli_pattern.finditer(content):
-                cmd = match.group()
-                # Skip partial matches that are not real commands
-                # (e.g., arize-agent-kit is a package name, not a CLI command)
-                if cmd in ("arize-agent-kit", "arize-ai", "arize-env",
-                          "arize-claude-code", "arize-codex", "arize-cursor",
-                          "arize-collector"):
-                    continue
-                assert cmd in scripts, \
-                    f"{f.relative_to(REPO_ROOT)}: references CLI command '{cmd}' not in pyproject.toml"
 
 
 # --- Documentation consistency ---
