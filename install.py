@@ -107,33 +107,33 @@ def _supports_color():
 _USE_COLOR = _supports_color()
 
 
-def _c(code, text):
+def colorize(code, text):
     if _USE_COLOR:
         return f"\033[{code}m{text}\033[0m"
     return text
 
 
 def info(msg):
-    print(f"{_c('0;32', '[arize]')} {msg}")
+    print(f"{colorize('0;32', '[arize]')} {msg}")
 
 
 def warn(msg):
-    print(f"{_c('1;33', '[arize]')} {msg}")
+    print(f"{colorize('1;33', '[arize]')} {msg}")
 
 
 def err(msg):
-    print(f"{_c('0;31', '[arize]')} {msg}", file=sys.stderr)
+    print(f"{colorize('0;31', '[arize]')} {msg}", file=sys.stderr)
 
 
 def header(msg):
-    print(f"\n{_c('1;34', msg)}\n")
+    print(f"\n{colorize('1;34', msg)}\n")
 
 
 def confirm(prompt, default="n"):
     """Prompt for yes/no confirmation. Returns True for yes."""
-    if not sys.stdin.isatty():
+    reply = _tty_input(prompt).strip()
+    if not reply:
         return default.lower().startswith("y")
-    reply = input(prompt).strip() or default
     return reply.lower().startswith("y")
 
 
@@ -239,7 +239,7 @@ def _load_yaml():
         return yaml
     except ImportError:
         pass
-    # Try venv python
+    # Try venv python — add its site-packages temporarily
     vp = _venv_python()
     if vp:
         try:
@@ -250,9 +250,16 @@ def _load_yaml():
             if result.returncode == 0:
                 yaml_dir = str(Path(result.stdout.strip()).parent)
                 sys.path.insert(0, yaml_dir)
-                import yaml
-                return yaml
-        except (subprocess.SubprocessError, ImportError):
+                try:
+                    import yaml
+                    return yaml
+                except ImportError:
+                    # Import failed — clean up the path we added
+                    try:
+                        sys.path.remove(yaml_dir)
+                    except ValueError:
+                        pass
+        except subprocess.SubprocessError:
             pass
     return None
 
@@ -304,8 +311,10 @@ def _cfg_delete(key):
 # Repository download
 # ---------------------------------------------------------------------------
 
-def install_repo():
+def install_repo(branch=None, tarball_url=None):
     """Clone the repo or download tarball into INSTALL_DIR."""
+    branch = branch or INSTALL_BRANCH
+    tarball_url = tarball_url or TARBALL_URL
     git_dir = INSTALL_DIR / ".git"
 
     if git_dir.is_dir():
@@ -329,7 +338,7 @@ def install_repo():
         info("Cloning arize-agent-kit...")
         try:
             subprocess.run(
-                ["git", "clone", "--depth", "1", "--branch", INSTALL_BRANCH,
+                ["git", "clone", "--depth", "1", "--branch", branch,
                  REPO_URL, str(INSTALL_DIR)],
                 capture_output=True, check=True, timeout=120,
             )
@@ -337,16 +346,17 @@ def install_repo():
         except (subprocess.SubprocessError, FileNotFoundError):
             warn("git clone failed — falling back to tarball")
 
-    _install_repo_tarball()
+    _install_repo_tarball(tarball_url)
 
 
-def _install_repo_tarball():
+def _install_repo_tarball(tarball_url=None):
     """Download and extract the repo tarball."""
+    tarball_url = tarball_url or TARBALL_URL
     info("Downloading arize-agent-kit tarball...")
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".tar.gz")
     try:
         os.close(tmp_fd)
-        urllib.request.urlretrieve(TARBALL_URL, tmp_path)
+        urllib.request.urlretrieve(tarball_url, tmp_path)
         INSTALL_DIR.mkdir(parents=True, exist_ok=True)
         with tarfile.open(tmp_path, "r:gz") as tf:
             # Strip the top-level directory (arize-agent-kit-main/)
@@ -358,8 +368,14 @@ def _install_repo_tarball():
                 if member.name == prefix.rstrip("/"):
                     continue
                 member.name = member.name[len(prefix):]
-                if member.name:
-                    tf.extract(member, INSTALL_DIR)
+                if not member.name:
+                    continue
+                # Guard against path traversal (CVE-2007-4559)
+                resolved = (INSTALL_DIR / member.name).resolve()
+                if not str(resolved).startswith(str(INSTALL_DIR.resolve())):
+                    warn(f"Skipping suspicious tarball member: {member.name}")
+                    continue
+                tf.extract(member, INSTALL_DIR)
         info(f"Extracted to {INSTALL_DIR}")
     finally:
         try:
@@ -511,8 +527,7 @@ def write_config(backend_target, credentials, harness_name, collector_port=4318)
         if harness_name:
             lines.append(f'  {harness_name}:')
             lines.append(f'    project_name: "{harness_name}"')
-        else:
-            lines.append(f'  {{}}')
+        # When no harness, 'harnesses:' on its own line is valid YAML for empty mapping
         fd = os.open(str(CONFIG_FILE), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
             f.write("\n".join(lines) + "\n")
@@ -675,7 +690,10 @@ def start_collector():
 # ---------------------------------------------------------------------------
 
 def write_collector_launcher(python_cmd):
-    """Write a launcher script for the collector."""
+    """Write a Python launcher script for the collector.
+
+    Uses a Python shebang instead of bash, so no shell dependency is needed.
+    """
     BIN_DIR.mkdir(parents=True, exist_ok=True)
 
     launcher_python = _venv_python() or python_cmd
@@ -688,10 +706,12 @@ def write_collector_launcher(python_cmd):
         )
     else:
         COLLECTOR_BIN.write_text(
-            f"#!/bin/bash\n"
+            f"#!{launcher_python}\n"
             f"# Arize Agent Kit — shared collector launcher\n"
             f"# Auto-generated by install.py. Do not edit manually.\n"
-            f'exec "{launcher_python}" "{collector_src}" "$@"\n'
+            f"import runpy, sys\n"
+            f'sys.argv[0] = {str(collector_src)!r}\n'
+            f'runpy.run_path({str(collector_src)!r}, run_name="__main__")\n'
         )
         COLLECTOR_BIN.chmod(0o755)
 
@@ -1189,7 +1209,7 @@ def setup_codex():
             template = template.replace("__ARIZE_ENV_FILE__", str(env_file))
             template = template.replace(
                 "__SHARED_COLLECTOR_CTL__",
-                str(INSTALL_DIR / "core" / "collector_ctl.sh"),
+                _venv_bin("arize-collector-ctl"),
             )
             proxy_path.write_text(template)
             proxy_path.chmod(0o755)
@@ -1295,7 +1315,7 @@ def install_skills(harness):
 # Update
 # ---------------------------------------------------------------------------
 
-def update_install():
+def update_install(branch=None, tarball_url=None):
     """Update the installed arize-agent-kit to latest."""
     header("Updating arize-agent-kit")
 
@@ -1317,11 +1337,11 @@ def update_install():
         except (subprocess.SubprocessError, FileNotFoundError):
             warn("Fast-forward pull failed — re-cloning")
             shutil.rmtree(INSTALL_DIR, ignore_errors=True)
-            install_repo()
+            install_repo(branch=branch, tarball_url=tarball_url)
     else:
         info("No git repo found — re-downloading")
         shutil.rmtree(INSTALL_DIR, ignore_errors=True)
-        install_repo()
+        install_repo(branch=branch, tarball_url=tarball_url)
 
     # Re-install package and restart
     collector_src = INSTALL_DIR / "core" / "collector.py"
@@ -1449,12 +1469,9 @@ def _uninstall_codex():
     if codex_config.is_file():
         try:
             text = codex_config.read_text()
-            # Remove notify line referencing arize
+            # Remove Arize comment line and notify lines that reference arize
             new_text = re.sub(r"^# Arize tracing[^\n]*\n", "", text, flags=re.MULTILINE)
             new_text = re.sub(r"^notify\s*=.*arize.*\n?", "", new_text, flags=re.MULTILINE)
-            # Also remove generic notify lines
-            if "arize" in text.lower() or "notify" in text:
-                new_text = re.sub(r"^notify\s*=.*\n?", "", new_text, flags=re.MULTILINE)
 
             # Remove [otel] section pointing at localhost collector
             new_text = re.sub(
@@ -1676,34 +1693,32 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.branch:
-        global INSTALL_BRANCH, TARBALL_URL
-        INSTALL_BRANCH = args.branch
-        TARBALL_URL = f"https://github.com/Arize-ai/arize-agent-kit/archive/refs/heads/{INSTALL_BRANCH}.tar.gz"
+    branch = args.branch or INSTALL_BRANCH
+    tarball_url = f"https://github.com/Arize-ai/arize-agent-kit/archive/refs/heads/{branch}.tar.gz"
 
     if args.command == "claude":
-        install_repo()
+        install_repo(branch=branch, tarball_url=tarball_url)
         setup_shared_collector("claude-code")
         setup_claude()
         if args.with_skills:
             install_skills("claude-code")
 
     elif args.command == "codex":
-        install_repo()
+        install_repo(branch=branch, tarball_url=tarball_url)
         setup_shared_collector("codex")
         setup_codex()
         if args.with_skills:
             install_skills("codex")
 
     elif args.command == "cursor":
-        install_repo()
+        install_repo(branch=branch, tarball_url=tarball_url)
         setup_shared_collector("cursor")
         setup_cursor()
         if args.with_skills:
             install_skills("cursor")
 
     elif args.command == "update":
-        update_install()
+        update_install(branch=branch, tarball_url=tarball_url)
 
     elif args.command == "uninstall":
         uninstall()
