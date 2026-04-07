@@ -37,9 +37,8 @@ The installer will:
 ### Manual
 
 ```bash
-git clone https://github.com/Arize-ai/arize-agent-kit.git
-cd arize-agent-kit
-python cursor-tracing/scripts/setup.py
+pip install arize-agent-kit
+arize-setup-cursor
 ```
 
 ## Configuration
@@ -184,10 +183,11 @@ Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.
 
 ```
 cursor-tracing/
-  scripts/setup.py      Interactive configuration and hooks installation
   skills/               Cursor setup skill
   README.md
 ```
+
+Setup is provided by the `arize-setup-cursor` CLI entry point (defined in `core/setup/cursor.py`).
 
 Hook logic lives in `core/` at the repository root (installed as a Python package):
 
