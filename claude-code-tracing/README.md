@@ -83,31 +83,32 @@ bash claude-code-tracing/scripts/setup.sh
 The setup script will:
 
 1. Ask which backend to configure: Phoenix or Arize AX
-2. Write backend credentials and harness settings to the shared config at `~/.arize/harness/config.json`
+2. Write backend credentials and harness settings to the shared config at `~/.arize/harness/config.yaml`
 3. Optionally add `ARIZE_USER_ID` for span attribution
 
 ### Shared Config File
 
-The single source of truth for backend credentials, collector settings, and per-harness configuration is `~/.arize/harness/config.json`. Each harness (e.g. `claude-code`, `codex`) gets its own entry under `harnesses` with a dedicated `project_name`:
+The single source of truth for backend credentials, collector settings, and per-harness configuration is `~/.arize/harness/config.yaml`. Each harness (e.g. `claude-code`, `codex`) gets its own entry under `harnesses` with a dedicated `project_name`:
 
-```json
-{
-  "collector": { "host": "127.0.0.1", "port": 4318 },
-  "backend": {
-    "target": "phoenix",
-    "phoenix": { "endpoint": "...", "api_key": "..." }
-  },
-  "harnesses": {
-    "claude-code": { "project_name": "claude-code" }
-  }
-}
+```yaml
+collector:
+  host: "127.0.0.1"
+  port: 4318
+backend:
+  target: "phoenix"
+  phoenix:
+    endpoint: "..."
+    api_key: "..."
+harnesses:
+  claude-code:
+    project_name: "claude-code"
 ```
 
 Environment variables (see below) still work as a fallback for the legacy direct-send path, but the config file is the recommended way to manage all settings.
 
-Backend credentials and harness project names are stored in `~/.arize/harness/config.json` and read by the shared collector — not by hooks directly. No environment variables need to be set in Claude settings for tracing to work. Tracing is enabled by default (`ARIZE_TRACE_ENABLED` defaults to `true` in the hook scripts).
+Backend credentials and harness project names are stored in `~/.arize/harness/config.yaml` and read by the shared collector — not by hooks directly. No environment variables need to be set in Claude settings for tracing to work. Tracing is enabled by default (`ARIZE_TRACE_ENABLED` defaults to `true` in the hook scripts).
 
-Requires: `jq`, `curl`. No Python packages needed in the user environment — the collector bundles its own gRPC dependencies for Arize AX.
+Requires: `curl`. No Python packages needed in the user environment — the collector bundles its own gRPC dependencies for Arize AX.
 
 ## Hooks
 
@@ -139,7 +140,7 @@ Hook commands are written with absolute paths by `install.sh` into `~/.claude/se
 
 ## Environment Variables (fallback)
 
-The config file `~/.arize/harness/config.json` is the primary and recommended way to configure tracing. The environment variables below serve as a fallback for the legacy direct-send path or for overriding specific values at runtime.
+The config file `~/.arize/harness/config.yaml` is the primary and recommended way to configure tracing. The environment variables below serve as a fallback for the legacy direct-send path or for overriding specific values at runtime.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -152,16 +153,14 @@ The config file `~/.arize/harness/config.json` is the primary and recommended wa
 | `ARIZE_COLLECTOR_HOST` | No | `127.0.0.1` | Shared collector listen address |
 | `ARIZE_COLLECTOR_PORT` | No | `4318` | Shared collector listen port |
 
-Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.) and project names are configured in the shared config file `~/.arize/harness/config.json` and read by the collector. They do not need to be set as environment variables in Claude settings.
+Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.) and project names are configured in the shared config file `~/.arize/harness/config.yaml` and read by the collector. They do not need to be set as environment variables in Claude settings.
 
 ### User Identification
 
-Set `user_id` in `~/.arize/harness/config.json` to tag all spans with a `user.id` attribute. This is useful for team environments where multiple users share a project:
+Set `user_id` in `~/.arize/harness/config.yaml` to tag all spans with a `user.id` attribute. This is useful for team environments where multiple users share a project:
 
-```json
-{
-  "user_id": "alice@example.com"
-}
+```yaml
+user_id: "alice@example.com"
 ```
 
 The `ARIZE_USER_ID` environment variable can also be used and takes precedence over the config file. The hook input JSON `user_id` field is used as a final fallback.
@@ -237,13 +236,9 @@ core/collector_ctl.sh  Collector lifecycle management (start/stop/status/ensure)
 
 **Collector not running**
 
-1. Verify the shared config exists: `cat ~/.arize/harness/config.json`
+1. Verify the shared config exists: `cat ~/.arize/harness/config.yaml`
 2. Start the collector: `source core/collector_ctl.sh && collector_start`
 3. Check collector logs for startup errors: `tail -20 ~/.arize/harness/logs/collector.log`
-
-**"jq required" error**
-
-Install jq: `brew install jq` (macOS) or `apt-get install jq` (Linux).
 
 **Session state issues**
 

@@ -2,3 +2,7 @@
 .workbench/
 .agents/
 .claude/
+*.egg-info/
+uv.lock
+
+__pycache__/

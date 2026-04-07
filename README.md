@@ -34,7 +34,7 @@ curl -fsSL $INSTALL | bash -s -- cursor   # Cursor IDE
 The installer:
 
 1. **Asks for your backend** — Phoenix endpoint or Arize AX credentials
-2. **Writes config** — saves backend credentials and harness settings to `~/.arize/harness/config.json`
+2. **Writes config** — saves backend credentials and harness settings to `~/.arize/harness/config.yaml`
 3. **Starts a background collector** — a lightweight local process at `127.0.0.1:4318` that handles all backend export (HTTP for Phoenix, gRPC for Arize AX)
 4. **Configures your harness** — sets up hooks so spans flow automatically
 
@@ -48,9 +48,9 @@ This stops the background collector, removes the collector runtime, and cleans u
 
 ## Configuration
 
-All configuration lives in `~/.arize/harness/config.json`, written by the installer. This file is the single source of truth for backend credentials, collector settings, and per-harness project names.
+All configuration lives in `~/.arize/harness/config.yaml`, written by the installer. This file is the single source of truth for backend credentials, collector settings, and per-harness project names.
 
-### config.json Fields
+### config.yaml Fields
 
 **Collector**
 
@@ -94,7 +94,7 @@ All configuration lives in `~/.arize/harness/config.json`, written by the instal
 | `codex` | `project_name` | `codex` |
 | `cursor` | `project_name` | `cursor` |
 
-The collector handles all backend-specific transport (HTTP for Phoenix, gRPC for Arize AX). Harnesses only need `jq` and `curl`.
+The collector handles all backend-specific transport (HTTP for Phoenix, gRPC for Arize AX). Harnesses only need `curl`.
 
 See [COLLECTOR_ARCHITECTURE.md](COLLECTOR_ARCHITECTURE.md) for the full collector contract.
 

@@ -21,7 +21,7 @@ TARBALL_URL="https://github.com/Arize-ai/arize-agent-kit/archive/refs/heads/${IN
 INSTALL_DIR="${HOME}/.arize/harness"
 
 # Shared collector layout
-SHARED_CONFIG="${INSTALL_DIR}/config.json"
+SHARED_CONFIG="${INSTALL_DIR}/config.yaml"
 SHARED_BIN_DIR="${INSTALL_DIR}/bin"
 SHARED_COLLECTOR_BIN="${SHARED_BIN_DIR}/arize-collector"
 SHARED_RUN_DIR="${INSTALL_DIR}/run"
@@ -68,28 +68,28 @@ find_python() {
   return 1
 }
 
-# Create an isolated venv for the collector with gRPC dependencies
+# Create an isolated venv for the collector with PyYAML and optional gRPC dependencies
 setup_collector_venv() {
   local python_cmd="$1"
   local backend_target="$2"
 
-  # Phoenix doesn't need the venv — it's pure stdlib
-  if [[ "$backend_target" != "arize" ]]; then
-    info "Phoenix backend selected — no additional Python packages needed"
-    return 0
-  fi
+  # Determine required packages — pyyaml is always needed (config.py), grpc only for arize
+  local base_pkgs="pyyaml"
+  local arize_pkgs="opentelemetry-proto grpcio"
 
-  # Check if venv already has the packages
+  # Check if venv already has the required packages
   if [[ -x "${SHARED_VENV_DIR}/bin/python" ]] || [[ -x "${SHARED_VENV_DIR}/Scripts/python.exe" ]]; then
     local venv_python="${SHARED_VENV_DIR}/bin/python"
     [[ -x "$venv_python" ]] || venv_python="${SHARED_VENV_DIR}/Scripts/python.exe"
-    if "$venv_python" -c "import grpc; import opentelemetry" 2>/dev/null; then
+    local check_cmd="import yaml"
+    [[ "$backend_target" == "arize" ]] && check_cmd="import yaml; import grpc; import opentelemetry"
+    if "$venv_python" -c "$check_cmd" 2>/dev/null; then
       info "Collector venv already has required packages"
       return 0
     fi
   fi
 
-  info "Creating collector venv for Arize AX gRPC export..."
+  info "Creating collector venv..."
   "$python_cmd" -m venv "$SHARED_VENV_DIR" 2>/dev/null || {
     err "Failed to create venv with $python_cmd"
     err "You may need to install the venv module: apt install python3-venv (Debian/Ubuntu)"
@@ -99,8 +99,11 @@ setup_collector_venv() {
   local venv_pip="${SHARED_VENV_DIR}/bin/pip"
   [[ -x "$venv_pip" ]] || venv_pip="${SHARED_VENV_DIR}/Scripts/pip.exe"
 
-  info "Installing opentelemetry-proto and grpcio into collector venv..."
-  "$venv_pip" install --quiet opentelemetry-proto grpcio 2>&1 | while read -r line; do
+  local pkgs="$base_pkgs"
+  [[ "$backend_target" == "arize" ]] && pkgs="$base_pkgs $arize_pkgs"
+
+  info "Installing ${pkgs} into collector venv..."
+  "$venv_pip" install --quiet $pkgs 2>&1 | while read -r line; do
     _log_to_file "pip: $line" 2>/dev/null || true
   done
 
@@ -192,10 +195,33 @@ setup_shared_collector() {
   local harness_name="${1:-}"
   local harness_project="${harness_name:-default}"
 
-  # If config already exists with a valid backend, just add the harness entry
+  # Helper: read a config value via core/config.py (requires venv with pyyaml)
+  _cfg_get() {
+    "${SHARED_VENV_DIR}/bin/python3" "${INSTALL_DIR}/core/config.py" get "$1" 2>/dev/null
+  }
+
+  # Helper: set a config value via core/config.py
+  _cfg_set() {
+    "${SHARED_VENV_DIR}/bin/python3" "${INSTALL_DIR}/core/config.py" set "$1" "$2"
+  }
+
+  # Helper: delete a config key via core/config.py
+  _cfg_delete() {
+    "${SHARED_VENV_DIR}/bin/python3" "${INSTALL_DIR}/core/config.py" delete "$1"
+  }
+
+  # If config already exists with a valid backend, defer harness merge until after venv setup
   local existing_backend=""
-  if command_exists jq && [[ -f "$SHARED_CONFIG" ]]; then
-    existing_backend=$(jq -r '.backend.target // empty' "$SHARED_CONFIG" 2>/dev/null) || true
+  local defer_harness_merge=false
+  if [[ -f "$SHARED_CONFIG" ]]; then
+    # Try venv python first (if available from prior install)
+    if [[ -x "${SHARED_VENV_DIR}/bin/python3" ]]; then
+      existing_backend=$(_cfg_get "backend.target") || true
+    fi
+    # If venv not available yet, peek at the YAML with a simple grep
+    if [[ -z "$existing_backend" ]]; then
+      existing_backend=$(grep -A1 '^backend:' "$SHARED_CONFIG" 2>/dev/null | grep 'target:' | sed 's/.*target:[[:space:]]*//' | tr -d '"' | tr -d "'") || true
+    fi
   fi
 
   local backend_target=""
@@ -204,12 +230,7 @@ setup_shared_collector() {
     backend_target="$existing_backend"
     info "Existing backend config found (${existing_backend}) — adding harness entry"
     if [[ -n "$harness_name" ]]; then
-      local tmp_config="${SHARED_CONFIG}.tmp.$$"
-      jq --arg hn "$harness_name" --arg pn "$harness_project" \
-         '.harnesses[$hn].project_name = $pn' \
-         "$SHARED_CONFIG" > "$tmp_config" && mv "$tmp_config" "$SHARED_CONFIG"
-      chmod 600 "$SHARED_CONFIG"
-      info "Added harness '${harness_name}' to ${SHARED_CONFIG}"
+      defer_harness_merge=true
     fi
     # Skip backend credential prompts — existing config is preserved
   else
@@ -303,39 +324,31 @@ setup_shared_collector() {
 
     local collector_port="${collector_port:-4318}"
 
-    # Write fresh config with backend + harness
-    local harnesses_json="{}"
+    # Write fresh config as YAML
+    local harnesses_yaml="harnesses: {}"
     if [[ -n "$harness_name" ]]; then
-      harnesses_json="{\"${harness_name}\": {\"project_name\": \"${harness_project}\"}}"
+      harnesses_yaml=$(cat <<HYEOF
+harnesses:
+  ${harness_name}:
+    project_name: "${harness_project}"
+HYEOF
+      )
     fi
-    local config_json
-    config_json=$(cat <<CFGEOF
-{
-  "collector": {
-    "host": "127.0.0.1",
-    "port": ${collector_port}
-  },
-  "backend": {
-    "target": "${backend_target}",
-    "phoenix": {
-      "endpoint": "${phoenix_endpoint}",
-      "api_key": "${phoenix_api_key}"
-    },
-    "arize": {
-      "endpoint": "${arize_endpoint}",
-      "api_key": "${arize_api_key}",
-      "space_id": "${arize_space_id}"
-    }
-  },
-  "harnesses": ${harnesses_json}
-}
+    cat > "$SHARED_CONFIG" <<CFGEOF
+collector:
+  host: "127.0.0.1"
+  port: ${collector_port}
+backend:
+  target: "${backend_target}"
+  phoenix:
+    endpoint: "${phoenix_endpoint}"
+    api_key: "${phoenix_api_key}"
+  arize:
+    endpoint: "${arize_endpoint}"
+    api_key: "${arize_api_key}"
+    space_id: "${arize_space_id}"
+${harnesses_yaml}
 CFGEOF
-    )
-    if command_exists jq; then
-      echo "$config_json" | jq . > "$SHARED_CONFIG"
-    else
-      echo "$config_json" > "$SHARED_CONFIG"
-    fi
     chmod 600 "$SHARED_CONFIG"
     info "Wrote shared config to ${SHARED_CONFIG} (backend=${backend_target}, harness=${harness_name:-none})"
   fi
@@ -357,11 +370,21 @@ CFGEOF
     return 0
   fi
 
-  # --- Set up venv for Arize AX (installs grpcio + opentelemetry-proto) ---
+  # --- Set up venv (pyyaml always, grpcio for Arize AX) ---
   setup_collector_venv "$python_cmd" "$backend_target" || {
-    warn "Collector venv setup failed — Arize AX export will not work"
-    warn "Phoenix export will still work (no additional packages needed)"
+    warn "Collector venv setup failed — config.py and Arize AX export may not work"
   }
+
+  # --- Deferred harness merge (now that venv with pyyaml exists) ---
+  if [[ "$defer_harness_merge" == true ]]; then
+    if [[ -x "${SHARED_VENV_DIR}/bin/python3" ]]; then
+      _cfg_set "harnesses.${harness_name}.project_name" "${harness_project}"
+      info "Added harness '${harness_name}' to ${SHARED_CONFIG}"
+    else
+      warn "Could not add harness '${harness_name}' to config — venv not available"
+      warn "Re-run the installer after fixing the venv to register the harness"
+    fi
+  fi
 
   # --- Create launcher script ---
   # Use venv python if it exists (Arize AX), fall back to system python (Phoenix)
@@ -389,9 +412,9 @@ BINEOF
 start_shared_collector() {
   # Read port from config (default 4318)
   local collector_port="4318"
-  if command_exists jq && [[ -f "$SHARED_CONFIG" ]]; then
+  if [[ -x "${SHARED_VENV_DIR}/bin/python3" ]] && [[ -f "$SHARED_CONFIG" ]]; then
     local cfg_port
-    cfg_port=$(jq -r '.collector.port // empty' "$SHARED_CONFIG" 2>/dev/null) || true
+    cfg_port=$("${SHARED_VENV_DIR}/bin/python3" "${INSTALL_DIR}/core/config.py" get "collector.port" 2>/dev/null) || true
     [[ -n "$cfg_port" ]] && collector_port="$cfg_port"
   fi
 
@@ -653,9 +676,9 @@ setup_cursor() {
 
   # --- 2. Read collector port from shared config ---
   local collector_port="4318"
-  if command_exists jq && [[ -f "$SHARED_CONFIG" ]]; then
+  if [[ -x "${SHARED_VENV_DIR}/bin/python3" ]] && [[ -f "$SHARED_CONFIG" ]]; then
     local cfg_port
-    cfg_port=$(jq -r '.collector.port // empty' "$SHARED_CONFIG" 2>/dev/null) || true
+    cfg_port=$("${SHARED_VENV_DIR}/bin/python3" "${INSTALL_DIR}/core/config.py" get "collector.port" 2>/dev/null) || true
     [[ -n "$cfg_port" ]] && collector_port="$cfg_port"
   fi
 
@@ -799,9 +822,9 @@ ENVEOF
   # --- 3. Configure OTLP exporter in config.toml ---
   # Read collector port from shared config
   local collector_port="4318"
-  if command_exists jq && [[ -f "$SHARED_CONFIG" ]]; then
+  if [[ -x "${SHARED_VENV_DIR}/bin/python3" ]] && [[ -f "$SHARED_CONFIG" ]]; then
     local cfg_port
-    cfg_port=$(jq -r '.collector.port // empty' "$SHARED_CONFIG" 2>/dev/null) || true
+    cfg_port=$("${SHARED_VENV_DIR}/bin/python3" "${INSTALL_DIR}/core/config.py" get "collector.port" 2>/dev/null) || true
     [[ -n "$cfg_port" ]] && collector_port="$cfg_port"
   fi
 
@@ -1188,12 +1211,13 @@ _uninstall_codex() {
     info "Removed ${codex_config_dir}/arize-env.sh"
   fi
 
-  # 8. Remove codex harness entry from config.json
-  if command_exists jq && [[ -f "$SHARED_CONFIG" ]]; then
-    if jq -e '.harnesses.codex' "$SHARED_CONFIG" >/dev/null 2>&1; then
-      cp "$SHARED_CONFIG" "${SHARED_CONFIG}.bak"
-      jq 'del(.harnesses.codex)' "$SHARED_CONFIG" > "${SHARED_CONFIG}.tmp" && mv "${SHARED_CONFIG}.tmp" "$SHARED_CONFIG"
-      info "Removed codex harness entry from config.json"
+  # 8. Remove codex harness entry from config.yaml
+  if [[ -x "${SHARED_VENV_DIR}/bin/python3" ]] && [[ -f "$SHARED_CONFIG" ]]; then
+    local codex_entry
+    codex_entry=$("${SHARED_VENV_DIR}/bin/python3" "${INSTALL_DIR}/core/config.py" get "harnesses.codex" 2>/dev/null) || true
+    if [[ -n "$codex_entry" ]]; then
+      "${SHARED_VENV_DIR}/bin/python3" "${INSTALL_DIR}/core/config.py" delete "harnesses.codex"
+      info "Removed codex harness entry from config.yaml"
     fi
   fi
 
@@ -1243,13 +1267,13 @@ _uninstall_cursor() {
     info "Removed ${HOME}/.arize/harness/state/cursor"
   fi
 
-  # 3. Remove cursor harness entry from config.json
-  if command_exists jq && [[ -f "$SHARED_CONFIG" ]]; then
-    if jq -e '.harnesses.cursor' "$SHARED_CONFIG" >/dev/null 2>&1; then
-      cp "$SHARED_CONFIG" "${SHARED_CONFIG}.bak"
-      jq 'del(.harnesses.cursor)' "$SHARED_CONFIG" > "${SHARED_CONFIG}.tmp" && \
-        mv "${SHARED_CONFIG}.tmp" "$SHARED_CONFIG"
-      info "Removed cursor harness entry from config.json"
+  # 3. Remove cursor harness entry from config.yaml
+  if [[ -x "${SHARED_VENV_DIR}/bin/python3" ]] && [[ -f "$SHARED_CONFIG" ]]; then
+    local cursor_entry
+    cursor_entry=$("${SHARED_VENV_DIR}/bin/python3" "${INSTALL_DIR}/core/config.py" get "harnesses.cursor" 2>/dev/null) || true
+    if [[ -n "$cursor_entry" ]]; then
+      "${SHARED_VENV_DIR}/bin/python3" "${INSTALL_DIR}/core/config.py" delete "harnesses.cursor"
+      info "Removed cursor harness entry from config.yaml"
     fi
   fi
 
@@ -1398,7 +1422,6 @@ main() {
       [[ "$with_skills" == true ]] && install_skills "claude-code"
       ;;
     codex)
-      command_exists jq || { err "jq is required. Install: brew install jq  or  apt install jq"; exit 1; }
       install_repo
       setup_shared_collector "codex"
       setup_codex

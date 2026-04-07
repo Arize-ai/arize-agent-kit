@@ -109,10 +109,18 @@ inc_state() {
 }
 
 # --- Shared collector endpoint ---
-_ARIZE_SHARED_CONFIG="${HOME}/.arize/harness/config.json"
+_ARIZE_SHARED_CONFIG="${HOME}/.arize/harness/config.yaml"
+
+# Helper: read a dotted key from config.yaml via core/config.py
+_cfg_get() {
+  local _cfg_py="${HOME}/.arize/harness/venv/bin/python3"
+  [[ -x "$_cfg_py" ]] || _cfg_py="python3"
+  "$_cfg_py" "${CORE_DIR}/config.py" get "$1" 2>/dev/null
+}
+
 ARIZE_COLLECTOR_HOST="${ARIZE_COLLECTOR_HOST:-127.0.0.1}"
-if [[ -z "${ARIZE_COLLECTOR_PORT:-}" && -f "$_ARIZE_SHARED_CONFIG" ]] && command -v jq &>/dev/null; then
-  _cfg_collector_port=$(jq -r '.collector.port // empty' "$_ARIZE_SHARED_CONFIG" 2>/dev/null) || true
+if [[ -z "${ARIZE_COLLECTOR_PORT:-}" && -f "$_ARIZE_SHARED_CONFIG" ]]; then
+  _cfg_collector_port=$(_cfg_get "collector.port") || true
   if [[ -n "${_cfg_collector_port:-}" ]]; then
     ARIZE_COLLECTOR_PORT="$_cfg_collector_port"
   fi
@@ -120,9 +128,9 @@ fi
 ARIZE_COLLECTOR_PORT="${ARIZE_COLLECTOR_PORT:-4318}"
 _COLLECTOR_URL="http://${ARIZE_COLLECTOR_HOST}:${ARIZE_COLLECTOR_PORT}"
 
-# Read user_id from config.json if not set via env var
-if [[ -z "${ARIZE_USER_ID:-}" && -f "$_ARIZE_SHARED_CONFIG" ]] && command -v jq &>/dev/null; then
-  _cfg_user_id=$(jq -r '.user_id // empty' "$_ARIZE_SHARED_CONFIG" 2>/dev/null) || true
+# Read user_id from config.yaml if not set via env var
+if [[ -z "${ARIZE_USER_ID:-}" && -f "$_ARIZE_SHARED_CONFIG" ]]; then
+  _cfg_user_id=$(_cfg_get "user_id") || true
   if [[ -n "${_cfg_user_id:-}" ]]; then
     ARIZE_USER_ID="$_cfg_user_id"
   fi
