@@ -62,6 +62,10 @@ core/
       __init__.py
       adapter.py     # Cursor-specific state stack, ID generation, sanitize
       handlers.py    # 12-event dispatcher
+  setup/
+    claude.py        # Interactive setup wizard for Claude
+    codex.py         # Interactive setup wizard for Codex
+    cursor.py        # Interactive setup wizard for Cursor
 
 claude-code-tracing/ # Claude Code CLI / Agent SDK — docs, plugin.json, skill
 codex-tracing/       # OpenAI Codex CLI — docs, skill, setup script
@@ -210,6 +214,8 @@ Follow the pattern in existing adapter READMEs: features, configuration table, q
 
 ## Core API Reference
 
+All functions below are Python functions in the `core.common` module. Import them with `from core.common import <function>`.
+
 ### Span Building
 
 | Function | Description |
@@ -308,4 +314,14 @@ All adapters write to a log file by default:
 
 ```bash
 tail -f /tmp/arize-<harness>.log
+```
+
+### Collector Control
+
+Start, stop, or check the collector status using the CLI:
+
+```bash
+arize-collector-ctl start
+arize-collector-ctl status
+arize-collector-ctl stop
 ```

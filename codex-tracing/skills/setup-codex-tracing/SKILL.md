@@ -264,7 +264,7 @@ curl -sf http://127.0.0.1:4318/health
 
 5. **Phoenix connectivity** (if using Phoenix):
 ```bash
-source ~/.codex/arize-env.sh && curl -sf ${PHOENIX_ENDPOINT}/v1/traces >/dev/null && echo "Phoenix reachable" || echo "Phoenix not reachable"
+curl -sf ${PHOENIX_ENDPOINT}/v1/traces >/dev/null && echo "Phoenix reachable" || echo "Phoenix not reachable"
 ```
 
 6. **Dry run test:**

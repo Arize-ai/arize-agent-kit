@@ -311,7 +311,7 @@ Common issues and fixes:
 |---------|-----|
 | Traces not appearing | Check `ARIZE_TRACE_ENABLED` is `"true"` in Claude settings, and verify collector is running: `curl -sf http://127.0.0.1:4318/health` |
 | Collector not running | Start it: `arize-collector-ctl start`. Check logs: `~/.arize/harness/logs/collector.log` |
-| Collector config missing | Run `install.py` or create `~/.arize/harness/config.yaml` manually (include `harnesses` section) |
+| Collector config missing | Run the installer or create `~/.arize/harness/config.yaml` manually (include `harnesses` section) |
 | Phoenix unreachable | Verify Phoenix is running: `curl -sf <endpoint>/v1/traces` |
 | No output in terminal | Hook stderr is discarded by Claude Code; check `/tmp/arize-claude-code.log` |
 | Want to test without sending | Set `ARIZE_DRY_RUN` to `"true"` in env config |
