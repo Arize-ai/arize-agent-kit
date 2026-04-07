@@ -39,9 +39,8 @@ The installer detects Codex and guides you through configuration.
 ### Dedicated installer
 
 ```bash
-git clone https://github.com/Arize-ai/arize-agent-kit.git
-cd arize-agent-kit/codex-tracing
-python scripts/setup.py
+pip install arize-agent-kit
+arize-setup-codex
 ```
 
 ### Manual setup
@@ -174,10 +173,11 @@ The shared collector also buffers Codex's native OTLP log events (`POST /v1/logs
 
 ```
 codex-tracing/
-  scripts/setup.py             Interactive configuration wizard
   skills/                      Codex setup skill
   README.md
 ```
+
+Setup is provided by the `arize-setup-codex` CLI entry point (defined in `core/setup/codex.py`).
 
 Hook logic lives in `core/` at the repository root (installed as a Python package):
 

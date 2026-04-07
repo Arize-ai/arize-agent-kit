@@ -79,7 +79,7 @@ git clone https://github.com/Arize-ai/arize-agent-kit.git
 Run the interactive setup after installation:
 
 ```bash
-python claude-code-tracing/scripts/setup.py
+arize-setup-claude
 ```
 
 The setup script will:
@@ -202,10 +202,11 @@ curl -sf http://127.0.0.1:4318/health
 ```
 claude-code-tracing/
   .claude-plugin/plugin.json   Hook registrations (9 hooks, CLI entry points)
-  scripts/setup.py             Interactive configuration wizard
   skills/                      Claude Code skill for guided setup
   README.md
 ```
+
+Setup is provided by the `arize-setup-claude` CLI entry point (defined in `core/setup/claude.py`).
 
 Hook logic lives in `core/` at the repository root (installed as a Python package):
 
