@@ -356,6 +356,140 @@ class TestCollectorStart:
         result = collector_start()
         assert result is False
 
+    def test_start_launches_subprocess(self, ctl_paths, sample_config, monkeypatch):
+        """Successful launch via collector.py calls Popen with correct args."""
+        import core.collector_ctl as ctl
+
+        # Point COLLECTOR_BIN to nonexistent so it falls through to collector.py
+        monkeypatch.setattr(ctl, "COLLECTOR_BIN", Path("/nonexistent/arize-collector"))
+
+        # Create a fake collector.py at the expected path
+        fake_core = ctl_paths / "fake_core"
+        fake_core.mkdir(exist_ok=True)
+        collector_py = fake_core / "collector.py"
+        collector_py.write_text("# fake collector\n")
+        monkeypatch.setattr(ctl, "__file__", str(fake_core / "collector_ctl.py"))
+
+        # Mock socket to raise (port is free)
+        monkeypatch.setattr(
+            "core.collector_ctl.socket.create_connection",
+            MagicMock(side_effect=ConnectionRefusedError),
+        )
+
+        # Mock Popen
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_popen = MagicMock(return_value=mock_proc)
+        monkeypatch.setattr("core.collector_ctl.subprocess.Popen", mock_popen)
+
+        # Mock _health_check: fail first call, succeed on second
+        call_count = {"n": 0}
+        def fake_health_check(host, port, timeout=2.0):
+            call_count["n"] += 1
+            return call_count["n"] >= 2
+        monkeypatch.setattr("core.collector_ctl._health_check", fake_health_check)
+
+        result = collector_start()
+        assert result is True
+
+        # Verify Popen was called with the right command
+        popen_args, popen_kwargs = mock_popen.call_args
+        assert popen_args[0] == [sys.executable, str(collector_py)]
+        assert popen_kwargs.get("start_new_session") is True
+
+    def test_start_uses_collector_bin_when_available(self, ctl_paths, sample_config, monkeypatch):
+        """When COLLECTOR_BIN exists and is executable, it is preferred over collector.py."""
+        import core.collector_ctl as ctl
+
+        # Create a fake COLLECTOR_BIN
+        collector_bin = ctl_paths / "arize-collector"
+        collector_bin.write_text("#!/bin/sh\n")
+        collector_bin.chmod(0o755)
+        monkeypatch.setattr(ctl, "COLLECTOR_BIN", collector_bin)
+
+        # Mock socket to raise (port is free)
+        monkeypatch.setattr(
+            "core.collector_ctl.socket.create_connection",
+            MagicMock(side_effect=ConnectionRefusedError),
+        )
+
+        # Mock Popen
+        mock_proc = MagicMock()
+        mock_proc.pid = 12345
+        mock_popen = MagicMock(return_value=mock_proc)
+        monkeypatch.setattr("core.collector_ctl.subprocess.Popen", mock_popen)
+
+        # Mock _health_check to succeed immediately
+        monkeypatch.setattr("core.collector_ctl._health_check", lambda h, p, timeout=2.0: True)
+
+        result = collector_start()
+        assert result is True
+
+        popen_args, _ = mock_popen.call_args
+        assert popen_args[0] == [str(collector_bin)]
+
+    def test_start_returns_true_if_process_alive_but_unhealthy(self, ctl_paths, sample_config, monkeypatch):
+        """If health check never passes but process is alive, returns True (benefit of the doubt)."""
+        import core.collector_ctl as ctl
+
+        # Point COLLECTOR_BIN to nonexistent so it falls through to collector.py
+        monkeypatch.setattr(ctl, "COLLECTOR_BIN", Path("/nonexistent/arize-collector"))
+
+        # Create fake collector.py
+        fake_core = ctl_paths / "fake_core_alive"
+        fake_core.mkdir(exist_ok=True)
+        (fake_core / "collector.py").write_text("# fake\n")
+        monkeypatch.setattr(ctl, "__file__", str(fake_core / "collector_ctl.py"))
+
+        # Mock socket (port is free)
+        monkeypatch.setattr(
+            "core.collector_ctl.socket.create_connection",
+            MagicMock(side_effect=ConnectionRefusedError),
+        )
+
+        # Mock Popen
+        mock_proc = MagicMock()
+        mock_proc.pid = 54321
+        mock_popen = MagicMock(return_value=mock_proc)
+        monkeypatch.setattr("core.collector_ctl.subprocess.Popen", mock_popen)
+
+        # Health check always fails
+        monkeypatch.setattr("core.collector_ctl._health_check", lambda h, p, timeout=2.0: False)
+
+        # Process is alive
+        monkeypatch.setattr("core.collector_ctl._is_process_alive", lambda pid: pid == 54321)
+
+        result = collector_start()
+        assert result is True
+
+    def test_start_returns_false_on_popen_failure(self, ctl_paths, sample_config, monkeypatch):
+        """If Popen raises OSError, collector_start returns False."""
+        import core.collector_ctl as ctl
+
+        # Point COLLECTOR_BIN to nonexistent so it falls through to collector.py
+        monkeypatch.setattr(ctl, "COLLECTOR_BIN", Path("/nonexistent/arize-collector"))
+
+        # Create fake collector.py
+        fake_core = ctl_paths / "fake_core_oserr"
+        fake_core.mkdir(exist_ok=True)
+        (fake_core / "collector.py").write_text("# fake\n")
+        monkeypatch.setattr(ctl, "__file__", str(fake_core / "collector_ctl.py"))
+
+        # Mock socket (port is free)
+        monkeypatch.setattr(
+            "core.collector_ctl.socket.create_connection",
+            MagicMock(side_effect=ConnectionRefusedError),
+        )
+
+        # Mock Popen to raise OSError
+        monkeypatch.setattr(
+            "core.collector_ctl.subprocess.Popen",
+            MagicMock(side_effect=OSError("Permission denied")),
+        )
+
+        result = collector_start()
+        assert result is False
+
 
 # ---------------------------------------------------------------------------
 # collector_stop tests
