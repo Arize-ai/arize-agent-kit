@@ -21,7 +21,15 @@ from core.hooks.claude.handlers import (
     _handle_notification,
     _handle_permission_request,
     _handle_session_end,
-    session_start,  # entry point, for error-handling test
+    session_start,
+    pre_tool_use,
+    post_tool_use,
+    user_prompt_submit,
+    stop,
+    subagent_stop,
+    notification,
+    permission_request,
+    session_end,
 )
 from core.common import StateManager
 
@@ -725,3 +733,52 @@ class TestErrorHandling:
             session_start()
         # _read_stdin returns {} on invalid JSON, so resolve_session is called with {}
         rs.assert_called_once_with({})
+
+
+# ---------------------------------------------------------------------------
+# Entry point tests (all 9 CLI wrappers)
+# ---------------------------------------------------------------------------
+
+ENTRY_POINTS = [
+    ("session_start", session_start, "_handle_session_start"),
+    ("pre_tool_use", pre_tool_use, "_handle_pre_tool_use"),
+    ("post_tool_use", post_tool_use, "_handle_post_tool_use"),
+    ("user_prompt_submit", user_prompt_submit, "_handle_user_prompt_submit"),
+    ("stop", stop, "_handle_stop"),
+    ("subagent_stop", subagent_stop, "_handle_subagent_stop"),
+    ("notification", notification, "_handle_notification"),
+    ("permission_request", permission_request, "_handle_permission_request"),
+    ("session_end", session_end, "_handle_session_end"),
+]
+
+
+class TestEntryPoints:
+
+    @pytest.mark.parametrize("name,entry_fn,handler_name", ENTRY_POINTS)
+    def test_happy_path_calls_handler(self, name, entry_fn, handler_name):
+        """Entry point calls the corresponding _handle_* with parsed stdin JSON."""
+        input_data = {"session_id": "s1"}
+        with mock.patch("core.hooks.claude.handlers.check_requirements", return_value=True), \
+             mock.patch("core.hooks.claude.handlers._read_stdin", return_value=input_data), \
+             mock.patch(f"core.hooks.claude.handlers.{handler_name}") as handler_mock:
+            entry_fn()
+        handler_mock.assert_called_once_with(input_data)
+
+    @pytest.mark.parametrize("name,entry_fn,handler_name", ENTRY_POINTS)
+    def test_requirements_not_met_skips_handler(self, name, entry_fn, handler_name):
+        """When check_requirements returns False, handler is NOT called."""
+        with mock.patch("core.hooks.claude.handlers.check_requirements", return_value=False), \
+             mock.patch(f"core.hooks.claude.handlers.{handler_name}") as handler_mock:
+            entry_fn()
+        handler_mock.assert_not_called()
+
+    @pytest.mark.parametrize("name,entry_fn,handler_name", ENTRY_POINTS)
+    def test_exception_caught_and_logged(self, name, entry_fn, handler_name, capsys):
+        """Handler exception is caught; error is logged to stderr, no raise."""
+        with mock.patch("core.hooks.claude.handlers.check_requirements", return_value=True), \
+             mock.patch("core.hooks.claude.handlers._read_stdin", return_value={}), \
+             mock.patch(f"core.hooks.claude.handlers.{handler_name}",
+                        side_effect=RuntimeError("test-boom")):
+            entry_fn()  # should not raise
+        captured = capsys.readouterr()
+        assert "test-boom" in captured.err
