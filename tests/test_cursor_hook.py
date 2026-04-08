@@ -459,6 +459,290 @@ class TestHandleBeforeShellExecution:
 
 
 # ---------------------------------------------------------------------------
+# _handle_after_agent_thought tests
+# ---------------------------------------------------------------------------
+
+class TestHandleAfterAgentThought:
+
+    def test_creates_chain_span_with_thought(self, captured_spans, monkeypatch):
+        """Creates CHAIN span with thought as output.value."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with mock.patch("core.hooks.cursor.handlers.get_target", return_value="phoenix"), \
+             mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
+             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="abcd" * 4), \
+             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1") as get_mock:
+            _dispatch("afterAgentThought", {
+                "conversation_id": "conv-1",
+                "generation_id": "gen-1",
+                "thought": "thinking about the problem",
+            })
+
+        get_mock.assert_called_once_with("gen-1")
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
+        assert attrs["output.value"]["stringValue"] == "thinking about the problem"
+        assert attrs["session.id"]["stringValue"] == "conv-1"
+        assert span["name"] == "Agent Thinking"
+        assert span["parentSpanId"] == "parent1"
+
+
+# ---------------------------------------------------------------------------
+# _handle_before_mcp_execution tests
+# ---------------------------------------------------------------------------
+
+class TestHandleBeforeMcpExecution:
+
+    def test_pushes_state(self, monkeypatch):
+        """Pushes tool_name, tool_input, url, command, start_ms to state."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with mock.patch("core.hooks.cursor.handlers.get_target", return_value="phoenix"), \
+             mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1500), \
+             mock.patch("core.hooks.cursor.handlers.state_push") as push_mock:
+            _dispatch("beforeMCPExecution", {
+                "conversation_id": "c1",
+                "generation_id": "gen-1",
+                "tool_name": "search",
+                "tool_input": '{"query": "test"}',
+                "url": "http://localhost:3000",
+            })
+
+        push_mock.assert_called_once()
+        key, value = push_mock.call_args[0]
+        assert "gen-1" in key or "gen_1" in key
+        assert value["tool_name"] == "search"
+        assert value["tool_input"] == '{"query": "test"}'
+        assert value["start_ms"] == "1500"
+
+    def test_no_gen_id_returns_early(self, monkeypatch):
+        """Without gen_id, returns without pushing state."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with mock.patch("core.hooks.cursor.handlers.get_target", return_value="phoenix"), \
+             mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000), \
+             mock.patch("core.hooks.cursor.handlers.state_push") as push_mock:
+            _dispatch("beforeMCPExecution", {
+                "conversation_id": "c1",
+                "tool_name": "search",
+            })
+
+        push_mock.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _handle_after_mcp_execution tests
+# ---------------------------------------------------------------------------
+
+class TestHandleAfterMcpExecution:
+
+    def test_creates_tool_span_with_popped_state(self, captured_spans, monkeypatch):
+        """Creates TOOL span, merges with before state from state_pop."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        popped = {
+            "tool_name": "search",
+            "tool_input": '{"query": "test"}',
+            "url": "http://localhost:3000",
+            "command": "",
+            "start_ms": "1000",
+            "trace_id": "t1",
+            "conversation_id": "c1",
+        }
+        with mock.patch("core.hooks.cursor.handlers.get_target", return_value="phoenix"), \
+             mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
+             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="ffaa" * 4), \
+             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"), \
+             mock.patch("core.hooks.cursor.handlers.state_pop", return_value=popped):
+            _dispatch("afterMCPExecution", {
+                "conversation_id": "conv-1",
+                "generation_id": "gen-1",
+                "result": "found 3 items",
+            })
+
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["openinference.span.kind"]["stringValue"] == "TOOL"
+        assert attrs["tool.name"]["stringValue"] == "search"
+        assert attrs["input.value"]["stringValue"] == '{"query": "test"}'
+        assert attrs["output.value"]["stringValue"] == "found 3 items"
+        assert span["name"] == "MCP: search"
+        assert span["parentSpanId"] == "parent1"
+
+    def test_no_popped_state_uses_input(self, captured_spans, monkeypatch):
+        """Without popped state, span still created from input_json fields."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with mock.patch("core.hooks.cursor.handlers.get_target", return_value="phoenix"), \
+             mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=3000), \
+             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="bbcc" * 4), \
+             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""), \
+             mock.patch("core.hooks.cursor.handlers.state_pop", return_value=None):
+            _dispatch("afterMCPExecution", {
+                "conversation_id": "c1",
+                "generation_id": "g1",
+                "tool_name": "list_repos",
+                "result": "ok",
+            })
+
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["tool.name"]["stringValue"] == "list_repos"
+        assert span["name"] == "MCP: list_repos"
+
+
+# ---------------------------------------------------------------------------
+# _handle_before_read_file tests
+# ---------------------------------------------------------------------------
+
+class TestHandleBeforeReadFile:
+
+    def test_creates_tool_span(self, captured_spans, monkeypatch):
+        """Creates TOOL span with file path as input."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with mock.patch("core.hooks.cursor.handlers.get_target", return_value="phoenix"), \
+             mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
+             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="1122" * 4), \
+             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"):
+            _dispatch("beforeReadFile", {
+                "conversation_id": "conv-1",
+                "generation_id": "gen-1",
+                "file_path": "/foo/bar.py",
+            })
+
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["openinference.span.kind"]["stringValue"] == "TOOL"
+        assert attrs["tool.name"]["stringValue"] == "read_file"
+        assert attrs["input.value"]["stringValue"] == "/foo/bar.py"
+        assert span["name"] == "Read File"
+        assert span["parentSpanId"] == "parent1"
+
+
+# ---------------------------------------------------------------------------
+# _handle_after_file_edit tests
+# ---------------------------------------------------------------------------
+
+class TestHandleAfterFileEdit:
+
+    def test_creates_tool_span(self, captured_spans, monkeypatch):
+        """Creates TOOL span with file path and diff."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with mock.patch("core.hooks.cursor.handlers.get_target", return_value="phoenix"), \
+             mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
+             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="3344" * 4), \
+             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"):
+            _dispatch("afterFileEdit", {
+                "conversation_id": "conv-1",
+                "generation_id": "gen-1",
+                "file_path": "/foo/bar.py",
+                "diff": "+added line",
+            })
+
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["openinference.span.kind"]["stringValue"] == "TOOL"
+        assert attrs["tool.name"]["stringValue"] == "edit_file"
+        assert attrs["input.value"]["stringValue"] == "/foo/bar.py: +added line"
+        assert span["name"] == "File Edit"
+        assert span["parentSpanId"] == "parent1"
+
+    def test_no_diff_uses_path_only(self, captured_spans, monkeypatch):
+        """Without diff, input.value is just the file path."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with mock.patch("core.hooks.cursor.handlers.get_target", return_value="phoenix"), \
+             mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
+             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="3344" * 4), \
+             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""):
+            _dispatch("afterFileEdit", {
+                "conversation_id": "c1",
+                "generation_id": "g1",
+                "file_path": "/foo/bar.py",
+            })
+
+        attrs = {a["key"]: a["value"] for a in
+                 captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
+        assert attrs["input.value"]["stringValue"] == "/foo/bar.py"
+
+
+# ---------------------------------------------------------------------------
+# _handle_before_tab_file_read tests
+# ---------------------------------------------------------------------------
+
+class TestHandleBeforeTabFileRead:
+
+    def test_creates_tool_span(self, captured_spans, monkeypatch):
+        """Creates TOOL span with file path as input for tab read."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with mock.patch("core.hooks.cursor.handlers.get_target", return_value="phoenix"), \
+             mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
+             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="5566" * 4), \
+             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"):
+            _dispatch("beforeTabFileRead", {
+                "conversation_id": "conv-1",
+                "generation_id": "gen-1",
+                "file_path": "/src/main.ts",
+            })
+
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["openinference.span.kind"]["stringValue"] == "TOOL"
+        assert attrs["tool.name"]["stringValue"] == "read_file_tab"
+        assert attrs["input.value"]["stringValue"] == "/src/main.ts"
+        assert span["name"] == "Tab Read File"
+        assert span["parentSpanId"] == "parent1"
+
+
+# ---------------------------------------------------------------------------
+# _handle_after_tab_file_edit tests
+# ---------------------------------------------------------------------------
+
+class TestHandleAfterTabFileEdit:
+
+    def test_creates_tool_span(self, captured_spans, monkeypatch):
+        """Creates TOOL span with file path and edits for tab edit."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with mock.patch("core.hooks.cursor.handlers.get_target", return_value="phoenix"), \
+             mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
+             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="7788" * 4), \
+             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"):
+            _dispatch("afterTabFileEdit", {
+                "conversation_id": "conv-1",
+                "generation_id": "gen-1",
+                "file_path": "/src/main.ts",
+                "edits": "replaced function",
+            })
+
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["openinference.span.kind"]["stringValue"] == "TOOL"
+        assert attrs["tool.name"]["stringValue"] == "edit_file_tab"
+        assert attrs["input.value"]["stringValue"] == "/src/main.ts: replaced function"
+        assert span["name"] == "Tab File Edit"
+        assert span["parentSpanId"] == "parent1"
+
+    def test_no_edits_uses_path_only(self, captured_spans, monkeypatch):
+        """Without edits, input.value is just the file path."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with mock.patch("core.hooks.cursor.handlers.get_target", return_value="phoenix"), \
+             mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
+             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="7788" * 4), \
+             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""):
+            _dispatch("afterTabFileEdit", {
+                "conversation_id": "c1",
+                "generation_id": "g1",
+                "file_path": "/src/main.ts",
+            })
+
+        attrs = {a["key"]: a["value"] for a in
+                 captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
+        assert attrs["input.value"]["stringValue"] == "/src/main.ts"
+
+
+# ---------------------------------------------------------------------------
 # main() entry point tests
 # ---------------------------------------------------------------------------
 
