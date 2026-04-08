@@ -359,7 +359,8 @@ class TestStop:
     def test_parses_transcript_string_content(self, mock_resolve, state, captured_spans, tmp_path):
         """Parses transcript with string content format."""
         tf = tmp_path / "transcript_str.jsonl"
-        entry = {"type": "assistant", "message": {
+        entry = {"message": {
+            "role": "assistant",
             "content": "Hello from string format",
             "model": "claude-test",
             "usage": {"input_tokens": 10, "output_tokens": 5}
@@ -410,7 +411,8 @@ class TestStop:
         """Output truncated to 5000 chars."""
         tf = tmp_path / "transcript_big.jsonl"
         big_text = "x" * 6000
-        entry = {"type": "assistant", "message": {
+        entry = {"message": {
+            "role": "assistant",
             "content": [{"type": "text", "text": big_text}],
             "model": "test",
             "usage": {"input_tokens": 0, "output_tokens": 0}

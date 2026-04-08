@@ -419,8 +419,9 @@ class TestCollectorStart:
         mock_popen = MagicMock(return_value=mock_proc)
         monkeypatch.setattr("core.collector_ctl.subprocess.Popen", mock_popen)
 
-        # Mock _health_check to succeed immediately
-        monkeypatch.setattr("core.collector_ctl._health_check", lambda h, p, timeout=2.0: True)
+        # Mock _health_check: False first (pre-socket early check), True after launch
+        health_calls = iter([False, True])
+        monkeypatch.setattr("core.collector_ctl._health_check", lambda h, p, timeout=2.0: next(health_calls))
 
         result = collector_start()
         assert result is True

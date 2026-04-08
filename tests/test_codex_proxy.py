@@ -31,7 +31,7 @@ class TestFindRealCodex:
             result = _find_real_codex()
 
         assert result is not None
-        assert result.resolve() == codex.resolve()
+        assert os.path.realpath(result) == os.path.realpath(str(codex))
 
     def test_skips_self_path(self, tmp_path):
         """Entries resolving to the proxy module itself are skipped."""
@@ -101,7 +101,7 @@ class TestFindRealCodex:
             result = _find_real_codex()
 
         assert result is not None
-        assert result.resolve() == (dir_a / "codex").resolve()
+        assert os.path.realpath(result) == os.path.realpath(str(dir_a / "codex"))
 
 
 # ---------------------------------------------------------------------------
@@ -175,10 +175,11 @@ class TestMain:
         codex.write_text("#!/bin/sh\nexit 0\n")
         codex.chmod(codex.stat().st_mode | stat.S_IEXEC)
 
-        with mock.patch("core.hooks.codex.proxy.Path.home", return_value=tmp_path), \
+        with mock.patch("os.path.expanduser", return_value=str(tmp_path)), \
              mock.patch("core.hooks.codex.proxy._load_env_file", side_effect=tracking_load), \
+             mock.patch("core.hooks.codex.proxy._quick_health_check", return_value=False), \
              mock.patch("core.collector_ctl.collector_ensure", side_effect=fake_ensure), \
-             mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=codex), \
+             mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=str(codex)), \
              mock.patch("os.execvp"):
             main()
 
@@ -192,8 +193,9 @@ class TestMain:
         codex.write_text("#!/bin/sh\nexit 0\n")
         codex.chmod(codex.stat().st_mode | stat.S_IEXEC)
 
-        with mock.patch("core.collector_ctl.collector_ensure", side_effect=RuntimeError("boom")), \
-             mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=codex), \
+        with mock.patch("core.hooks.codex.proxy._quick_health_check", return_value=False), \
+             mock.patch("core.collector_ctl.collector_ensure", side_effect=RuntimeError("boom")), \
+             mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=str(codex)), \
              mock.patch("os.execvp") as mock_exec:
             main()
 
@@ -236,8 +238,8 @@ class TestMain:
         fake_result = mock.Mock()
         fake_result.returncode = 42
 
-        with mock.patch("core.collector_ctl.collector_ensure"), \
-             mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=codex), \
+        with mock.patch("core.hooks.codex.proxy._quick_health_check", return_value=True), \
+             mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=str(codex)), \
              mock.patch("os.name", "nt"), \
              mock.patch("subprocess.run", return_value=fake_result) as mock_run, \
              pytest.raises(SystemExit) as exc_info:
