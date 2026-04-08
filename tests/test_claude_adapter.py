@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Tests for core.hooks.claude.adapter — session resolution, init, GC, requirements."""
 import os
+import subprocess
 from pathlib import Path
+from unittest.mock import mock_open, patch
 
 import pytest
 import yaml
@@ -230,3 +232,64 @@ class TestCheckRequirements:
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
         assert adapter.check_requirements() is False
         assert not state_dir.exists()
+
+
+# ── _get_grandparent_pid tests ───────────────────────────────────────────────
+
+
+class TestGetGrandparentPid:
+    def test_reads_from_proc_stat(self, monkeypatch):
+        """Linux path: reads grandparent PID from /proc/{ppid}/stat."""
+        monkeypatch.setattr(os, "getppid", lambda: 100)
+        fake_stat = "100 (python) S 456 0 0 0"
+        with patch("builtins.open", mock_open(read_data=fake_stat)):
+            result = adapter._get_grandparent_pid()
+        assert result == "456"
+
+    def test_falls_back_to_ps_command(self, monkeypatch):
+        """When /proc read fails, falls back to ps command."""
+        monkeypatch.setattr(os, "getppid", lambda: 100)
+        with patch("builtins.open", side_effect=OSError("no /proc")):
+            with patch(
+                "subprocess.check_output", return_value=b"  789  \n"
+            ):
+                result = adapter._get_grandparent_pid()
+        assert result == "789"
+
+    def test_falls_back_to_ppid(self, monkeypatch):
+        """When both /proc and ps fail, falls back to parent PID."""
+        monkeypatch.setattr(os, "getppid", lambda: 42)
+        with patch("builtins.open", side_effect=OSError("no /proc")):
+            with patch(
+                "subprocess.check_output",
+                side_effect=subprocess.SubprocessError("ps failed"),
+            ):
+                result = adapter._get_grandparent_pid()
+        assert result == "42"
+
+    def test_ppid_zero_returns_own_pid(self, monkeypatch):
+        """When ppid is 0, returns current process PID."""
+        monkeypatch.setattr(os, "getppid", lambda: 0)
+        result = adapter._get_grandparent_pid()
+        assert result == str(os.getpid())
+
+
+# ── _is_pid_alive tests ─────────────────────────────────────────────────────
+
+
+class TestIsPidAlive:
+    def test_own_pid_is_alive(self):
+        """Current process PID should be alive."""
+        assert adapter._is_pid_alive(os.getpid()) is True
+
+    def test_dead_pid(self):
+        """A very high PID that doesn't exist should be dead."""
+        assert adapter._is_pid_alive(99999) is False
+
+    def test_zero_returns_false(self):
+        """PID 0 should return False."""
+        assert adapter._is_pid_alive(0) is False
+
+    def test_negative_returns_false(self):
+        """Negative PID should return False."""
+        assert adapter._is_pid_alive(-1) is False
