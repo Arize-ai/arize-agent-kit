@@ -1,6 +1,6 @@
 {
   "name": "claude-code-tracing",
-  "description": "Automatic tracing of Claude Code sessions to Arize AX or Phoenix with OpenInference spans. Supports 9 hooks for comprehensive observability.",
+  "description": "Automatic tracing of Claude Code sessions to Arize AX or Phoenix with OpenInference spans.",
   "version": "1.0.0",
   "author": {
     "name": "Arize AI",
@@ -15,98 +15,9 @@
     "openinference",
     "arize",
     "phoenix",
-    "claude-code"
+    "claude-code",
+    "observability"
   ],
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.arize/harness/venv/bin/arize-hook-session-start"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.arize/harness/venv/bin/arize-hook-user-prompt-submit"
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.arize/harness/venv/bin/arize-hook-pre-tool-use"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.arize/harness/venv/bin/arize-hook-post-tool-use"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.arize/harness/venv/bin/arize-hook-stop"
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.arize/harness/venv/bin/arize-hook-subagent-stop"
-          }
-        ]
-      }
-    ],
-    "Notification": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.arize/harness/venv/bin/arize-hook-notification"
-          }
-        ]
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.arize/harness/venv/bin/arize-hook-permission-request"
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.arize/harness/venv/bin/arize-hook-session-end"
-          }
-        ]
-      }
-    ]
-  }
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json"
 }

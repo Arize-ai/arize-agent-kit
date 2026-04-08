@@ -97,54 +97,85 @@ class TestPluginJson:
         """plugin.json must be valid JSON (implicitly tested by fixture loading)."""
         assert isinstance(plugin_data, dict)
 
-    def test_has_hooks_section(self, plugin_data):
+    def test_has_hooks_reference(self, plugin_data):
+        """plugin.json must reference hooks/hooks.json."""
         assert "hooks" in plugin_data
+        assert plugin_data["hooks"] == "./hooks/hooks.json"
 
-    def test_all_claude_events_registered(self, plugin_data):
+    def test_has_skills_reference(self, plugin_data):
+        """plugin.json must reference skills directory."""
+        assert "skills" in plugin_data
+        assert plugin_data["skills"] == "./skills/"
+
+    def test_has_required_metadata(self, plugin_data):
+        """plugin.json must have name, description, version."""
+        assert "name" in plugin_data
+        assert "description" in plugin_data
+        assert "version" in plugin_data
+
+
+class TestHooksJson:
+    """Tests for claude-code-tracing/hooks/hooks.json."""
+
+    @pytest.fixture
+    def hooks_data(self):
+        path = REPO_ROOT / "claude-code-tracing" / "hooks" / "hooks.json"
+        with open(path) as f:
+            return json.load(f)
+
+    def test_valid_json(self, hooks_data):
+        """hooks.json must be valid JSON."""
+        assert isinstance(hooks_data, dict)
+        assert "hooks" in hooks_data
+
+    def test_all_claude_events_registered(self, hooks_data):
         """All 9 Claude hook events must be present."""
         expected_events = {
             "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
             "Stop", "SubagentStop", "Notification", "PermissionRequest", "SessionEnd",
         }
-        actual_events = set(plugin_data["hooks"].keys())
+        actual_events = set(hooks_data["hooks"].keys())
         assert expected_events == actual_events
 
-    def test_hook_commands_use_cli_entry_points(self, plugin_data):
-        """Each hook command must reference an arize-hook-* CLI entry point, not bash."""
-        for event, hook_list in plugin_data["hooks"].items():
+    def test_hook_commands_use_run_hook(self, hooks_data):
+        """Each hook command must use the run-hook dispatcher."""
+        for event, hook_list in hooks_data["hooks"].items():
             for hook_group in hook_list:
                 for hook in hook_group["hooks"]:
                     cmd = hook["command"]
-                    assert "bash " not in cmd, f"{event}: command still references bash: {cmd}"
-                    assert ".sh" not in cmd, f"{event}: command still references .sh script: {cmd}"
-                    assert "arize-hook-" in cmd, f"{event}: command should use arize-hook- entry point: {cmd}"
+                    assert "run-hook" in cmd, \
+                        f"{event}: command should use run-hook dispatcher: {cmd}"
+                    assert "CLAUDE_PLUGIN_ROOT" in cmd, \
+                        f"{event}: command should reference CLAUDE_PLUGIN_ROOT: {cmd}"
 
-    def test_hook_commands_use_venv_path(self, plugin_data):
-        """Hook commands should use full venv path for reliability."""
-        for event, hook_list in plugin_data["hooks"].items():
+    def test_hook_commands_reference_entry_points(self, hooks_data):
+        """Each hook command must pass an arize-hook-* entry point name."""
+        for event, hook_list in hooks_data["hooks"].items():
             for hook_group in hook_list:
                 for hook in hook_group["hooks"]:
                     cmd = hook["command"]
-                    assert cmd.startswith("~/.arize/harness/venv/bin/"), \
-                        f"{event}: command should use full venv path: {cmd}"
+                    assert "arize-hook-" in cmd, \
+                        f"{event}: command should reference arize-hook- entry point: {cmd}"
 
-    def test_hook_entry_points_exist_in_pyproject(self, plugin_data):
-        """Every CLI command in plugin.json must exist in pyproject.toml [project.scripts]."""
+    def test_hook_entry_points_exist_in_pyproject(self, hooks_data):
+        """Every entry point referenced in hooks must exist in pyproject.toml."""
         scripts = _parse_pyproject_scripts()
-        for event, hook_list in plugin_data["hooks"].items():
+        for event, hook_list in hooks_data["hooks"].items():
             for hook_group in hook_list:
                 for hook in hook_group["hooks"]:
-                    cmd_name = hook["command"].split("/")[-1]
-                    assert cmd_name in scripts, \
-                        f"{event}: CLI command '{cmd_name}' not found in pyproject.toml [project.scripts]"
+                    cmd = hook["command"]
+                    # Extract the entry point name (last argument)
+                    entry_point = cmd.strip().split()[-1].strip('"')
+                    assert entry_point in scripts, \
+                        f"{event}: entry point '{entry_point}' not found in pyproject.toml"
 
-    def test_event_to_command_mapping(self, plugin_data):
-        """Verify specific event-to-command mappings are correct."""
+    def test_event_to_entry_point_mapping(self, hooks_data):
+        """Verify specific event-to-entry-point mappings."""
         mapping = {}
-        for event, hook_list in plugin_data["hooks"].items():
+        for event, hook_list in hooks_data["hooks"].items():
             cmd = hook_list[0]["hooks"][0]["command"]
-            cmd_name = cmd.split("/")[-1]
-            mapping[event] = cmd_name
+            entry_point = cmd.strip().split()[-1].strip('"')
+            mapping[event] = entry_point
 
         assert mapping["SessionStart"] == "arize-hook-session-start"
         assert mapping["UserPromptSubmit"] == "arize-hook-user-prompt-submit"
@@ -156,13 +187,46 @@ class TestPluginJson:
         assert mapping["PermissionRequest"] == "arize-hook-permission-request"
         assert mapping["SessionEnd"] == "arize-hook-session-end"
 
-    def test_hook_type_is_command(self, plugin_data):
+    def test_hook_type_is_command(self, hooks_data):
         """All hooks must have type 'command'."""
-        for event, hook_list in plugin_data["hooks"].items():
+        for event, hook_list in hooks_data["hooks"].items():
             for hook_group in hook_list:
                 for hook in hook_group["hooks"]:
                     assert hook["type"] == "command", \
                         f"{event}: hook type should be 'command', got '{hook['type']}'"
+
+    def test_no_hardcoded_paths(self, hooks_data):
+        """Hook commands must not use hardcoded venv or home directory paths."""
+        for event, hook_list in hooks_data["hooks"].items():
+            for hook_group in hook_list:
+                for hook in hook_group["hooks"]:
+                    cmd = hook["command"]
+                    assert "~/.arize" not in cmd, f"{event}: hardcoded ~/.arize path: {cmd}"
+                    assert "/home/" not in cmd, f"{event}: hardcoded /home/ path: {cmd}"
+
+
+class TestRunHookScript:
+    """Tests for claude-code-tracing/scripts/run-hook."""
+
+    def test_run_hook_exists(self):
+        path = REPO_ROOT / "claude-code-tracing" / "scripts" / "run-hook"
+        assert path.is_file(), "scripts/run-hook must exist"
+
+    def test_run_hook_is_executable(self):
+        import os
+        path = REPO_ROOT / "claude-code-tracing" / "scripts" / "run-hook"
+        assert os.access(path, os.X_OK), "scripts/run-hook must be executable"
+
+    def test_run_hook_has_sh_shebang(self):
+        path = REPO_ROOT / "claude-code-tracing" / "scripts" / "run-hook"
+        first_line = path.read_text().splitlines()[0]
+        assert first_line.startswith("#!/bin/sh"), f"Expected sh shebang, got: {first_line}"
+
+    def test_run_hook_references_plugin_vars(self):
+        """run-hook must use CLAUDE_PLUGIN_ROOT and CLAUDE_PLUGIN_DATA."""
+        text = (REPO_ROOT / "claude-code-tracing" / "scripts" / "run-hook").read_text()
+        assert "CLAUDE_PLUGIN_ROOT" in text
+        assert "CLAUDE_PLUGIN_DATA" in text
 
 
 # --- No bash/jq/curl references in docs ---
