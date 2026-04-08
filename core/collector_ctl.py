@@ -163,14 +163,15 @@ def collector_start() -> bool:
 
     host, port = _resolve_host_port()
 
-    # Port-in-use check
+    # Fast health check first — catches running collector even without PID file
+    if _health_check(host, port, timeout=2.0):
+        return True
+
+    # Port-in-use check (raw socket)
     try:
         sock = socket.create_connection((host, port), timeout=1)
         sock.close()
-        # Port is open — check if it's our collector
-        if _health_check(host, port, timeout=2.0):
-            return True
-        # Port taken by something else
+        # Port is open but health check failed — something else owns it
         _log(
             f"ERROR: Port {port} is already in use by another process. "
             f"Set collector.port in {CONFIG_FILE} to use a different port"
