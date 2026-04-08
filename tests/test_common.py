@@ -830,3 +830,124 @@ def urllib_error_for_collector():
     """Create an exception to simulate collector failure."""
     import urllib.error
     return urllib.error.URLError("connection refused")
+
+
+# ── Additional SendSpan coverage ──────────────────────────────────────────
+
+
+class TestSendSpanDirectPaths:
+    """Tests for send_span direct-send paths: Phoenix with API key, Arize fallbacks, verbose logging."""
+
+    _SAMPLE_SPAN = TestSendSpan._SAMPLE_SPAN
+
+    @pytest.fixture(autouse=True)
+    def _mock_sleep(self, monkeypatch):
+        sleep_calls = []
+        monkeypatch.setattr("time.sleep", lambda s: sleep_calls.append(s))
+        return sleep_calls
+
+    @mock.patch("core.common.urllib.request.urlopen")
+    def test_phoenix_direct_send_with_api_key(self, mock_urlopen, monkeypatch):
+        """Phoenix direct send includes Authorization header when API key is set."""
+        monkeypatch.setenv("ARIZE_DIRECT_SEND", "true")
+        monkeypatch.setenv("PHOENIX_ENDPOINT", "http://phoenix:6006")
+        monkeypatch.setenv("ARIZE_API_KEY", "test-key")
+        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
+        monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
+
+        mock_resp = mock.MagicMock()
+        mock_resp.status = 200
+        mock_resp.__enter__ = mock.Mock(return_value=mock_resp)
+        mock_resp.__exit__ = mock.Mock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        result = send_span(self._SAMPLE_SPAN)
+        assert result is True
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.full_url == "http://phoenix:6006/v1/projects/default/spans"
+        assert req.get_header("Authorization") == "Bearer test-key"
+
+    @mock.patch("core.common.urllib.request.urlopen")
+    def test_arize_direct_send_import_error(self, mock_urlopen, monkeypatch):
+        """Arize direct send returns False when send_arize module is not importable."""
+        monkeypatch.setenv("ARIZE_DIRECT_SEND", "true")
+        monkeypatch.setenv("ARIZE_API_KEY", "key")
+        monkeypatch.setenv("ARIZE_SPACE_ID", "space")
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
+        monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
+
+        with mock.patch.dict("sys.modules", {"core.send_arize": None}):
+            result = send_span(self._SAMPLE_SPAN)
+        assert result is False
+
+    @mock.patch("core.common.urllib.request.urlopen")
+    def test_arize_direct_send_exception(self, mock_urlopen, monkeypatch):
+        """Arize direct send returns False when send_to_arize raises RuntimeError."""
+        monkeypatch.setenv("ARIZE_DIRECT_SEND", "true")
+        monkeypatch.setenv("ARIZE_API_KEY", "key")
+        monkeypatch.setenv("ARIZE_SPACE_ID", "space")
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
+        monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
+
+        fake_mod = mock.MagicMock()
+        fake_mod.send_to_arize.side_effect = RuntimeError("boom")
+        with mock.patch.dict("sys.modules", {"core.send_arize": fake_mod}):
+            result = send_span(self._SAMPLE_SPAN)
+        assert result is False
+
+    @mock.patch("core.common._send_to_collector", return_value=True)
+    def test_verbose_logs_payload(self, mock_send, capsys, monkeypatch):
+        """Verbose mode logs span payload to stderr."""
+        monkeypatch.setenv("ARIZE_VERBOSE", "true")
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
+        monkeypatch.delenv("ARIZE_DIRECT_SEND", raising=False)
+
+        send_span(self._SAMPLE_SPAN)
+        captured = capsys.readouterr().err
+        assert "span payload" in captured
+
+
+# ── Additional FileLock coverage (mkdir fallback) ─────────────────────────
+
+
+class TestFileLockMkdir:
+    """Tests for FileLock mkdir-based fallback implementation."""
+
+    @pytest.fixture(autouse=True)
+    def _mock_sleep(self, monkeypatch):
+        sleep_calls = []
+        monkeypatch.setattr("time.sleep", lambda s: sleep_calls.append(s))
+        return sleep_calls
+
+    def test_mkdir_fallback_acquire_release(self, tmp_path, monkeypatch):
+        """mkdir-based lock creates and removes directory on acquire/release."""
+        monkeypatch.setattr("core.common._LOCK_IMPL", "mkdir")
+        lock_path = tmp_path / "test.lock"
+        lock = FileLock(lock_path, timeout=1.0)
+        # Force the instance to use mkdir regardless of platform
+        lock._method = "mkdir"
+
+        with lock:
+            assert lock_path.is_dir()
+
+        assert not lock_path.exists()
+
+    def test_mkdir_fallback_timeout_force_acquire(self, tmp_path, monkeypatch):
+        """mkdir lock force-acquires by removing pre-existing directory after timeout."""
+        monkeypatch.setattr("core.common._LOCK_IMPL", "mkdir")
+        lock_path = tmp_path / "test.lock"
+        # Pre-create the lock directory to simulate contention
+        lock_path.mkdir()
+
+        lock = FileLock(lock_path, timeout=0.0)
+        lock._method = "mkdir"
+
+        with lock:
+            # Should have force-acquired despite pre-existing directory
+            assert lock_path.is_dir()
+
+        assert not lock_path.exists()
