@@ -224,7 +224,7 @@ def _handle_stop(input_json: dict) -> None:
                     entry = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if entry.get("type") != "assistant":
+                if entry.get("message", {}).get("role") != "assistant":
                     continue
                 # Extract text from message.content
                 content = entry.get("message", {}).get("content")
@@ -341,7 +341,7 @@ def _handle_subagent_stop(input_json: dict) -> None:
                     entry = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if entry.get("type") != "assistant":
+                if entry.get("message", {}).get("role") != "assistant":
                     continue
                 content = entry.get("message", {}).get("content")
                 if isinstance(content, list):

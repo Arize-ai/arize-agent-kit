@@ -33,18 +33,8 @@ COLLECTOR_LOG_FILE="${LOG_DIR}/collector.log"
 VENV_DIR="${INSTALL_DIR}/venv"
 STATE_BASE_DIR="${INSTALL_DIR}/state"
 
-# Hook entry point names (match pyproject.toml [project.scripts])
-declare -A CLAUDE_HOOK_EVENTS=(
-    [SessionStart]="arize-hook-session-start"
-    [UserPromptSubmit]="arize-hook-user-prompt-submit"
-    [PreToolUse]="arize-hook-pre-tool-use"
-    [PostToolUse]="arize-hook-post-tool-use"
-    [Stop]="arize-hook-stop"
-    [SubagentStop]="arize-hook-subagent-stop"
-    [Notification]="arize-hook-notification"
-    [PermissionRequest]="arize-hook-permission-request"
-    [SessionEnd]="arize-hook-session-end"
-)
+# Hook entry point names are defined in the Python heredoc in setup_claude()
+# (matches pyproject.toml [project.scripts])
 
 CURSOR_HOOK_EVENTS=(
     "beforeSubmitPrompt"
@@ -1195,8 +1185,9 @@ cleanup_claude_config() {
     local legacy_plugin_dir="${INSTALL_DIR}/plugins/claude-code-tracing"
 
     # Check what needs cleanup and prompt for each
-    local has_plugin has_hooks has_env_keys
-    read -r has_plugin has_hooks has_env_keys < <("$vp" -c "
+    local has_plugin=0 has_hooks=0 has_env_keys=0
+    local _cleanup_check
+    _cleanup_check=$("$vp" -c "
 import json, sys
 try:
     settings = json.loads(open('${settings_file}').read())
@@ -1220,7 +1211,8 @@ env_keys = ['ARIZE_TRACE_ENABLED','PHOENIX_ENDPOINT','PHOENIX_API_KEY','ARIZE_AP
 he = 1 if any(k in env for k in env_keys) else 0
 
 print(hp, hh, he)
-" 2>/dev/null) || { has_plugin=0; has_hooks=0; has_env_keys=0; }
+" 2>/dev/null) || true
+    read -r has_plugin has_hooks has_env_keys <<< "${_cleanup_check:-0 0 0}"
 
     local changed=false
 
