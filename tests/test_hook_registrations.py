@@ -228,12 +228,12 @@ class TestNoBashReferences:
             assert not matches, \
                 f"{f.relative_to(REPO_ROOT)}: still references collector_ctl.sh sourcing: {matches}"
 
-    def test_no_install_sh_references(self):
-        """No 'install.sh' references in harness docs (should be install.py)."""
+    def test_no_install_py_references(self):
+        """No 'install.py' references in harness docs (should be install.sh)."""
         for f in _collect_md_files():
             content = f.read_text()
-            assert "install.sh" not in content, \
-                f"{f.relative_to(REPO_ROOT)}: still references install.sh"
+            assert "install.py" not in content, \
+                f"{f.relative_to(REPO_ROOT)}: still references install.py"
 
 
 # --- CLI entry points consistency ---
@@ -258,11 +258,11 @@ class TestEntryPointConsistency:
 class TestDocumentationConsistency:
     """Verify documentation is internally consistent."""
 
-    def test_readme_references_install_py(self):
-        """Root README.md should reference install.py, not install.sh."""
+    def test_readme_references_install_sh(self):
+        """Root README.md should reference install.sh, not install.py."""
         readme = (REPO_ROOT / "README.md").read_text()
-        assert "install.py" in readme or "core.install" in readme
-        assert "install.sh" not in readme
+        assert "install.sh" in readme
+        assert "install.py" not in readme
 
     def test_development_md_references_python(self):
         """DEVELOPMENT.md should reference Python-based dev setup."""

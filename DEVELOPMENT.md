@@ -9,7 +9,7 @@ The system has two layers:
 1. **Harness adapters** — build OpenInference spans from harness-specific events (hook payloads, session lifecycle, tool calls) and submit them locally.
 2. **Shared collector/exporter** — a background process at `http://127.0.0.1:4318` that receives spans from all harnesses and exports them to Phoenix or Arize AX.
 
-Harnesses are responsible for span construction and session state. The collector is responsible for backend export, credentials, retries, and logging. New harnesses should submit spans to the collector via `POST http://127.0.0.1:4318/v1/spans` rather than implementing direct export logic. See [COLLECTOR_ARCHITECTURE.md](COLLECTOR_ARCHITECTURE.md) for the full collector contract.
+Harnesses are responsible for span construction and session state. The collector is responsible for backend export, credentials, retries, and logging. New harnesses should submit spans to the collector via `POST http://127.0.0.1:4318/v1/spans` rather than implementing direct export logic. See [COLLECTOR_ARCHITECTURE.md](docs/COLLECTOR_ARCHITECTURE.md) for the full collector contract.
 
 ## Dev Setup
 
@@ -71,7 +71,8 @@ claude-code-tracing/ # Claude Code CLI / Agent SDK — docs, plugin.json, skill
 codex-tracing/       # OpenAI Codex CLI — docs, skill, setup script
 cursor-tracing/      # Cursor IDE — docs, skill, setup script
 
-install.py           # Cross-platform installer
+install.sh           # Cross-platform installer (Unix/macOS)
+install.bat          # Cross-platform installer (Windows)
 tests/
   conftest.py        # Shared fixtures
   test_*.py          # One test file per module
@@ -204,9 +205,9 @@ Add entry points in `pyproject.toml`:
 arize-hook-<harness>-<event> = "core.hooks.<harness>.handlers:<function>"
 ```
 
-### Step 5: Update install.py
+### Step 5: Update install.sh / install.bat
 
-Add a `setup_<harness>` function to `install.py` for harness-specific configuration (hooks, env files, etc.). The shared collector setup is handled automatically — your harness setup function does not need to start or configure the collector.
+Add a `setup_<harness>` function to `install.sh` (and the equivalent in `install.bat`) for harness-specific configuration (hooks, env files, etc.). The shared collector setup is handled automatically — your harness setup function does not need to start or configure the collector.
 
 ### Step 6: Write a README.md
 

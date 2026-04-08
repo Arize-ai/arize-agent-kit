@@ -16,6 +16,9 @@ import pytest
 
 REPO_ROOT = Path(__file__).parent.parent
 
+# docs/COLLECTOR_ARCHITECTURE.md is reference documentation (lives in docs/)
+COLLECTOR_ARCH_PATH = REPO_ROOT / "docs" / "COLLECTOR_ARCHITECTURE.md"
+
 # Files that reference COLLECTOR_ARCHITECTURE.md
 COLLECTOR_ARCH_REFERRERS = [
     "README.md",
@@ -27,53 +30,52 @@ COLLECTOR_ARCH_REFERRERS = [
 
 
 class TestCollectorArchitectureExists:
-    """COLLECTOR_ARCHITECTURE.md must exist and be well-formed."""
+    """docs/COLLECTOR_ARCHITECTURE.md must exist and be well-formed."""
 
     def test_file_exists(self):
-        path = REPO_ROOT / "COLLECTOR_ARCHITECTURE.md"
-        assert path.exists(), "COLLECTOR_ARCHITECTURE.md does not exist"
+        assert COLLECTOR_ARCH_PATH.exists(), "docs/COLLECTOR_ARCHITECTURE.md does not exist"
 
     def test_file_not_empty(self):
-        content = (REPO_ROOT / "COLLECTOR_ARCHITECTURE.md").read_text()
+        content = COLLECTOR_ARCH_PATH.read_text()
         assert len(content.strip()) > 100, "COLLECTOR_ARCHITECTURE.md is too short"
 
     def test_under_150_lines(self):
-        lines = (REPO_ROOT / "COLLECTOR_ARCHITECTURE.md").read_text().splitlines()
+        lines = COLLECTOR_ARCH_PATH.read_text().splitlines()
         assert len(lines) <= 150, f"COLLECTOR_ARCHITECTURE.md is {len(lines)} lines, should be <=150"
 
     def test_has_title(self):
-        content = (REPO_ROOT / "COLLECTOR_ARCHITECTURE.md").read_text()
+        content = COLLECTOR_ARCH_PATH.read_text()
         assert content.startswith("# "), "Should start with a markdown heading"
 
     def test_covers_what_collector_does(self):
-        content = (REPO_ROOT / "COLLECTOR_ARCHITECTURE.md").read_text().lower()
+        content = COLLECTOR_ARCH_PATH.read_text().lower()
         assert "http" in content and "span" in content, "Should describe HTTP server and spans"
 
     def test_covers_start_stop(self):
-        content = (REPO_ROOT / "COLLECTOR_ARCHITECTURE.md").read_text()
+        content = COLLECTOR_ARCH_PATH.read_text()
         assert "collector_ctl" in content or "collector-ctl" in content, \
             "Should reference collector_ctl for lifecycle management"
 
     def test_covers_config_path(self):
-        content = (REPO_ROOT / "COLLECTOR_ARCHITECTURE.md").read_text()
+        content = COLLECTOR_ARCH_PATH.read_text()
         assert "config.yaml" in content, "Should reference config.yaml"
 
     def test_covers_api_endpoints(self):
-        content = (REPO_ROOT / "COLLECTOR_ARCHITECTURE.md").read_text()
+        content = COLLECTOR_ARCH_PATH.read_text()
         assert "/v1/spans" in content, "Should document /v1/spans endpoint"
         assert "/health" in content, "Should document /health endpoint"
         assert "/drain/" in content, "Should document /drain endpoint"
 
     def test_covers_pid_file(self):
-        content = (REPO_ROOT / "COLLECTOR_ARCHITECTURE.md").read_text()
+        content = COLLECTOR_ARCH_PATH.read_text()
         assert "collector.pid" in content, "Should document PID file location"
 
     def test_covers_log_file(self):
-        content = (REPO_ROOT / "COLLECTOR_ARCHITECTURE.md").read_text()
+        content = COLLECTOR_ARCH_PATH.read_text()
         assert "collector.log" in content, "Should document log file location"
 
     def test_mentions_phoenix_and_arize(self):
-        content = (REPO_ROOT / "COLLECTOR_ARCHITECTURE.md").read_text().lower()
+        content = COLLECTOR_ARCH_PATH.read_text().lower()
         assert "phoenix" in content, "Should mention Phoenix backend"
         assert "arize" in content, "Should mention Arize backend"
 
@@ -179,7 +181,7 @@ class TestNoDeletedBashScriptReferences:
     ALL_DOCS = [
         "README.md",
         "DEVELOPMENT.md",
-        "COLLECTOR_ARCHITECTURE.md",
+        "docs/COLLECTOR_ARCHITECTURE.md",
         "claude-code-tracing/README.md",
         "codex-tracing/README.md",
         "cursor-tracing/README.md",
@@ -208,12 +210,12 @@ class TestNoDeletedBashScriptReferences:
 
 
 class TestCollectorArchitectureSourceFiles:
-    """COLLECTOR_ARCHITECTURE.md should reference the correct source files."""
+    """docs/COLLECTOR_ARCHITECTURE.md should reference the correct source files."""
 
     def test_references_collector_py(self):
-        content = (REPO_ROOT / "COLLECTOR_ARCHITECTURE.md").read_text()
+        content = COLLECTOR_ARCH_PATH.read_text()
         assert "core/collector.py" in content
 
     def test_references_collector_ctl_py(self):
-        content = (REPO_ROOT / "COLLECTOR_ARCHITECTURE.md").read_text()
+        content = COLLECTOR_ARCH_PATH.read_text()
         assert "core/collector_ctl.py" in content

@@ -26,7 +26,7 @@ Claude hooks (Python CLI) --> POST http://127.0.0.1:4318/v1/spans --> Phoenix
                                     (shared collector)              \-> Arize AX
 ```
 
-The collector is installed and started automatically by the installer. See [COLLECTOR_ARCHITECTURE.md](../COLLECTOR_ARCHITECTURE.md) for the full design.
+The collector is installed and started automatically by the installer. See [COLLECTOR_ARCHITECTURE.md](../docs/COLLECTOR_ARCHITECTURE.md) for the full design.
 
 ## Installation
 
@@ -259,6 +259,6 @@ Verify `ARIZE_USER_ID` is set in `.claude/settings.local.json` under the `env` k
 - [Arize AX](https://arize.com)
 - [Phoenix](https://github.com/Arize-ai/phoenix)
 - [OpenInference](https://github.com/Arize-ai/openinference)
-- [Collector Architecture](../COLLECTOR_ARCHITECTURE.md)
+- [Collector Architecture](../docs/COLLECTOR_ARCHITECTURE.md)
 - [Root README](../README.md)
 - [Development Guide](../DEVELOPMENT.md)

@@ -6,9 +6,9 @@ Trace AI coding sessions to [Arize AX](https://arize.com) or [Phoenix](https://g
 
 | Harness | Integration | Install Method |
 |---------|-------------|----------------|
-| [Claude Code CLI / Agent SDK](claude-code-tracing/README.md) | `claude-code-tracing` | Marketplace or `install.py` |
-| [OpenAI Codex CLI](codex-tracing/README.md) | `codex-tracing` | `install.py` |
-| [Cursor IDE](cursor-tracing/README.md) | `cursor-tracing` | `install.py` |
+| [Claude Code CLI / Agent SDK](claude-code-tracing/README.md) | `claude-code-tracing` | Marketplace or `install.sh` / `install.bat` |
+| [OpenAI Codex CLI](codex-tracing/README.md) | `codex-tracing` | `install.sh` / `install.bat` |
+| [Cursor IDE](cursor-tracing/README.md) | `cursor-tracing` | `install.sh` / `install.bat` |
 
 Claude Code CLI and the Claude Agent SDK share the same plugin, hooks, and configuration — one install covers both.
 
@@ -21,13 +21,22 @@ claude plugin marketplace add Arize-ai/arize-agent-kit
 claude plugin install claude-code-tracing@arize-agent-kit
 ```
 
-**Any harness (pip):**
+**Any harness (curl-pipe):**
 
 ```bash
-pip install arize-agent-kit
-python -m core.install claude   # Claude Code / Agent SDK
-python -m core.install codex    # OpenAI Codex
-python -m core.install cursor   # Cursor IDE
+INSTALL_URL="https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh"
+
+curl -sSL "$INSTALL_URL" | bash -s -- claude   # Claude Code / Agent SDK
+curl -sSL "$INSTALL_URL" | bash -s -- codex    # OpenAI Codex
+curl -sSL "$INSTALL_URL" | bash -s -- cursor   # Cursor IDE
+```
+
+**Or run locally:**
+
+```bash
+./install.sh claude   # Claude Code / Agent SDK
+./install.sh codex    # OpenAI Codex
+./install.sh cursor   # Cursor IDE
 ```
 
 The installer:
@@ -40,7 +49,7 @@ The installer:
 ### Uninstall
 
 ```bash
-python -m core.install uninstall
+./install.sh uninstall
 ```
 
 This stops the background collector, removes the collector runtime, and cleans up harness-specific configuration. You will be prompted before any user-owned config (credentials, state files) is deleted.
@@ -95,7 +104,7 @@ All configuration lives in `~/.arize/harness/config.yaml`, written by the instal
 
 The collector handles all backend-specific transport (HTTP for Phoenix, gRPC for Arize AX). Harnesses use Python CLI entry points — no external dependencies (`curl`, `jq`, `bash`) are required.
 
-See [COLLECTOR_ARCHITECTURE.md](COLLECTOR_ARCHITECTURE.md) for the full collector contract.
+See [COLLECTOR_ARCHITECTURE.md](docs/COLLECTOR_ARCHITECTURE.md) for the full collector contract.
 
 ## Contributing
 

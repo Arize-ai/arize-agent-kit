@@ -133,7 +133,7 @@ Cursor IDE
                                                         └──► Arize AX (gRPC)
 ```
 
-The collector is installed and started automatically by the installer. See [COLLECTOR_ARCHITECTURE.md](../COLLECTOR_ARCHITECTURE.md) for the full design.
+The collector is installed and started automatically by the installer. See [COLLECTOR_ARCHITECTURE.md](../docs/COLLECTOR_ARCHITECTURE.md) for the full design.
 
 ## Shell/MCP State Merging
 
@@ -208,6 +208,6 @@ core/
 - [Arize AX](https://arize.com)
 - [Phoenix](https://github.com/Arize-ai/phoenix)
 - [OpenInference](https://github.com/Arize-ai/openinference)
-- [Collector Architecture](../COLLECTOR_ARCHITECTURE.md)
+- [Collector Architecture](../docs/COLLECTOR_ARCHITECTURE.md)
 - [Root README](../README.md)
 - [Development Guide](../DEVELOPMENT.md)

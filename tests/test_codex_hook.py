@@ -27,6 +27,14 @@ from core.hooks.codex.handlers import (
 from core.common import StateManager
 
 
+@pytest.fixture(autouse=True)
+def _mock_sleep(monkeypatch):
+    """Mock time.sleep to prevent real delays while tracking calls."""
+    sleep_calls = []
+    monkeypatch.setattr("time.sleep", lambda s: sleep_calls.append(s))
+    return sleep_calls
+
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -475,8 +483,8 @@ class TestDrainEvents:
         result = _drain_events("", codex_state, 9999)
         assert result == []
 
-    def test_drain_retry_second_attempt(self, codex_state):
-        """First attempt returns [], second returns events."""
+    def test_drain_retry_second_attempt(self, codex_state, _mock_sleep):
+        """First attempt returns [], second returns events; sleep called with correct delay."""
         attempt_count = [0]
         events = [{"event": "codex.api_request", "time_ns": "5000000000", "attrs": {}}]
 
@@ -503,6 +511,8 @@ class TestDrainEvents:
             result = _drain_events("test-thread", codex_state, port)
             assert len(result) == 1
             assert attempt_count[0] == 2
+            # Verify retry sleep was called with the correct delay (1.2s for second attempt)
+            assert _mock_sleep == [1.2]
         finally:
             server.shutdown()
 

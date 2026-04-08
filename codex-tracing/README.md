@@ -51,7 +51,7 @@ arize-setup-codex
 notify = ["~/.arize/harness/venv/bin/arize-hook-codex-notify"]
 ```
 
-2. Create the shared collector config at `~/.arize/harness/config.yaml` with your backend and harness settings (see [Configuration](#configuration) below and [COLLECTOR_ARCHITECTURE.md](../COLLECTOR_ARCHITECTURE.md) for the full schema).
+2. Create the shared collector config at `~/.arize/harness/config.yaml` with your backend and harness settings (see [Configuration](#configuration) below and [COLLECTOR_ARCHITECTURE.md](../docs/COLLECTOR_ARCHITECTURE.md) for the full schema).
 
 3. Optionally create `~/.codex/arize-env.sh` for env-var overrides (see [Environment Variables](#environment-variables)).
 
@@ -240,6 +240,6 @@ Stale state files older than 24 hours are garbage-collected automatically.
 - [Arize AX](https://arize.com)
 - [Phoenix](https://github.com/Arize-ai/phoenix)
 - [OpenInference](https://github.com/Arize-ai/openinference)
-- [Collector Architecture](../COLLECTOR_ARCHITECTURE.md)
+- [Collector Architecture](../docs/COLLECTOR_ARCHITECTURE.md)
 - [Root README](../README.md)
 - [Development Guide](../DEVELOPMENT.md)

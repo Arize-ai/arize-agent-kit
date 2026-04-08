@@ -26,6 +26,14 @@ from core.collector_ctl import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _mock_ctl_sleep(monkeypatch):
+    """Mock time.sleep in collector_ctl to prevent real delays in retry/poll loops."""
+    sleep_calls = []
+    monkeypatch.setattr("core.collector_ctl.time.sleep", lambda s: sleep_calls.append(s))
+    return sleep_calls
+
+
 # ---------------------------------------------------------------------------
 # Helper fixture: monkeypatch constants in BOTH core.constants AND
 # core.collector_ctl, because collector_ctl uses `from core.constants import`
@@ -389,7 +397,7 @@ class TestCollectorStop:
         assert result == "stopped"
         assert not pid_file.exists()
 
-    def test_stop_sends_sigterm_to_alive_process(self, ctl_paths):
+    def test_stop_sends_sigterm_to_alive_process(self, ctl_paths, _mock_ctl_sleep):
         """Stop sends SIGTERM to a live process and waits for it to die."""
         import core.constants as c
         pid_file = c.PID_FILE
@@ -406,8 +414,11 @@ class TestCollectorStop:
             result = collector_stop()
             assert result == "stopped"
             assert not pid_file.exists()
+            # Verify poll sleeps were attempted
+            assert len(_mock_ctl_sleep) > 0
+            assert all(s == 0.1 for s in _mock_ctl_sleep)
 
-            # Process should be dead
+            # Process should be dead (SIGTERM was sent)
             proc.wait(timeout=5)
             assert proc.returncode is not None
         except Exception:

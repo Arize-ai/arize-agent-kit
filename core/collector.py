@@ -87,12 +87,12 @@ def _get_last_error():
 def load_config():
     """Load config from ~/.arize/harness/config.yaml.
 
-    Config file is required — run install.py or the setup skill to create it.
+    Config file is required — run install.sh or the setup skill to create it.
     """
     if not os.path.isfile(CONFIG_FILE):
         raise ValueError(
             f"No config found at {CONFIG_FILE}. "
-            "Run install.py or use the setup skill to create it."
+            "Run install.sh or use the setup skill to create it."
         )
 
     with open(CONFIG_FILE, "r") as f:
