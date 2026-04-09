@@ -1,1 +1,0 @@
-{"type": "agent-turn-complete", "thread-id": "thread-1", "turn-id": "turn-1", "cwd": "/home/user/project", "input-messages": [{"role": "user", "content": "hello"}], "last-assistant-message": "I can help with that."}

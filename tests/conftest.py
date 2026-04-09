@@ -116,13 +116,91 @@ def capture_log(tmp_path):
     return log_file, read_log
 
 
-@pytest.fixture
-def load_fixture():
-    """Load a JSON fixture file from tests/fixtures/ by filename.
+# ---------------------------------------------------------------------------
+# Inline fixture data (replaces tests/fixtures/*.json)
+# ---------------------------------------------------------------------------
 
-    Returns a callable that takes a filename and returns parsed dict/list.
-    """
-    def _load(name: str):
-        fixture_path = Path(__file__).parent / "fixtures" / name
-        return json.loads(fixture_path.read_text())
-    return _load
+@pytest.fixture
+def claude_session_start_input():
+    """Claude Code session_start hook input."""
+    return {"session_id": "sess-abc123", "cwd": "/home/user/project"}
+
+
+@pytest.fixture
+def claude_stop_input():
+    """Claude Code stop hook input."""
+    return {"session_id": "sess-abc123", "transcript_path": "/tmp/transcript.jsonl"}
+
+
+@pytest.fixture
+def codex_notify_input():
+    """Codex notify hook input."""
+    return {
+        "type": "agent-turn-complete",
+        "thread-id": "thread-1",
+        "turn-id": "turn-1",
+        "cwd": "/home/user/project",
+        "input-messages": [{"role": "user", "content": "hello"}],
+        "last-assistant-message": "I can help with that.",
+    }
+
+
+@pytest.fixture
+def cursor_before_submit_input():
+    """Cursor beforeSubmitPrompt hook input."""
+    return {
+        "hook_event_name": "beforeSubmitPrompt",
+        "conversation_id": "conv-1",
+        "generation_id": "gen-1",
+        "prompt": "fix the bug",
+    }
+
+
+@pytest.fixture
+def cursor_after_shell_input():
+    """Cursor afterShellExecution hook input."""
+    return {
+        "hook_event_name": "afterShellExecution",
+        "conversation_id": "conv-1",
+        "generation_id": "gen-1",
+        "command": "ls -la",
+        "output": "total 0",
+        "exit_code": "0",
+    }
+
+
+@pytest.fixture
+def golden_span():
+    """Expected OTLP span structure for golden/snapshot tests."""
+    return {
+        "resourceSpans": [{"resource": {"attributes": [
+            {"key": "service.name", "value": {"stringValue": "test-service"}}
+        ]}, "scopeSpans": [{"scope": {"name": "test-scope"}, "spans": [{
+            "traceId": "0123456789abcdef0123456789abcdef",
+            "spanId": "abcdef1234567890",
+            "name": "Turn 1",
+            "kind": 1,
+            "startTimeUnixNano": "1711987200000000000",
+            "endTimeUnixNano": "1711987201000000000",
+            "attributes": [
+                {"key": "session.id", "value": {"stringValue": "sess-1"}},
+                {"key": "input.value", "value": {"stringValue": "hello"}},
+            ],
+            "status": {"code": 1},
+        }]}]}],
+    }
+
+
+SAMPLE_TRANSCRIPT_LINES = [
+    '{"type": "user", "message": {"role": "user", "content": "fix the bug"}}',
+    '{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "I found the issue."}], "model": "claude-sonnet-4-20250514", "usage": {"input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 10, "cache_creation_input_tokens": 5}}}',
+    '{"type": "tool_use", "message": {"role": "assistant", "content": [{"type": "tool_use", "name": "Edit", "input": {"file": "main.py"}}]}}',
+]
+
+
+@pytest.fixture
+def transcript_file(tmp_path):
+    """Write the sample transcript to a temp file and return its path."""
+    tf = tmp_path / "transcript.jsonl"
+    tf.write_text("\n".join(SAMPLE_TRANSCRIPT_LINES) + "\n")
+    return str(tf)

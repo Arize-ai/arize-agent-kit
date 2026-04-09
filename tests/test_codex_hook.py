@@ -807,8 +807,8 @@ class TestMultiSpanAssembly:
 
 class TestIntegration:
 
-    def test_full_handle_notify_with_fixture(self, tmp_harness_dir, monkeypatch, drain_server, load_fixture):
-        """Full _handle_notify with codex_notify.json fixture + mock drain."""
+    def test_full_handle_notify_with_fixture(self, tmp_harness_dir, monkeypatch, drain_server, codex_notify_input):
+        """Full _handle_notify with codex_notify fixture + mock drain."""
         import core.hooks.codex.adapter as adapter
         import core.constants as c
         state_dir = c.STATE_BASE_DIR / "codex"
@@ -817,8 +817,7 @@ class TestIntegration:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", str(drain_server["port"]))
 
-        # Load the fixture
-        fixture = load_fixture("codex_notify.json")
+        fixture = codex_notify_input
 
         # Set up drain with some events
         drain_server["set_drain"]([

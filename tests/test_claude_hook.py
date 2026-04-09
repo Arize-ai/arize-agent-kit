@@ -68,14 +68,7 @@ def captured_spans():
         yield sent
 
 
-@pytest.fixture
-def transcript_file(tmp_path):
-    """Write the sample transcript to a temp file and return its path."""
-    fixture = Path(__file__).parent / "fixtures" / "sample_transcript.jsonl"
-    content = fixture.read_text()
-    tf = tmp_path / "transcript.jsonl"
-    tf.write_text(content)
-    return str(tf)
+# transcript_file fixture is provided by conftest.py
 
 
 # ---------------------------------------------------------------------------

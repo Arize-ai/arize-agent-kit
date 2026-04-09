@@ -5,7 +5,6 @@ import urllib.request
 import yaml
 
 
-
 class TestTmpHarnessDir:
     """Verify the tmp_harness_dir fixture creates the expected directory tree."""
 
@@ -66,29 +65,31 @@ class TestMockCollector:
         assert mock_collector["received"][0] == payload
 
 
-class TestLoadFixture:
-    """Verify load_fixture returns parsed dicts for all fixture files."""
+class TestFixtureData:
+    """Verify inline fixture data has expected shape."""
 
-    def test_claude_session_start(self, load_fixture):
-        data = load_fixture("claude_session_start.json")
-        assert data["session_id"] == "sess-abc123"
-        assert "cwd" in data
+    def test_claude_session_start(self, claude_session_start_input):
+        assert claude_session_start_input["session_id"] == "sess-abc123"
+        assert "cwd" in claude_session_start_input
 
-    def test_claude_stop(self, load_fixture):
-        data = load_fixture("claude_stop.json")
-        assert data["session_id"] == "sess-abc123"
-        assert "transcript_path" in data
+    def test_claude_stop(self, claude_stop_input):
+        assert claude_stop_input["session_id"] == "sess-abc123"
+        assert "transcript_path" in claude_stop_input
 
-    def test_codex_notify(self, load_fixture):
-        data = load_fixture("codex_notify.json")
-        assert data["type"] == "agent-turn-complete"
-        assert data["thread-id"] == "thread-1"
+    def test_codex_notify(self, codex_notify_input):
+        assert codex_notify_input["type"] == "agent-turn-complete"
+        assert codex_notify_input["thread-id"] == "thread-1"
 
-    def test_cursor_before_submit(self, load_fixture):
-        data = load_fixture("cursor_before_submit.json")
-        assert data["hook_event_name"] == "beforeSubmitPrompt"
+    def test_cursor_before_submit(self, cursor_before_submit_input):
+        assert cursor_before_submit_input["hook_event_name"] == "beforeSubmitPrompt"
 
-    def test_cursor_after_shell(self, load_fixture):
-        data = load_fixture("cursor_after_shell.json")
-        assert data["hook_event_name"] == "afterShellExecution"
-        assert data["exit_code"] == "0"
+    def test_cursor_after_shell(self, cursor_after_shell_input):
+        assert cursor_after_shell_input["hook_event_name"] == "afterShellExecution"
+        assert cursor_after_shell_input["exit_code"] == "0"
+
+    def test_transcript_file(self, transcript_file):
+        from pathlib import Path
+        p = Path(transcript_file)
+        assert p.exists()
+        lines = p.read_text().strip().splitlines()
+        assert len(lines) == 3

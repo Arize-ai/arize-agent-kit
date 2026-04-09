@@ -217,10 +217,10 @@ class TestHandleBeforeSubmitPrompt:
         assert attrs["llm.model_name"]["stringValue"] == "claude-4"
         assert span["name"] == "User Prompt"
 
-    def test_uses_fixture(self, captured_spans, monkeypatch, load_fixture):
-        """Works with cursor_before_submit.json fixture."""
+    def test_uses_fixture(self, captured_spans, monkeypatch, cursor_before_submit_input):
+        """Works with cursor_before_submit fixture."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        fixture = load_fixture("cursor_before_submit.json")
+        fixture = cursor_before_submit_input
         with mock.patch("core.hooks.cursor.handlers.get_target", return_value="phoenix"), \
              mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000), \
              mock.patch("core.hooks.cursor.handlers.gen_root_span_save"):
@@ -345,10 +345,10 @@ class TestHandleAfterShellExecution:
         # start_ms = "3000" -> ns = "3000000000"
         assert span["startTimeUnixNano"] == "3000000000"
 
-    def test_uses_fixture(self, captured_spans, monkeypatch, load_fixture):
-        """Works with cursor_after_shell.json fixture."""
+    def test_uses_fixture(self, captured_spans, monkeypatch, cursor_after_shell_input):
+        """Works with cursor_after_shell fixture."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        fixture = load_fixture("cursor_after_shell.json")
+        fixture = cursor_after_shell_input
         with mock.patch("core.hooks.cursor.handlers.get_target", return_value="phoenix"), \
              mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000), \
              mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""), \

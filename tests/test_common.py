@@ -510,7 +510,7 @@ class TestBuildSpan:
         assert span["attributes"][0] == {"key": "key", "value": {"stringValue": "val"}}
         assert span["attributes"][1] == {"key": "count", "value": {"intValue": 5}}
 
-    def test_golden_fixture(self):
+    def test_golden_fixture(self, golden_span):
         """Build a span with known inputs and compare against golden fixture."""
         result = build_span(
             name="Turn 1",
@@ -524,9 +524,7 @@ class TestBuildSpan:
             service_name="test-service",
             scope_name="test-scope",
         )
-        fixture_path = Path(__file__).parent / "fixtures" / "golden_span.json"
-        expected = json.loads(fixture_path.read_text())
-        assert result == expected
+        assert result == golden_span
 
 
 # ── build_multi_span tests ────────────────────────────────────────────────
