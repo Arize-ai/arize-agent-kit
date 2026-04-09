@@ -176,6 +176,108 @@ if "%VENV_PYTHON%"=="" goto :eof
 "%VENV_PYTHON%" "%INSTALL_DIR%\core\config.py" delete "%~1" >nul 2>&1
 goto :eof
 
+REM --- resolve_setup_python: find python for config manipulation ---
+:resolve_setup_python
+set "SETUP_PYTHON="
+call :venv_python
+if not "%VENV_PYTHON%"=="" (
+    set "SETUP_PYTHON=%VENV_PYTHON%"
+) else (
+    call :find_python
+    set "SETUP_PYTHON=%FOUND_PYTHON%"
+)
+goto :eof
+
+REM --- update_codex_config: replace notify + [otel] blocks safely ---
+:update_codex_config
+set "_UCC_PY=%~1"
+set "_UCC_CONFIG=%~2"
+set "_UCC_NOTIFY=%~3"
+set "_UCC_PORT=%~4"
+set "_UCC_SCRIPT=%TEMP%\arize-update-codex-config-%RANDOM%.py"
+(
+    echo from pathlib import Path
+    echo config_path = Path(r"%_UCC_CONFIG%")
+    echo config_path.parent.mkdir(parents=True, exist_ok=True)
+    echo lines = config_path.read_text().splitlines() if config_path.exists() else []
+    echo filtered = []
+    echo in_otel = False
+    echo for line in lines:
+    echo.    stripped = line.strip()
+    echo.    if stripped.startswith("notify") and "=" in stripped:
+    echo.        continue
+    echo.    if stripped == "[otel]" or stripped.startswith("[otel."):
+    echo.        in_otel = True
+    echo.        continue
+    echo.    if in_otel and stripped.startswith("[") and stripped != "[otel]" and not stripped.startswith("[otel."):
+    echo.        in_otel = False
+    echo.    if not in_otel:
+    echo.        filtered.append(line)
+    echo while filtered and not filtered[-1].strip():
+    echo.    filtered.pop()
+    echo filtered.extend([
+    echo.    "",
+    echo.    "# Arize tracing -- OpenInference spans per turn",
+    echo.    "notify = [\"%_UCC_NOTIFY%\"]",
+    echo.    "",
+    echo.    "# Arize shared collector -- captures Codex events for rich span trees",
+    echo.    "[otel]",
+    echo.    "[otel.exporter.otlp-http]",
+    echo.    "endpoint = \"http://127.0.0.1:%_UCC_PORT%/v1/logs\"",
+    echo.    "protocol = \"json\"",
+    echo ])
+    echo config_path.write_text("\n".join(filtered) + "\n")
+) > "%_UCC_SCRIPT%"
+"%_UCC_PY%" "%_UCC_SCRIPT%" >nul 2>&1
+set "_UCC_RC=%ERRORLEVEL%"
+del "%_UCC_SCRIPT%" 2>nul
+exit /b %_UCC_RC%
+
+REM --- normalize_codex_env_file: create or convert env file to proxy format ---
+:normalize_codex_env_file
+set "_NCEF_PY=%~1"
+set "_NCEF_ENV=%~2"
+set "_NCEF_SCRIPT=%TEMP%\arize-normalize-codex-env-%RANDOM%.py"
+(
+    echo from pathlib import Path
+    echo env_path = Path(r"%_NCEF_ENV%")
+    echo env_path.parent.mkdir(parents=True, exist_ok=True)
+    echo if env_path.exists():
+    echo.    lines = env_path.read_text().splitlines()
+    echo.    out = []
+    echo.    changed = False
+    echo.    for line in lines:
+    echo.        stripped = line.lstrip()
+    echo.        prefix = line[:len(line) - len(stripped)]
+    echo.        if stripped.lower().startswith("set ") and "=" in stripped[4:]:
+    echo.            out.append(prefix + "export " + stripped[4:])
+    echo.            changed = True
+    echo.        else:
+    echo.            out.append(line)
+    echo.    if changed:
+    echo.        env_path.write_text("\n".join(out) + "\n")
+    echo else:
+    echo.    env_path.write_text("\n".join([
+    echo.        "# Arize Codex tracing environment",
+    echo.        "# Set the variables for your backend:",
+    echo.        "",
+    echo.        "# Common",
+    echo.        "export ARIZE_TRACE_ENABLED=true",
+    echo.        "# export ARIZE_PROJECT_NAME=codex",
+    echo.        "",
+    echo.        "# Phoenix (self-hosted)",
+    echo.        "# export PHOENIX_ENDPOINT=http://localhost:6006",
+    echo.        "",
+    echo.        "# Arize AX (cloud)",
+    echo.        "# export ARIZE_API_KEY=",
+    echo.        "# export ARIZE_SPACE_ID=",
+    echo.    ]) + "\n")
+) > "%_NCEF_SCRIPT%"
+"%_NCEF_PY%" "%_NCEF_SCRIPT%" >nul 2>&1
+set "_NCEF_RC=%ERRORLEVEL%"
+del "%_NCEF_SCRIPT%" 2>nul
+exit /b %_NCEF_RC%
+
 REM --- install_repo ---
 :install_repo
 if exist "%INSTALL_DIR%\.git" (
@@ -667,56 +769,32 @@ set "_CODEX_CONFIG=%_CODEX_CONFIG_DIR%\config.toml"
 set "_ENV_FILE=%_CODEX_CONFIG_DIR%\arize-env.sh"
 call :venv_bin "arize-hook-codex-notify"
 set "_NOTIFY_CMD=%VENV_BIN_RESULT%"
+call :resolve_setup_python
+set "_PY=%SETUP_PYTHON%"
 
-if not exist "%_CODEX_CONFIG_DIR%" mkdir "%_CODEX_CONFIG_DIR%"
-if not exist "%_CODEX_CONFIG%" type nul > "%_CODEX_CONFIG%"
-
-REM Add notify hook
-set "_NOTIFY_LINE=notify = ["%_NOTIFY_CMD%"]"
-findstr /b "notify" "%_CODEX_CONFIG%" >nul 2>&1
-if %ERRORLEVEL% equ 0 (
-    echo [arize] Notify hook already present in config.toml
-) else (
-    echo. >> "%_CODEX_CONFIG%"
-    echo # Arize tracing — OpenInference spans per turn >> "%_CODEX_CONFIG%"
-    echo notify = ["%_NOTIFY_CMD%"] >> "%_CODEX_CONFIG%"
-    echo [arize] Added notify hook to config.toml
+if "%_PY%"=="" (
+    echo [arize] Python is required for Codex config manipulation but was not found >&2
+    exit /b 1
 )
 
-REM Write env file template
-if not exist "%_ENV_FILE%" (
-    (
-        echo # Arize Codex tracing environment
-        echo # Set the variables for your backend:
-        echo.
-        echo # Common
-        echo set ARIZE_TRACE_ENABLED=true
-        echo # set ARIZE_PROJECT_NAME=codex
-        echo.
-        echo # Phoenix ^(self-hosted^)
-        echo # set PHOENIX_ENDPOINT=http://localhost:6006
-        echo.
-        echo # Arize AX ^(cloud^)
-        echo # set ARIZE_API_KEY=
-        echo # set ARIZE_SPACE_ID=
-    ) > "%_ENV_FILE%"
-    echo [arize] Created env file template at %_ENV_FILE%
-) else (
-    echo [arize] Env file already exists at %_ENV_FILE%
+call :normalize_codex_env_file "%_PY%" "%_ENV_FILE%"
+if %ERRORLEVEL% neq 0 (
+    echo [arize] Failed to write Codex env file at %_ENV_FILE% >&2
+    exit /b 1
 )
+echo [arize] Ensured Codex env file uses export syntax at %_ENV_FILE%
 
 REM Add [otel] exporter
 call :cfg_get "collector.port"
 set "_COLL_PORT=%CFG_RESULT%"
 if "%_COLL_PORT%"=="" set "_COLL_PORT=4318"
 
-echo. >> "%_CODEX_CONFIG%"
-echo # Arize shared collector -- captures Codex events for rich span trees >> "%_CODEX_CONFIG%"
-echo [otel] >> "%_CODEX_CONFIG%"
-echo [otel.exporter.otlp-http] >> "%_CODEX_CONFIG%"
-echo endpoint = "http://127.0.0.1:%_COLL_PORT%/v1/logs" >> "%_CODEX_CONFIG%"
-echo protocol = "json" >> "%_CODEX_CONFIG%"
-echo [arize] Added [otel] exporter pointing to shared collector (port %_COLL_PORT%)
+call :update_codex_config "%_PY%" "%_CODEX_CONFIG%" "%_NOTIFY_CMD%" "%_COLL_PORT%"
+if %ERRORLEVEL% neq 0 (
+    echo [arize] Failed to update Codex config.toml at %_CODEX_CONFIG% >&2
+    exit /b 1
+)
+echo [arize] Updated notify hook and [otel] exporter in config.toml
 
 echo.
 echo   Codex tracing setup complete!
