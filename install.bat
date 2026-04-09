@@ -341,11 +341,15 @@ call :venv_python
 if not "%VENV_PYTHON%"=="" (
     set "_CHECK=import yaml"
     if "%_SV_BACKEND%"=="arize" set "_CHECK=import yaml; import grpc; import opentelemetry"
-    "%VENV_PYTHON%" -c "!_CHECK!" >nul 2>&1 && (
-        echo [arize] Collector venv already has required packages
-        goto :eof
-    )
+    "%VENV_PYTHON%" -c "!_CHECK!" >nul 2>&1
+    if !ERRORLEVEL! neq 0 goto :setup_venv_create
+    "%VENV_PYTHON%" -c "import core" >nul 2>&1
+    if !ERRORLEVEL! neq 0 goto :setup_venv_create
+    if not exist "%VENV_DIR%\Scripts\arize-collector-ctl.exe" goto :setup_venv_create
+    echo [arize] Collector venv already has required packages
+    goto :eof
 )
+:setup_venv_create
 
 echo [arize] Creating collector venv...
 "%_SV_PYTHON%" -m venv "%VENV_DIR%" >nul 2>&1
@@ -635,17 +639,13 @@ if "%FOUND_PYTHON%"=="" (
 )
 echo [arize] Found Python: %FOUND_PYTHON%
 
-REM Check collector source
-if not exist "%INSTALL_DIR%\core\collector.py" (
-    echo [arize] Warning: Collector source not found — collector will not start
-    if "%_EXISTING_BACKEND%"=="" (
-        call :write_config "%CRED_BACKEND_TARGET%" "%_SSC_HARNESS%" "%CRED_COLLECTOR_PORT%" "%CRED_PHOENIX_ENDPOINT%" "%CRED_PHOENIX_API_KEY%" "%CRED_ARIZE_API_KEY%" "%CRED_ARIZE_SPACE_ID%" "%CRED_ARIZE_ENDPOINT%"
-    )
-    goto :eof
+REM Venv is required for hooks even when core/collector.py is missing from this checkout.
+if exist "%INSTALL_DIR%\pyproject.toml" (
+    call :setup_venv "%FOUND_PYTHON%" "%CRED_BACKEND_TARGET%"
+) else (
+    echo [arize] Warning: No pyproject.toml — cannot install Python hook entry points
+    echo [arize] Use a full repo checkout, or install.bat claude --branch ^<branch^> ^(or ARIZE_INSTALL_BRANCH^)
 )
-
-REM Set up venv
-call :setup_venv "%FOUND_PYTHON%" "%CRED_BACKEND_TARGET%"
 
 REM Write/update config
 if not "%_EXISTING_BACKEND%"=="" (
@@ -657,8 +657,13 @@ if not "%_EXISTING_BACKEND%"=="" (
     call :write_config "%CRED_BACKEND_TARGET%" "%_SSC_HARNESS%" "%CRED_COLLECTOR_PORT%" "%CRED_PHOENIX_ENDPOINT%" "%CRED_PHOENIX_API_KEY%" "%CRED_ARIZE_API_KEY%" "%CRED_ARIZE_SPACE_ID%" "%CRED_ARIZE_ENDPOINT%"
 )
 
-call :write_collector_launcher "%FOUND_PYTHON%"
-call :start_collector
+if exist "%INSTALL_DIR%\core\collector.py" (
+    call :write_collector_launcher "%FOUND_PYTHON%"
+    call :start_collector
+) else (
+    echo [arize] Warning: Collector source not found — collector will not start
+    echo [arize] Tip: use a checkout that includes core\collector.py, or set ARIZE_INSTALL_BRANCH when installing
+)
 goto :eof
 
 REM --- setup_claude ---
@@ -690,14 +695,27 @@ if "%_PY%"=="" (
     exit /b 1
 )
 
+if not exist "%VENV_DIR%\Scripts\arize-hook-session-start.exe" (
+    echo [arize] Cannot register Claude hooks — missing %VENV_DIR%\Scripts\arize-hook-session-start.exe >&2
+    echo [arize] Run: "%VENV_DIR%\Scripts\pip.exe" install "%INSTALL_DIR%" >&2
+    echo [arize] Or reinstall after updating the checkout ^(see install.bat --help for --branch^) >&2
+    exit /b 1
+)
+
 "%_PY%" -c "import json, os, sys; plugin_dir=r'%_PLUGIN_DIR%'; settings_file=r'%_SETTINGS_FILE%'; venv_scripts=r'%VENV_DIR%\Scripts'; HOOKS={'SessionStart':'arize-hook-session-start','UserPromptSubmit':'arize-hook-user-prompt-submit','PreToolUse':'arize-hook-pre-tool-use','PostToolUse':'arize-hook-post-tool-use','Stop':'arize-hook-stop','SubagentStop':'arize-hook-subagent-stop','Notification':'arize-hook-notification','PermissionRequest':'arize-hook-permission-request','SessionEnd':'arize-hook-session-end'}; settings=json.loads(open(settings_file).read()) if os.path.isfile(settings_file) else {}; plugins=settings.setdefault('plugins',[]); hp=any((isinstance(p,str) and p==plugin_dir) or (isinstance(p,dict) and p.get('path')==plugin_dir) for p in plugins); (not hp) and plugins.append({'type':'local','path':plugin_dir}); hooks=settings.setdefault('hooks',{}); [hooks.setdefault(evt,[]).append({'hooks':[{'type':'command','command':os.path.join(venv_scripts,ep+'.exe')}]}) for evt,ep in HOOKS.items() if not any(h.get('command','')==os.path.join(venv_scripts,ep+'.exe') for entry in hooks.get(evt,[]) for h in entry.get('hooks',[]))]; f=open(settings_file,'w'); json.dump(settings,f,indent=2); f.write('\n'); f.close()"
 
 echo [arize] Registered tracing hooks in %_SETTINGS_FILE%
 echo.
 echo   Tracing:
 echo.
-echo     The shared background collector is already running and will export
-echo     spans to your configured backend automatically.
+if exist "%INSTALL_DIR%\core\collector.py" (
+    echo     The shared background collector was started ^(or is already running^) and
+    echo     will export spans to your configured backend.
+) else (
+    echo     Collector source was not in this checkout — start it after a full install:
+    echo       arize-collector-ctl start
+    echo     ^(Hooks still send spans if the collector is running.^)
+)
 echo.
 echo     View collector logs:     type %COLLECTOR_LOG_FILE%
 echo.

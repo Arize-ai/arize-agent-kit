@@ -113,6 +113,34 @@ confirm() {
     [[ "$reply" =~ ^[Yy] ]]
 }
 
+# Read one line from $_tty_in; print '*' for each character (stderr). Sets REPLY.
+tty_read_masked_line() {
+    REPLY=""
+    [[ -n "${_tty_in:-}" ]] || return 1
+    local prompt="$1"
+    local char
+    printf '%s' "$prompt" >&2
+    while IFS= read -rs -n 1 char < "$_tty_in"; do
+        if [[ "$char" == $'\n' || "$char" == $'\r' ]]; then
+            printf '\n' >&2
+            return 0
+        fi
+        if [[ "$char" == $'\177' || "$char" == $'\b' ]]; then
+            if [[ -n "$REPLY" ]]; then
+                REPLY="${REPLY%?}"
+                printf '\b \b' >&2
+            fi
+            continue
+        fi
+        # Skip other control characters (e.g. Ctrl+C still raises SIGINT)
+        [[ "$char" =~ [[:cntrl:]] ]] && continue
+        REPLY+="$char"
+        printf '*' >&2
+    done
+    printf '\n' >&2
+    return 0
+}
+
 # ---------------------------------------------------------------------------
 # Python discovery
 # ---------------------------------------------------------------------------
@@ -260,7 +288,11 @@ setup_venv() {
     if [[ -n "$vp" ]]; then
         local check_cmd="import yaml"
         [[ "$backend_target" == "arize" ]] && check_cmd="import yaml; import grpc; import opentelemetry"
-        if "$vp" -c "$check_cmd" 2>/dev/null; then
+        # yaml alone is not enough: an old/partial venv may have skipped pip install of
+        # arize-agent-kit, leaving ~/.claude/settings.json pointing at missing hook scripts.
+        if "$vp" -c "$check_cmd" 2>/dev/null \
+            && "$vp" -c "import core" 2>/dev/null \
+            && [[ -x "${VENV_DIR}/bin/arize-collector-ctl" ]]; then
             info "Collector venv already has required packages"
             return 0
         fi
@@ -514,11 +546,13 @@ collect_backend_credentials() {
                 local ep
                 read -rp "  Phoenix endpoint [${CRED_PHOENIX_ENDPOINT}]: " ep < "$_tty_in"
                 [[ -n "$ep" ]] && CRED_PHOENIX_ENDPOINT="$ep"
-                read -rp "  Phoenix API key (blank if none): " CRED_PHOENIX_API_KEY < "$_tty_in"
+                tty_read_masked_line "  Phoenix API key (blank if none): "
+                CRED_PHOENIX_API_KEY="$REPLY"
                 ;;
             2|arize)
                 CRED_BACKEND_TARGET="arize"
-                read -rp "  Arize API key: " CRED_ARIZE_API_KEY < "$_tty_in"
+                tty_read_masked_line "  Arize API key: "
+                CRED_ARIZE_API_KEY="$REPLY"
                 if [[ -z "$CRED_ARIZE_API_KEY" ]]; then
                     err "Arize API key is required"
                     exit 1
@@ -613,22 +647,19 @@ setup_shared_collector() {
     }
     info "Found Python: ${python_cmd} ($("$python_cmd" --version 2>&1))"
 
-    # Check collector source exists
     local collector_src="${INSTALL_DIR}/core/collector.py"
-    if [[ ! -f "$collector_src" ]]; then
-        warn "Collector source not found at ${collector_src} — collector will not start"
-        if [[ -z "$existing_backend" ]]; then
-            write_config "$CRED_BACKEND_TARGET" "$harness_name" "$CRED_COLLECTOR_PORT" \
-                "$CRED_PHOENIX_ENDPOINT" "$CRED_PHOENIX_API_KEY" \
-                "$CRED_ARIZE_API_KEY" "$CRED_ARIZE_SPACE_ID" "$CRED_ARIZE_ENDPOINT"
-        fi
-        return 0
-    fi
+    local pyproject="${INSTALL_DIR}/pyproject.toml"
 
-    # Set up venv
-    setup_venv "$python_cmd" "$CRED_BACKEND_TARGET" || {
-        warn "Collector venv setup failed — config.py and Arize AX export may not work"
-    }
+    # Venv + package install are required for Claude/Codex/Cursor hooks even when the
+    # collector module is absent from this checkout.
+    if [[ -f "$pyproject" ]]; then
+        setup_venv "$python_cmd" "$CRED_BACKEND_TARGET" || {
+            warn "Venv setup failed — hooks and config CLI may not work"
+        }
+    else
+        warn "No pyproject.toml at ${INSTALL_DIR} — cannot install Python hook entry points"
+        warn "Use a full repo checkout here, or ./install.sh claude --branch <branch> (or ARIZE_INSTALL_BRANCH)"
+    fi
 
     # Write/update config
     if [[ -n "$existing_backend" ]]; then
@@ -649,9 +680,13 @@ setup_shared_collector() {
             "${CRED_ARIZE_API_KEY:-}" "${CRED_ARIZE_SPACE_ID:-}" "${CRED_ARIZE_ENDPOINT:-otlp.arize.com:443}"
     fi
 
-    # Write launcher and start
-    write_collector_launcher "$python_cmd"
-    start_collector
+    if [[ -f "$collector_src" ]]; then
+        write_collector_launcher "$python_cmd"
+        start_collector
+    else
+        warn "Collector source not found at ${collector_src} — collector will not start"
+        warn "Use a checkout that includes core/collector.py, or reinstall with --branch / ARIZE_INSTALL_BRANCH"
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -681,6 +716,14 @@ setup_claude() {
     fi
 
     local venv_bin_dir="${VENV_DIR}/bin"
+    local hook_smoke="${venv_bin_dir}/arize-hook-session-start"
+    if [[ ! -x "$hook_smoke" ]]; then
+        err "Cannot register Claude hooks — missing ${hook_smoke}"
+        err "Install the package into the harness venv, then re-run: ./install.sh claude"
+        err "  ${VENV_DIR}/bin/pip install ${INSTALL_DIR}"
+        err "Or reinstall with a checkout that includes pyproject.toml, core/, and hook entry points."
+        exit 1
+    fi
 
     "$vp" -c "
 import json, os, sys
@@ -756,8 +799,14 @@ with open(settings_file, 'w') as f:
     echo ""
     echo -e "  ${BOLD}Tracing:${NC}"
     echo ""
-    echo "    The shared background collector is already running and will export"
-    echo "    spans to your configured backend automatically."
+    if [[ -f "${INSTALL_DIR}/core/collector.py" ]]; then
+        echo "    The shared background collector was started (or is already running) and"
+        echo "    will export spans to your configured backend."
+    else
+        echo "    Collector source was not in this checkout — start it after a full install:"
+        echo "      arize-collector-ctl start"
+        echo "    (Hooks still send spans if the collector is running.)"
+    fi
     echo ""
     echo "    View collector logs:     tail -f ${COLLECTOR_LOG_FILE}"
     echo ""

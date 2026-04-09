@@ -92,6 +92,24 @@ def test_install_sh_has_all_commands():
         assert cmd in text, f"Missing command: {cmd}"
 
 
+def test_install_sh_venv_not_gated_on_collector_py():
+    """Hooks need the venv even when core/collector.py is missing (e.g. shallow main branch)."""
+    text = INSTALL_SH.read_text()
+    assert 'local pyproject="${INSTALL_DIR}/pyproject.toml"' in text
+    assert 'if [[ -f "$pyproject" ]]; then' in text
+    assert "hook_smoke=" in text and "arize-hook-session-start" in text
+
+
+def test_install_sh_masks_api_key_prompts():
+    """Backend API keys must be read with masked terminal output (not plain read -r)."""
+    text = INSTALL_SH.read_text()
+    assert "tty_read_masked_line" in text
+    assert 'tty_read_masked_line "  Arize API key: "' in text
+    assert 'CRED_ARIZE_API_KEY="$REPLY"' in text
+    assert 'tty_read_masked_line "  Phoenix API key (blank if none): "' in text
+    assert 'CRED_PHOENIX_API_KEY="$REPLY"' in text
+
+
 def test_install_sh_has_hook_entry_points():
     """install.sh must reference all Claude hook entry points."""
     text = INSTALL_SH.read_text()
@@ -130,6 +148,13 @@ def test_install_sh_has_cursor_events():
         assert event in text, f"Missing Cursor event: {event}"
 
 
+def test_install_sh_venv_skip_requires_package_install():
+    """Skipping pip install must require arize-agent-kit + console scripts, not yaml alone."""
+    text = INSTALL_SH.read_text()
+    assert 'import core" 2>/dev/null' in text or '"import core"' in text
+    assert "arize-collector-ctl" in text
+
+
 def test_install_sh_uses_pip_install_package():
     """install.sh must install the package via pip (not just individual deps)."""
     text = INSTALL_SH.read_text()
@@ -160,3 +185,17 @@ def test_install_bat_does_not_reference_install_py():
     """install.bat must not reference install.py."""
     text = INSTALL_BAT.read_text()
     assert "install.py" not in text
+
+
+def test_install_bat_venv_not_gated_on_collector_py():
+    """Windows installer must create venv when pyproject exists without requiring collector.py."""
+    text = INSTALL_BAT.read_text()
+    assert 'if exist "%INSTALL_DIR%\\pyproject.toml" (' in text
+    assert 'if exist "%INSTALL_DIR%\\core\\collector.py" (' in text
+
+
+def test_install_bat_venv_skip_requires_package_install():
+    """Windows venv fast-path must verify package + arize-collector-ctl.exe exists."""
+    text = INSTALL_BAT.read_text()
+    assert "import core" in text
+    assert "arize-collector-ctl.exe" in text
