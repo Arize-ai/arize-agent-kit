@@ -37,3 +37,5 @@ Thumbs.db
 .agents/
 .claude/
 uv.lock
+mempalace.yaml
+entities.json
