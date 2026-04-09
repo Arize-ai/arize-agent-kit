@@ -223,17 +223,39 @@ cfg_delete() {
 # ---------------------------------------------------------------------------
 # Repository download
 # ---------------------------------------------------------------------------
+# Point ${INSTALL_DIR} at origin/$1 (handles ARIZE_INSTALL_BRANCH / --branch). Returns 0 on success.
+git_sync_harness_repo() {
+    local branch="$1"
+    [[ -d "${INSTALL_DIR}/.git" ]] || return 1
+    info "Syncing with origin/${branch}..."
+    if git -C "$INSTALL_DIR" fetch --depth 1 origin "$branch" 2>/dev/null \
+        && git -C "$INSTALL_DIR" checkout -B "$branch" FETCH_HEAD 2>/dev/null; then
+        return 0
+    fi
+    if git -C "$INSTALL_DIR" fetch origin "$branch" 2>/dev/null \
+        && git -C "$INSTALL_DIR" checkout -B "$branch" FETCH_HEAD 2>/dev/null; then
+        return 0
+    fi
+    warn "git fetch/checkout failed — trying pull --ff-only"
+    if git -C "$INSTALL_DIR" pull --ff-only origin "$branch" 2>/dev/null; then
+        return 0
+    fi
+    if git -C "$INSTALL_DIR" pull --ff-only 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
 install_repo() {
     local branch="${1:-$INSTALL_BRANCH}"
     local tarball_url="${2:-$TARBALL_URL}"
 
     if [[ -d "${INSTALL_DIR}/.git" ]]; then
         info "Repository already installed at ${INSTALL_DIR}"
-        info "Pulling latest changes..."
-        if git -C "$INSTALL_DIR" pull --ff-only 2>/dev/null; then
+        if git_sync_harness_repo "$branch"; then
             return 0
         fi
-        warn "git pull failed — re-cloning"
+        warn "git update failed — re-cloning"
         rm -rf "$INSTALL_DIR"
     fi
 
@@ -1180,9 +1202,8 @@ update_install() {
     stop_collector
 
     if [[ -d "${INSTALL_DIR}/.git" ]]; then
-        info "Pulling latest changes..."
-        if ! git -C "$INSTALL_DIR" pull --ff-only 2>/dev/null; then
-            warn "Fast-forward pull failed — re-cloning"
+        if ! git_sync_harness_repo "$branch"; then
+            warn "Git sync failed — re-cloning"
             rm -rf "$INSTALL_DIR"
             install_repo "$branch" "$tarball_url"
         fi

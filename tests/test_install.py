@@ -92,6 +92,13 @@ def test_install_sh_has_all_commands():
         assert cmd in text, f"Missing command: {cmd}"
 
 
+def test_install_sh_existing_repo_syncs_requested_branch():
+    """Existing harness git dir must fetch/checkout INSTALL_BRANCH, not only git pull."""
+    text = INSTALL_SH.read_text()
+    assert "Syncing with origin/" in text
+    assert "checkout -B" in text and "FETCH_HEAD" in text
+
+
 def test_install_sh_venv_not_gated_on_collector_py():
     """Hooks need the venv even when core/collector.py is missing (e.g. shallow main branch)."""
     text = INSTALL_SH.read_text()

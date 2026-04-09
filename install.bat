@@ -282,9 +282,21 @@ REM --- install_repo ---
 :install_repo
 if exist "%INSTALL_DIR%\.git" (
     echo [arize] Repository already installed at %INSTALL_DIR%
-    echo [arize] Pulling latest changes...
+    echo [arize] Syncing with origin/%INSTALL_BRANCH%...
+    git -C "%INSTALL_DIR%" fetch --depth 1 origin "%INSTALL_BRANCH%" >nul 2>&1
+    if !ERRORLEVEL! equ 0 (
+        git -C "%INSTALL_DIR%" checkout -B "%INSTALL_BRANCH%" FETCH_HEAD >nul 2>&1
+        if !ERRORLEVEL! equ 0 goto :eof
+    )
+    git -C "%INSTALL_DIR%" fetch origin "%INSTALL_BRANCH%" >nul 2>&1
+    if !ERRORLEVEL! equ 0 (
+        git -C "%INSTALL_DIR%" checkout -B "%INSTALL_BRANCH%" FETCH_HEAD >nul 2>&1
+        if !ERRORLEVEL! equ 0 goto :eof
+    )
+    echo [arize] git fetch/checkout failed — trying pull --ff-only
+    git -C "%INSTALL_DIR%" pull --ff-only origin "%INSTALL_BRANCH%" >nul 2>&1 && goto :eof
     git -C "%INSTALL_DIR%" pull --ff-only >nul 2>&1 && goto :eof
-    echo [arize] git pull failed — re-cloning
+    echo [arize] git update failed — re-cloning
     rmdir /s /q "%INSTALL_DIR%" 2>nul
 )
 
