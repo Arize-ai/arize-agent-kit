@@ -34,6 +34,7 @@ from core.hooks.codex.adapter import (
     load_env_file,
     resolve_session,
 )
+from core.collector_ctl import collector_ensure
 
 
 # ---------------------------------------------------------------------------
@@ -490,6 +491,7 @@ def _safe_int(val) -> int:
 
 def _handle_notify(input_json: dict) -> None:
     """Main notify handler, broken into phases matching notify.sh."""
+    collector_ensure()
 
     # Phase 1: Event filtering (bash lines 22-27)
     event_type = input_json.get("type", "")

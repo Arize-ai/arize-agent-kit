@@ -13,7 +13,7 @@ import os
 import sys
 import yaml
 
-CONFIG_FILE = os.path.expanduser("~/.arize/harness/config.yaml")
+from core.constants import CONFIG_FILE
 
 
 def _load_config():

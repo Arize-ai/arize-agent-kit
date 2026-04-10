@@ -140,6 +140,7 @@ def _handle_post_tool_use(input_json: dict) -> None:
 
 def _handle_user_prompt_submit(input_json: dict) -> None:
     """Handle user_prompt_submit: set up a new trace (close orphaned turn first)."""
+    collector_ensure()
     state = resolve_session(input_json)
     ensure_session_initialized(state, input_json)
     session_id = state.get("session_id")

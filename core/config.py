@@ -26,9 +26,7 @@ except ImportError:
     sys.stderr.write("error: PyYAML not installed. Install it in the collector venv.\n")
     sys.exit(1)
 
-# --- Constants ---
-BASE_DIR = os.path.expanduser("~/.arize/harness")
-CONFIG_FILE = os.path.join(BASE_DIR, "config.yaml")
+from core.constants import CONFIG_FILE
 
 
 # --- Python API ---
