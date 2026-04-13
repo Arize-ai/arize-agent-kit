@@ -1,6 +1,4 @@
 import { spawn } from "child_process";
-import { existsSync } from "fs";
-import { homedir } from "os";
 import { join } from "path";
 import * as vscode from "vscode";
 
@@ -30,12 +28,6 @@ export interface StatusResult {
   harnesses: Array<{ name: string; project: string }>;
 }
 
-// ---------------------------------------------------------------------------
-// Paths — mirrors core.constants
-// ---------------------------------------------------------------------------
-
-const HARNESS_DIR = join(homedir(), ".arize", "harness");
-
 /**
  * Return the platform-appropriate bootstrapper script name.
  * The extension bundles install.sh / install.bat in its root.
@@ -63,7 +55,7 @@ interface SpawnResult {
 function _spawn(
   cmd: string,
   args: string[],
-  onOutput: vscode.EventEmitter<string>,
+  onOutput?: vscode.EventEmitter<string>,
 ): Promise<SpawnResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
@@ -78,13 +70,13 @@ function _spawn(
     child.stdout.on("data", (data: Buffer) => {
       const text = data.toString();
       stdout += text;
-      onOutput.fire(text);
+      onOutput?.fire(text);
     });
 
     child.stderr.on("data", (data: Buffer) => {
       const text = data.toString();
       stderr += text;
-      onOutput.fire(text);
+      onOutput?.fire(text);
     });
 
     child.on("error", (err) => {
@@ -167,7 +159,7 @@ export class InstallerBridge {
     }
 
     try {
-      const result = await _spawn(arizeInstall, ["status"], this.onOutput);
+      const result = await _spawn(arizeInstall, ["status"]);
       if (result.code !== 0) {
         return { collector: { running: false, port: 4318 }, backend: "none", harnesses: [] };
       }
@@ -235,7 +227,7 @@ export class InstallerBridge {
    * Subsequent install — venv already exists, call arize-install directly.
    */
   private async _directInstall(arizeInstall: string, options: InstallOptions): Promise<InstallResult> {
-    const args = [options.harness, "--non-interactive", ...this._buildFlags(options)];
+    const args = [options.harness, ...this._buildFlags(options)];
 
     try {
       const result = await _spawn(arizeInstall, args, this.onOutput);

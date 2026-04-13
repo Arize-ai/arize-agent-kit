@@ -69,7 +69,7 @@ console.log("\n[Static source analysis]");
 assert("uses child_process.spawn", src.includes('import { spawn } from "child_process"'));
 assert("_spawn function defined", src.includes("function _spawn"));
 assert("_spawn returns Promise<SpawnResult>", src.includes("Promise<SpawnResult>"));
-assert("streams stdout via onOutput.fire", src.includes("onOutput.fire(text)"));
+assert("streams stdout via onOutput?.fire", src.includes("onOutput?.fire(text)"));
 assert("captures stderr", src.includes("stderr += text"));
 
 // Platform-aware paths
