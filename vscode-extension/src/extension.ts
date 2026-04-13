@@ -3,10 +3,9 @@ import { findPython, getArizeInstallPath } from "./python";
 import { SidebarProvider } from "./sidebar";
 import { openWizard } from "./wizard";
 import { runInstallerCommand } from "./installer";
-import { createStatusBarItem, updateStatusBar, StatusBarState } from "./status";
+import { StatusBarManager, StatusBarState, registerStatusBarMenuCommand } from "./status";
 
-let statusBarItem: vscode.StatusBarItem | undefined;
-let pollingInterval: ReturnType<typeof setInterval> | undefined;
+let statusBarManager: StatusBarManager | undefined;
 let pythonPath: string | null = null;
 
 // ---------------------------------------------------------------------------
@@ -50,7 +49,7 @@ async function handleStartCollector(): Promise<void> {
   try {
     await runInstallerCommand(installPath, ["collector", "start"]);
     vscode.window.showInformationMessage("Arize: Collector started.");
-    refreshStatusBar();
+    statusBarManager?.update();
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     vscode.window.showErrorMessage(`Arize: Failed to start collector — ${msg}`);
@@ -68,48 +67,10 @@ async function handleStopCollector(): Promise<void> {
   try {
     await runInstallerCommand(installPath, ["collector", "stop"]);
     vscode.window.showInformationMessage("Arize: Collector stopped.");
-    refreshStatusBar();
+    statusBarManager?.update();
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     vscode.window.showErrorMessage(`Arize: Failed to stop collector — ${msg}`);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Status bar polling
-// ---------------------------------------------------------------------------
-
-function refreshStatusBar(): void {
-  if (!statusBarItem) {
-    return;
-  }
-  const installPath = getArizeInstallPath();
-  if (!installPath) {
-    updateStatusBar(statusBarItem, StatusBarState.NotConfigured);
-    return;
-  }
-  runInstallerCommand(installPath, ["collector", "status"])
-    .then((output) => {
-      if (output.includes("running")) {
-        updateStatusBar(statusBarItem!, StatusBarState.Running);
-      } else {
-        updateStatusBar(statusBarItem!, StatusBarState.Stopped);
-      }
-    })
-    .catch(() => {
-      updateStatusBar(statusBarItem!, StatusBarState.NotConfigured);
-    });
-}
-
-function startPolling(): void {
-  refreshStatusBar();
-  pollingInterval = setInterval(refreshStatusBar, 30_000);
-}
-
-function stopPolling(): void {
-  if (pollingInterval !== undefined) {
-    clearInterval(pollingInterval);
-    pollingInterval = undefined;
   }
 }
 
@@ -126,33 +87,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("arize.stopCollector", handleStopCollector)
   );
 
+  // Register status bar menu command
+  registerStatusBarMenuCommand(context);
+
   // Register sidebar webview provider
   const sidebarProvider = new SidebarProvider(context.extensionUri);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider("arize-sidebar", sidebarProvider)
   );
 
-  // Create status bar item
-  statusBarItem = createStatusBarItem();
-  context.subscriptions.push(statusBarItem);
+  // Create status bar manager
+  statusBarManager = new StatusBarManager();
+  context.subscriptions.push(statusBarManager.getItem());
 
   // Run initial Python detection
   pythonPath = await findPython();
   if (!pythonPath) {
-    updateStatusBar(statusBarItem, StatusBarState.PythonRequired);
+    statusBarManager.setState(StatusBarState.PythonRequired);
     vscode.window.showWarningMessage(
       "Arize: Python 3.9+ not found. Some features require Python."
     );
   }
 
-  // Start status bar polling
-  startPolling();
+  // Start status bar polling (every 30 seconds)
+  statusBarManager.startPolling();
 }
 
 export function deactivate(): void {
-  stopPolling();
-  if (statusBarItem) {
-    statusBarItem.dispose();
-    statusBarItem = undefined;
+  if (statusBarManager) {
+    statusBarManager.dispose();
+    statusBarManager = undefined;
   }
 }

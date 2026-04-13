@@ -32,6 +32,10 @@
       {
         "command": "arize.stopCollector",
         "title": "Arize: Stop Collector"
+      },
+      {
+        "command": "arize.statusBarMenu",
+        "title": "Arize: Status Menu"
       }
     ],
     "viewsContainers": {
