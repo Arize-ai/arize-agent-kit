@@ -10,6 +10,7 @@ arize = ["opentelemetry-proto", "grpcio"]
 
 [project.scripts]
 # Core tools
+arize-install = "core.installer.cli:main"
 arize-collector-ctl = "core.collector_ctl:main"
 arize-config = "core.config:main"
 # Claude Code hooks
