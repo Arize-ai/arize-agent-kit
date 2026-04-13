@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from core.config import delete_value, get_value, load_config, save_config, set_value
-from core.constants import BASE_DIR, CONFIG_FILE, HARNESSES, STATE_BASE_DIR, VENV_DIR
 
 
 class HarnessInstaller:
