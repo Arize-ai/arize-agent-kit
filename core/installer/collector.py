@@ -10,7 +10,6 @@ All paths come from core.constants — never hardcoded here.
 
 import os
 import stat
-import sys
 import textwrap
 from pathlib import Path
 from typing import Dict, Optional, Union
@@ -23,7 +22,6 @@ from core.constants import (
     PID_DIR,
     PID_FILE,
     VENV_DIR,
-    DEFAULT_COLLECTOR_PORT,
 )
 
 
