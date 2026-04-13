@@ -7,7 +7,6 @@ standard library.  Paths come from core.constants where applicable.
 
 import os
 import platform
-import re
 import shutil
 import subprocess
 import sys

@@ -39,7 +39,9 @@ class TestCheckPythonVersion:
             assert check_python_version(echo) is False
 
     def test_subprocess_timeout_returns_false(self):
-        with patch("core.installer.detect.subprocess.run", side_effect=TimeoutError):
+        import subprocess as _sp
+        exc = _sp.TimeoutExpired(cmd="python3", timeout=10)
+        with patch("core.installer.detect.subprocess.run", side_effect=exc):
             assert check_python_version("python3") is False
 
     def test_subprocess_returncode_nonzero(self):
@@ -108,9 +110,9 @@ class TestFindPython:
             with patch("core.installer.detect.os.path.isfile", return_value=False):
                 with patch("core.installer.detect.Path.is_file", return_value=False):
                     with patch("core.installer.detect.Path.is_dir", return_value=False):
-                        result = find_python()
-                        # May still find via other means, but shouldn't crash
-                        # This is a best-effort test
+                        with patch("core.installer.detect.check_python_version", return_value=False):
+                            result = find_python()
+                            assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -228,9 +230,9 @@ class TestDetectCursor:
 
     def test_cursor_darwin_app(self, tmp_path, monkeypatch):
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        cursor_app = Path("/Applications/Cursor.app")
         with patch("core.installer.detect.platform.system", return_value="Darwin"):
-            with patch("core.installer.detect.Path.exists", return_value=True):
-                # The .cursor dir check uses .is_dir, this patches .exists for /Applications/Cursor.app
+            with patch.object(Path, "exists", lambda self: self == cursor_app):
                 assert _detect_cursor() is True
 
     def test_cursor_not_found(self, tmp_path, monkeypatch):

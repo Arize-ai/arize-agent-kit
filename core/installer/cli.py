@@ -18,14 +18,13 @@ from core.config import (
     get_value,
     load_config,
     save_config,
-    set_value,
 )
 from core.collector_ctl import (
     collector_start,
     collector_status,
     collector_stop,
 )
-from core.constants import BASE_DIR, CONFIG_FILE, HARNESSES
+from core.constants import CONFIG_FILE
 from core.setup import (
     err,
     info,
@@ -169,6 +168,66 @@ def _setup_cursor(args: argparse.Namespace) -> None:
 # Uninstall
 # ---------------------------------------------------------------------------
 
+def _clean_harness_artifacts(harness: str) -> None:
+    """Remove harness-specific files written during install.
+
+    This complements config removal by reverting external file changes.
+    """
+    if harness == "claude":
+        # Remove Arize env vars from Claude settings files
+        from core.setup.claude import _load_settings, _save_settings
+
+        _arize_env_keys = {
+            "PHOENIX_ENDPOINT", "ARIZE_API_KEY", "ARIZE_SPACE_ID",
+            "ARIZE_OTLP_ENDPOINT", "ARIZE_TRACE_ENABLED", "ARIZE_USER_ID",
+        }
+        for settings_path in (
+            Path.home() / ".claude" / "settings.json",
+            Path(".claude") / "settings.local.json",
+        ):
+            if settings_path.is_file():
+                settings = _load_settings(settings_path)
+                env_block = settings.get("env", {})
+                changed = False
+                for key in _arize_env_keys:
+                    if key in env_block:
+                        del env_block[key]
+                        changed = True
+                if changed:
+                    _save_settings(settings_path, settings)
+
+    elif harness == "codex":
+        # Remove Codex arize-env.sh and [otel] section from config.toml
+        codex_dir = Path.home() / ".codex"
+        env_file = codex_dir / "arize-env.sh"
+        if env_file.is_file():
+            env_file.unlink()
+
+        toml_path = codex_dir / "config.toml"
+        if toml_path.is_file():
+            lines = toml_path.read_text().splitlines()
+            filtered = []
+            in_otel = False
+            for line in lines:
+                stripped = line.strip()
+                if stripped == "[otel]" or stripped.startswith("[otel."):
+                    in_otel = True
+                    continue
+                if in_otel and stripped.startswith("[") and not stripped.startswith("[otel"):
+                    in_otel = False
+                if not in_otel:
+                    filtered.append(line)
+            # Remove trailing blank lines
+            while filtered and not filtered[-1].strip():
+                filtered.pop()
+            # Also remove the auto-generated comment if present
+            if filtered and filtered[-1].strip().startswith("# Arize shared collector"):
+                filtered.pop()
+            while filtered and not filtered[-1].strip():
+                filtered.pop()
+            toml_path.write_text("\n".join(filtered) + "\n" if filtered else "")
+
+
 def _uninstall(args: argparse.Namespace) -> None:
     """Remove one or all harnesses."""
     if not args.harness and not args.all:
@@ -186,8 +245,15 @@ def _uninstall(args: argparse.Namespace) -> None:
         collector_stop()
         info("Collector stopped")
 
-        # Remove all harness entries from config
+        # Clean up artifacts for each configured harness
         config = load_config()
+        harnesses_cfg = get_value(config, "harnesses") or {}
+        for config_key in list(harnesses_cfg.keys()):
+            # Map config keys back to CLI names for artifact cleanup
+            cli_name = "claude" if config_key == "claude-code" else config_key
+            _clean_harness_artifacts(cli_name)
+
+        # Remove all harness entries from config
         if "harnesses" in config:
             config["harnesses"] = {}
             save_config(config)
@@ -210,6 +276,7 @@ def _uninstall(args: argparse.Namespace) -> None:
         err(f"Harness '{harness}' is not configured")
         sys.exit(EXIT_ERROR)
 
+    _clean_harness_artifacts(harness)
     delete_value(config, f"harnesses.{config_key}")
     save_config(config)
     info(f"Removed {harness} harness from config")
