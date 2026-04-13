@@ -11,13 +11,16 @@ All paths come from core.constants — never hardcoded here.
 import os
 import stat
 import textwrap
+import urllib.request
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, Union
 
 from core.constants import (
     BIN_DIR,
     COLLECTOR_BIN,
     COLLECTOR_LOG_FILE,
+    DEFAULT_COLLECTOR_HOST,
+    DEFAULT_COLLECTOR_PORT,
     LOG_DIR,
     PID_DIR,
     PID_FILE,
@@ -66,13 +69,20 @@ def _write_unix_launcher(python_cmd: str) -> None:
 
 
 def _write_windows_launcher(python_cmd: str) -> None:
-    """Write a .cmd wrapper that launches the collector on Windows."""
-    cmd_path = COLLECTOR_BIN.with_suffix(".cmd")
+    """Write a .cmd wrapper that launches the collector on Windows.
+
+    Writes to both ``COLLECTOR_BIN`` and ``COLLECTOR_BIN.with_suffix(".cmd")``
+    so that ``collector_ctl.collector_start()`` can discover the launcher via
+    the ``COLLECTOR_BIN`` path, and Windows shells can execute the ``.cmd``
+    variant directly.
+    """
     script = textwrap.dedent(f"""\
         @echo off
         "{python_cmd}" -m core.collector %*
     """)
-    cmd_path.write_text(script)
+    # Write to both paths so collector_ctl finds COLLECTOR_BIN
+    COLLECTOR_BIN.write_text(script)
+    COLLECTOR_BIN.with_suffix(".cmd").write_text(script)
 
 
 # ---------------------------------------------------------------------------
@@ -91,11 +101,48 @@ def start_collector() -> bool:
 def stop_collector() -> bool:
     """Stop the collector process.
 
-    Returns True once the collector has been stopped.
+    Returns True if the collector is confirmed stopped, False if the process
+    may still be running after the stop attempt.
     """
-    from core.collector_ctl import collector_stop
+    from core.collector_ctl import collector_stop, collector_status as _ctl_status
     collector_stop()
-    return True
+    status_str, _pid, _addr = _ctl_status()
+    return status_str != "running"
+
+
+# ---------------------------------------------------------------------------
+# Host/port resolution and health check (local implementations to avoid
+# depending on private functions in core.collector_ctl)
+# ---------------------------------------------------------------------------
+
+def _resolve_host_port() -> tuple:
+    """Return (host, port) from config.yaml, falling back to defaults."""
+    from core.config import load_config, get_value
+    from core.constants import CONFIG_FILE
+
+    try:
+        cfg = load_config(str(CONFIG_FILE))
+        host = get_value(cfg, "collector.host")
+        port = get_value(cfg, "collector.port")
+    except Exception:
+        host = None
+        port = None
+
+    if not host:
+        host = DEFAULT_COLLECTOR_HOST
+    if not port:
+        port = DEFAULT_COLLECTOR_PORT
+    return (str(host), int(port))
+
+
+def _health_check(host: str, port: int, timeout: float = 2.0) -> bool:
+    """Return True if the collector health endpoint responds OK."""
+    try:
+        url = f"http://{host}:{port}/health"
+        urllib.request.urlopen(url, timeout=timeout)
+        return True
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -111,11 +158,7 @@ def collector_status() -> Dict[str, Union[bool, int, None]]:
         port (int): Configured or default collector port.
         healthy (bool): Whether the health endpoint responded OK.
     """
-    from core.collector_ctl import (
-        collector_status as _ctl_status,
-        _resolve_host_port,
-        _health_check,
-    )
+    from core.collector_ctl import collector_status as _ctl_status
 
     status_str, pid, _addr = _ctl_status()
     running = status_str == "running"
