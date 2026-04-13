@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!--
+    This file is a standalone reference for the wizard webview.
+    In production, the extension generates the HTML shell in wizard.ts
+    and loads wizard.css + wizard.js from the media/ directory.
+    The wizard.js script renders all UI into #wizard-root.
+  -->
+  <link rel="stylesheet" href="wizard.css" />
+  <title>Arize Setup Wizard</title>
+</head>
+<body>
+  <div id="wizard-root">
+    <!--
+      The wizard UI is rendered entirely by wizard.js.
+
+      Four steps:
+        1. Choose Harness — Claude Code, Codex, or Cursor card selection
+        2. Select Backend — Phoenix or Arize AX, with credential fields
+        3. Options — User ID (optional), scope for Claude (project/global)
+        4. Review & Install — Summary table, install button, output log
+
+      Navigation: Back / Next buttons with validation.
+      Step 3 is skipped for non-Claude harnesses.
+    -->
+  </div>
+  <script src="wizard.js"></script>
+</body>
+</html>
