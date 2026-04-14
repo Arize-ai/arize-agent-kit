@@ -302,3 +302,22 @@ export class InstallerBridge {
     this.onOutput.dispose();
   }
 }
+
+// ---------------------------------------------------------------------------
+// Standalone helper for simple CLI invocations
+// ---------------------------------------------------------------------------
+
+/**
+ * Run an arize-install command and return stdout.
+ * Throws on non-zero exit code.
+ */
+export async function runInstallerCommand(
+  installPath: string,
+  args: string[],
+): Promise<string> {
+  const result = await _spawn(installPath, args);
+  if (result.code !== 0) {
+    throw new Error(result.stderr || `Process exited with code ${result.code}`);
+  }
+  return result.stdout;
+}

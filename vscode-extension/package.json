@@ -32,6 +32,10 @@
       {
         "command": "arize.stopCollector",
         "title": "Arize: Stop Collector"
+      },
+      {
+        "command": "arize.statusBarMenu",
+        "title": "Arize: Status Menu"
       }
     ],
     "viewsContainers": {
@@ -59,9 +63,12 @@
     "package": "vsce package"
   },
   "devDependencies": {
-    "@types/vscode": "^1.85.0",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
     "esbuild": "^0.20.0",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.9",
     "typescript": "^5.3.0"
   },
   "dependencies": {
