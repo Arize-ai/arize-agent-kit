@@ -121,7 +121,8 @@ tty_read_masked_line() {
     local char
     printf '%s' "$prompt" >&2
     while IFS= read -rs -n 1 char < "$_tty_in"; do
-        if [[ "$char" == $'\n' || "$char" == $'\r' ]]; then
+        # read -n 1 uses newline as delimiter, so Enter yields an empty string
+        if [[ -z "$char" || "$char" == $'\n' || "$char" == $'\r' ]]; then
             printf '\n' >&2
             return 0
         fi
