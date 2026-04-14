@@ -58,8 +58,9 @@
     }
   },
   "scripts": {
-    "build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
-    "watch": "npm run build -- --watch",
+    "vscode:uninstall": "node ./dist/uninstall.js",
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
     "package": "vsce package"
   },
   "devDependencies": {
