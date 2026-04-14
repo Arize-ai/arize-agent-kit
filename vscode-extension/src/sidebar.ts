@@ -178,7 +178,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
       case "reconfigure":
         if (msg.harness) {
-          vscode.commands.executeCommand("arize.reconfigure");
+          vscode.commands.executeCommand("arize.reconfigure", msg.harness);
         }
         break;
 
@@ -256,13 +256,6 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   // ---------------------------------------------------------------------------
 
   private getHtml(webview: vscode.Webview): string {
-    const sidebarHtmlUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, "media", "sidebar.html"),
-    );
-    const sidebarJsUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, "media", "sidebar.js"),
-    );
-
     // Use a nonce for Content Security Policy
     const nonce = getNonce();
 
@@ -387,7 +380,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   </style>
 </head>
 <body>
-  <div class="header">Arize Tracing</div>
+  <div class="header">ARIZE TRACING</div>
 
   <div id="collector-status" class="status-row" title="Click to toggle collector">
     <span class="dot stopped" id="collector-dot"></span>

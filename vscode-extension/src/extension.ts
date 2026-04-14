@@ -132,6 +132,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   sidebarProvider.setInstaller(installerBridge);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider("arize-sidebar", sidebarProvider),
+    sidebarProvider,
     { dispose: () => installerBridge.dispose() }
   );
 

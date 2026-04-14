@@ -1,5 +1,5 @@
 /**
- * Tests for vscode-extension/src/sidebar.ts + media/sidebar.html + media/sidebar.js
+ * Tests for vscode-extension/src/sidebar.ts (inline HTML/CSS/JS approach)
  *
  * Validates:
  *  - Source structure: SidebarProvider class, methods, interfaces
@@ -8,7 +8,6 @@
  *  - HTML generation: CSP nonce, required elements, inline script
  *  - File watching: config.yaml watcher setup
  *  - Integration: resolveWebviewView wiring, installer bridge, refresh
- *  - Media files: sidebar.html structure, sidebar.js logic
  *  - Bundle: sidebar code in built output
  *
  * Run: node test/sidebar.test.js
@@ -167,7 +166,7 @@ assert("handles addHarness", src.includes('case "addHarness"'));
 assert("addHarness executes arize.setup", src.includes('executeCommand("arize.setup")'));
 assert("handles reconfigure", src.includes('case "reconfigure"'));
 assert("reconfigure checks harness", src.includes("if (msg.harness)") || src.includes("msg.harness"));
-assert("reconfigure executes arize.reconfigure", src.includes('executeCommand("arize.reconfigure")'));
+assert("reconfigure executes arize.reconfigure with harness", src.includes('executeCommand("arize.reconfigure", msg.harness)'));
 assert("handles remove", src.includes('case "remove"'));
 assert("remove calls handleRemove", src.includes("this.handleRemove(msg.harness)"));
 assert("handles startCollector", src.includes('case "startCollector"'));
@@ -216,7 +215,7 @@ assert("CSP meta tag with nonce", src.includes("Content-Security-Policy"));
 assert("CSP allows unsafe-inline styles", src.includes("style-src 'unsafe-inline'"));
 assert("CSP restricts scripts to nonce", src.includes("script-src 'nonce-${nonce}'"));
 assert("HTML has DOCTYPE", src.includes("<!DOCTYPE html>"));
-assert("HTML has header", src.includes("Arize Tracing"));
+assert("HTML has header", src.includes("ARIZE TRACING"));
 assert("HTML has collector status row", src.includes("collector-status"));
 assert("HTML has collector dot", src.includes("collector-dot"));
 assert("HTML has collector label", src.includes("collector-label"));
@@ -262,100 +261,45 @@ assert("imports fs", src.includes('import * as fs from "fs"'));
 assert("imports InstallerBridge", src.includes('import { InstallerBridge } from "./installer"'));
 
 // ============================================================================
-// 14. media/sidebar.html validation
+// 14. Media files removed — inline approach used
 // ============================================================================
-console.log("\n[14. media/sidebar.html]");
+console.log("\n[14. Media files removed (inline approach)]");
 
 const htmlPath = path.join(ROOT, "media", "sidebar.html");
-assert("sidebar.html exists", fs.existsSync(htmlPath));
-
-const html = fs.readFileSync(htmlPath, "utf8");
-
-assert("html has DOCTYPE", html.includes("<!DOCTYPE html>"));
-assert("html has charset meta", html.includes('charset="UTF-8"'));
-assert("html has viewport meta", html.includes("viewport"));
-assert("html header says ARIZE TRACING", html.includes("ARIZE TRACING"));
-assert("html has collector-status div", html.includes('id="collector-status"'));
-assert("html has collector-dot span", html.includes('id="collector-dot"'));
-assert("html has collector-label span", html.includes('id="collector-label"'));
-assert("html default label is Stopped", html.includes(">Stopped<"));
-assert("html has backend-row", html.includes('id="backend-row"'));
-assert("html has harness-list", html.includes('id="harness-list"'));
-assert("html has empty-state", html.includes('id="empty-state"'));
-assert("html empty state is hidden by default", html.includes('style="display: none;"'));
-assert("html empty state text", html.includes("No harnesses configured."));
-assert("html has add-btn", html.includes('id="add-btn"'));
-assert("html add button text", html.includes("+ Add Harness"));
-assert("html has script tag referencing sidebarJsUri", html.includes("${sidebarJsUri}"));
-
-// CSS classes in HTML
-assert("html has dot.running class", html.includes(".dot.running"));
-assert("html has dot.stopped class", html.includes(".dot.stopped"));
-assert("html has harness-card class", html.includes(".harness-card"));
-assert("html has harness-name class", html.includes(".harness-name"));
-assert("html has harness-project class", html.includes(".harness-project"));
-assert("html has action-btn class", html.includes(".action-btn"));
-assert("html has add-btn class", html.includes(".add-btn"));
-assert("html has empty-state class", html.includes(".empty-state"));
-assert("html has status-row class", html.includes(".status-row"));
-
-// ============================================================================
-// 15. media/sidebar.js validation
-// ============================================================================
-console.log("\n[15. media/sidebar.js]");
-
 const jsPath = path.join(ROOT, "media", "sidebar.js");
-assert("sidebar.js exists", fs.existsSync(jsPath));
+assert("sidebar.html does NOT exist (inline approach)", !fs.existsSync(htmlPath));
+assert("sidebar.js does NOT exist (inline approach)", !fs.existsSync(jsPath));
 
-const js = fs.readFileSync(jsPath, "utf8");
+// Verify inline HTML in sidebar.ts has all required elements
+assert("inline HTML has ARIZE TRACING header", src.includes("ARIZE TRACING"));
+assert("inline HTML has collector-status", src.includes("collector-status"));
+assert("inline HTML has collector-dot", src.includes("collector-dot"));
+assert("inline HTML has collector-label", src.includes("collector-label"));
+assert("inline HTML has backend-row", src.includes("backend-row"));
+assert("inline HTML has harness-list", src.includes("harness-list"));
+assert("inline HTML has empty-state", src.includes("empty-state"));
+assert("inline HTML has add-btn", src.includes("add-btn"));
+assert("inline HTML has + Add Harness", src.includes("+ Add Harness"));
+assert("inline HTML has No harnesses configured", src.includes("No harnesses configured"));
 
-assert("js is an IIFE", js.includes("(function () {") && js.includes("})();"));
-assert("js acquires vscode api", js.includes("acquireVsCodeApi()"));
-assert("js gets collector-status element", js.includes('getElementById("collector-status")'));
-assert("js gets collector-dot element", js.includes('getElementById("collector-dot")'));
-assert("js gets collector-label element", js.includes('getElementById("collector-label")'));
-assert("js gets backend-row element", js.includes('getElementById("backend-row")'));
-assert("js gets harness-list element", js.includes('getElementById("harness-list")'));
-assert("js gets empty-state element", js.includes('getElementById("empty-state")'));
-assert("js gets add-btn element", js.includes('getElementById("add-btn")'));
+// Verify inline script has all required logic
+assert("inline script has renderState", src.includes("function renderState"));
+assert("inline script has acquireVsCodeApi", src.includes("acquireVsCodeApi()"));
+assert("inline script sends reconfigure message", src.includes("type: 'reconfigure', harness: h.name"));
+assert("inline script sends remove message", src.includes("type: 'remove', harness: h.name"));
+assert("inline script sends stopCollector", src.includes("'stopCollector'"));
+assert("inline script sends startCollector", src.includes("'startCollector'"));
+assert("inline script sends addHarness", src.includes("'addHarness'"));
+assert("inline script listens for messages", src.includes("addEventListener('message'"));
 
-// renderState function
-assert("js defines renderState", js.includes("function renderState(state)"));
-assert("js sets collector dot class for running", js.includes('"running"'));
-assert("js sets collector dot class for stopped", js.includes('"stopped"'));
-assert("js sets collector label text", js.includes('Running') && js.includes('Stopped'));
-assert("js sets tooltip for running", js.includes("Click to stop collector"));
-assert("js sets tooltip for start", js.includes("Click to start collector"));
-assert("js renders backend text", js.includes("Backend: "));
-assert("js handles no backend with em dash", js.includes("\\u2014") || js.includes("\u2014"));
-assert("js clears harness list", js.includes('harnessList.innerHTML = ""'));
-assert("js shows empty state when no harnesses", js.includes('emptyState.style.display = "block"'));
-assert("js hides empty state when harnesses exist", js.includes('emptyState.style.display = "none"'));
-
-// Harness card rendering
-assert("js creates harness-card divs", js.includes('card.className = "harness-card"'));
-assert("js creates harness-name divs", js.includes('name.className = "harness-name"'));
-assert("js creates harness-project divs", js.includes('project.className = "harness-project"'));
-assert("js sets project text with prefix", js.includes('"Project: "'));
-assert("js creates action buttons", js.includes('reconfigureBtn.className = "action-btn"'));
-assert("js creates Reconfigure button", js.includes('reconfigureBtn.textContent = "Reconfigure"'));
-assert("js creates Remove button", js.includes('removeBtn.textContent = "Remove"'));
-
-// Event handling in js
-assert("js sends reconfigure message", js.includes('type: "reconfigure", harness: h.name'));
-assert("js sends remove message", js.includes('type: "remove", harness: h.name'));
-assert("js stops propagation on reconfigure", js.includes("e.stopPropagation()"));
-assert("js sends stopCollector on running click", js.includes('"stopCollector"'));
-assert("js sends startCollector on stopped click", js.includes('"startCollector"'));
-assert("js sends addHarness on add click", js.includes('type: "addHarness"'));
-assert("js checks running class for toggle", js.includes('classList.contains("running")'));
-assert("js listens for message events", js.includes('window.addEventListener("message"'));
-assert("js checks message type is state", js.includes('msg.type === "state"'));
+// No dead webview URI variables
+assert("no dead sidebarHtmlUri variable", !src.includes("sidebarHtmlUri"));
+assert("no dead sidebarJsUri variable", !src.includes("sidebarJsUri"));
 
 // ============================================================================
-// 16. Extension integration — sidebar wiring in extension.ts
+// 15. Extension integration — sidebar wiring in extension.ts
 // ============================================================================
-console.log("\n[16. Extension integration]");
+console.log("\n[15. Extension integration]");
 
 const extSrc = fs.readFileSync(path.join(ROOT, "src", "extension.ts"), "utf8");
 
@@ -364,6 +308,7 @@ assert("extension creates SidebarProvider", extSrc.includes("new SidebarProvider
 assert("extension creates InstallerBridge", extSrc.includes("new InstallerBridge(context.extensionPath)"));
 assert("extension calls setInstaller", extSrc.includes("sidebarProvider.setInstaller(installerBridge)"));
 assert("extension registers arize-sidebar view", extSrc.includes('registerWebviewViewProvider("arize-sidebar", sidebarProvider)'));
+assert("extension registers sidebarProvider for disposal", extSrc.includes("sidebarProvider,"));
 assert("extension disposes installerBridge", extSrc.includes("installerBridge.dispose()"));
 
 // ============================================================================
@@ -853,61 +798,39 @@ function runStandaloneTests() {
   assert("nonce length is 32", src2.includes("i < 32"));
 
   // ====================================================================
-  // 28. CSS validation in HTML
+  // 28. CSS validation in inline HTML (sidebar.ts)
   // ====================================================================
   console.log("\n[28. CSS validation]");
 
-  const html2 = fs.readFileSync(path.join(ROOT, "media", "sidebar.html"), "utf8");
-
-  // Uses VS Code CSS variables
-  assert("uses vscode font family var", html2.includes("var(--vscode-font-family)"));
-  assert("uses vscode font size var", html2.includes("var(--vscode-font-size)"));
-  assert("uses vscode foreground var", html2.includes("var(--vscode-foreground)"));
-  assert("uses vscode hover bg var", html2.includes("var(--vscode-list-hoverBackground)"));
-  assert("uses vscode button bg var", html2.includes("var(--vscode-button-background)"));
-  assert("uses vscode button fg var", html2.includes("var(--vscode-button-foreground)"));
-  assert("uses vscode link color var", html2.includes("var(--vscode-textLink-foreground)"));
-  assert("uses vscode description fg var", html2.includes("var(--vscode-descriptionForeground)"));
+  // Uses VS Code CSS variables in inline HTML
+  assert("uses vscode font family var", src2.includes("var(--vscode-font-family)"));
+  assert("uses vscode font size var", src2.includes("var(--vscode-font-size)"));
+  assert("uses vscode foreground var", src2.includes("var(--vscode-foreground)"));
+  assert("uses vscode hover bg var", src2.includes("var(--vscode-list-hoverBackground)"));
+  assert("uses vscode button bg var", src2.includes("var(--vscode-button-background)"));
+  assert("uses vscode button fg var", src2.includes("var(--vscode-button-foreground)"));
+  assert("uses vscode link color var", src2.includes("var(--vscode-textLink-foreground)"));
+  assert("uses vscode description fg var", src2.includes("var(--vscode-descriptionForeground)"));
 
   // ====================================================================
-  // 29. HTML and JS consistency
+  // 29. Inline script consistency
   // ====================================================================
-  console.log("\n[29. HTML/JS consistency]");
+  console.log("\n[29. Inline script consistency]");
 
-  const js2 = fs.readFileSync(path.join(ROOT, "media", "sidebar.js"), "utf8");
-
-  // All element IDs referenced in JS must exist in HTML
-  const jsIds = [
+  // All element IDs in inline script match inline HTML
+  const inlineIds = [
     "collector-status", "collector-dot", "collector-label",
     "backend-row", "harness-list", "empty-state", "add-btn"
   ];
-  jsIds.forEach(id => {
-    assert(`JS references ID "${id}" that exists in HTML`, html2.includes(`id="${id}"`));
+  inlineIds.forEach(id => {
+    assert(`inline script references ID "${id}"`, src2.includes(`'${id}'`));
   });
 
-  // All CSS classes used in JS must be defined in HTML <style>
-  const jsClasses = ["harness-card", "harness-name", "harness-project", "harness-actions", "action-btn"];
-  jsClasses.forEach(cls => {
-    assert(`JS uses class "${cls}" defined in HTML CSS`, html2.includes(`.${cls}`));
-  });
-
-  // Message types in JS match those expected by sidebar.ts
+  // Message types in inline script match handleMessage cases
   const msgTypes = ["addHarness", "reconfigure", "remove", "startCollector", "stopCollector"];
   msgTypes.forEach(type => {
-    assert(`JS sends "${type}" message handled by sidebar.ts`, src2.includes(`"${type}"`));
+    assert(`inline script sends "${type}" handled by sidebar.ts`, src2.includes(`"${type}"`));
   });
-
-  // ====================================================================
-  // 30. Inline script consistency with standalone sidebar.js
-  // ====================================================================
-  console.log("\n[30. Inline vs standalone script consistency]");
-
-  // The inline script in sidebar.ts and the standalone sidebar.js should have
-  // the same rendering logic
-  assert("both have renderState function", src2.includes("function renderState") && js2.includes("function renderState"));
-  assert("both handle collector toggle", src2.includes("stopCollector") && js2.includes("stopCollector"));
-  assert("both handle add harness", src2.includes("addHarness") && js2.includes("addHarness"));
-  assert("both listen for message events", src2.includes("addEventListener('message'") && js2.includes('addEventListener("message"'));
 
   printSummary();
   process.exit(failed > 0 ? 1 : 0);
