@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { findPython, getArizeInstallPath } from "./python";
 import { SidebarProvider } from "./sidebar";
 import { openWizard } from "./wizard";
-import { runInstallerCommand } from "./installer";
+import { runInstallerCommand, InstallerBridge } from "./installer";
 import { createStatusBarItem, updateStatusBar, StatusBarState } from "./status";
 
 let statusBarItem: vscode.StatusBarItem | undefined;
@@ -126,10 +126,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("arize.stopCollector", handleStopCollector)
   );
 
-  // Register sidebar webview provider
+  // Register sidebar webview provider with installer bridge
   const sidebarProvider = new SidebarProvider(context.extensionUri);
+  const installerBridge = new InstallerBridge(context.extensionPath);
+  sidebarProvider.setInstaller(installerBridge);
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider("arize-sidebar", sidebarProvider)
+    vscode.window.registerWebviewViewProvider("arize-sidebar", sidebarProvider),
+    sidebarProvider,
+    { dispose: () => installerBridge.dispose() }
   );
 
   // Create status bar item

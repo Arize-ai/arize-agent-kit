@@ -90,6 +90,23 @@ function _spawn(
 }
 
 // ---------------------------------------------------------------------------
+// Standalone helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Run an `arize-install` sub-command and return the result.
+ *
+ * Convenience wrapper used by extension commands that don't need the full
+ * InstallerBridge lifecycle (e.g. one-shot collector start/stop).
+ */
+export async function runInstallerCommand(
+  arizeInstall: string,
+  args: string[],
+): Promise<SpawnResult> {
+  return _spawn(arizeInstall, args);
+}
+
+// ---------------------------------------------------------------------------
 // Installer bridge
 // ---------------------------------------------------------------------------
 
