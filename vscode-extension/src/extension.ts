@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { findPython, getArizeInstallPath } from "./python";
+import { findPython, getCollectorCtlPath } from "./python";
 import { SidebarProvider } from "./sidebar";
 import { openWizard } from "./wizard";
 import { runInstallerCommand, InstallerBridge } from "./installer";
@@ -39,15 +39,15 @@ async function handleReconfigure(context: vscode.ExtensionContext): Promise<void
 }
 
 async function handleStartCollector(): Promise<void> {
-  const installPath = getArizeInstallPath();
-  if (!installPath) {
+  const ctlPath = getCollectorCtlPath();
+  if (!ctlPath) {
     vscode.window.showErrorMessage(
-      "Arize: arize-install not found. Run the setup wizard first."
+      "Arize: arize-collector-ctl not found. Run the setup wizard first."
     );
     return;
   }
   try {
-    await runInstallerCommand(installPath, ["collector", "start"]);
+    await runInstallerCommand(ctlPath, ["start"]);
     vscode.window.showInformationMessage("Arize: Collector started.");
     statusBarManager?.update();
   } catch (err: unknown) {
@@ -57,15 +57,15 @@ async function handleStartCollector(): Promise<void> {
 }
 
 async function handleStopCollector(): Promise<void> {
-  const installPath = getArizeInstallPath();
-  if (!installPath) {
+  const ctlPath = getCollectorCtlPath();
+  if (!ctlPath) {
     vscode.window.showErrorMessage(
-      "Arize: arize-install not found. Run the setup wizard first."
+      "Arize: arize-collector-ctl not found. Run the setup wizard first."
     );
     return;
   }
   try {
-    await runInstallerCommand(installPath, ["collector", "stop"]);
+    await runInstallerCommand(ctlPath, ["stop"]);
     vscode.window.showInformationMessage("Arize: Collector stopped.");
     statusBarManager?.update();
   } catch (err: unknown) {

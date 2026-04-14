@@ -155,3 +155,14 @@ export function getArizeInstallPath(): string | null {
   const fullPath = join(VENV_DIR, binDir, binName);
   return existsSync(fullPath) ? fullPath : null;
 }
+
+/**
+ * Return the absolute path to `arize-collector-ctl` inside the venv,
+ * or null if it does not exist.
+ */
+export function getCollectorCtlPath(): string | null {
+  const binName = process.platform === "win32" ? "arize-collector-ctl.exe" : "arize-collector-ctl";
+  const binDir = process.platform === "win32" ? "Scripts" : "bin";
+  const fullPath = join(VENV_DIR, binDir, binName);
+  return existsSync(fullPath) ? fullPath : null;
+}

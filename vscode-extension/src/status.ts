@@ -209,7 +209,7 @@ function readConfig(): ArizeConfig | null {
  * Check collector health via HTTP GET to 127.0.0.1:<port>/health.
  * Returns true if the collector responds within the timeout.
  */
-function checkCollectorHealth(port: number): Promise<boolean> {
+export function checkCollectorHealth(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const req = http.get(
       {

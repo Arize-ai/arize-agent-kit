@@ -223,51 +223,81 @@ def collector_start() -> bool:
         return False
 
 
+def _find_pid_on_port(port: int) -> "int | None":
+    """Find the PID of a process listening on the given port, or None."""
+    if _is_windows():
+        try:
+            result = subprocess.run(
+                ["netstat", "-ano"],
+                capture_output=True, text=True, timeout=5,
+            )
+            for line in result.stdout.splitlines():
+                if f":{port}" in line and "LISTENING" in line:
+                    parts = line.split()
+                    return int(parts[-1])
+        except Exception:
+            pass
+    else:
+        try:
+            result = subprocess.run(
+                ["lsof", "-ti", f":{port}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return int(result.stdout.strip().splitlines()[0])
+        except Exception:
+            pass
+    return None
+
+
+def _kill_pid(pid: int) -> None:
+    """Send SIGTERM to a process and wait up to 5s for it to die."""
+    try:
+        if _is_windows():
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid)],
+                    capture_output=True, timeout=5,
+                )
+        else:
+            os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return
+
+    for _ in range(50):
+        time.sleep(0.1)
+        if not _is_process_alive(pid):
+            return
+
+
 def collector_stop() -> str:
     """Stop the collector.
 
     Returns "stopped".
     """
-    if not PID_FILE.is_file():
-        return "stopped"
+    pid = None
 
-    try:
-        pid_text = PID_FILE.read_text().strip()
-        pid = int(pid_text)
-    except (ValueError, OSError):
+    # Try PID file first
+    if PID_FILE.is_file():
+        try:
+            pid = int(PID_FILE.read_text().strip())
+        except (ValueError, OSError):
+            pid = None
         try:
             PID_FILE.unlink()
         except OSError:
             pass
-        return "stopped"
 
-    if _is_process_alive(pid):
-        # Send SIGTERM
-        try:
-            if _is_windows():
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                except OSError:
-                    subprocess.run(
-                        ["taskkill", "/PID", str(pid)],
-                        capture_output=True, timeout=5,
-                    )
-            else:
-                os.kill(pid, signal.SIGTERM)
-        except OSError:
-            pass
+    # Fallback: find process by port if PID file was missing or stale
+    if pid is None or not _is_process_alive(pid):
+        host, port = _resolve_host_port()
+        if _health_check(host, port, timeout=1.0):
+            pid = _find_pid_on_port(port)
 
-        # Wait for process to die (50 attempts × 0.1s = 5s)
-        for _ in range(50):
-            time.sleep(0.1)
-            if not _is_process_alive(pid):
-                break
-
-    # Remove PID file regardless
-    try:
-        PID_FILE.unlink()
-    except OSError:
-        pass
+    if pid and _is_process_alive(pid):
+        _kill_pid(pid)
 
     return "stopped"
 

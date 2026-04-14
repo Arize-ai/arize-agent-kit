@@ -69,11 +69,9 @@ def _handle_post_tool_use(input_json: dict) -> None:
     tool_name = input_json.get("tool_name", "unknown")
     tool_id = input_json.get("tool_use_id", "")
     tool_input_raw = json.dumps(input_json.get("tool_input", {}))
-    tool_input = tool_input_raw[:5000]
+    tool_input = tool_input_raw
     tool_response_raw = str(input_json.get("tool_response", ""))
-    tool_response = tool_response_raw[:5000]
-
-    truncated = str(len(tool_input_raw) > 5000 or len(tool_response_raw) > 5000).lower()
+    tool_response = tool_response_raw
 
     # Tool-specific metadata
     tool_command = ""
@@ -84,23 +82,23 @@ def _handle_post_tool_use(input_json: dict) -> None:
 
     if tool_name == "Bash":
         tool_command = input_json.get("tool_input", {}).get("command", "")
-        tool_description = tool_command[:200]
+        tool_description = tool_command
     elif tool_name in ("Read", "Write", "Edit", "Glob"):
         tool_file_path = (input_json.get("tool_input", {}).get("file_path")
                           or input_json.get("tool_input", {}).get("pattern", ""))
-        tool_description = tool_file_path[:200]
+        tool_description = tool_file_path
     elif tool_name == "WebSearch":
         tool_query = input_json.get("tool_input", {}).get("query", "")
-        tool_description = tool_query[:200]
+        tool_description = tool_query
     elif tool_name == "WebFetch":
         tool_url = input_json.get("tool_input", {}).get("url", "")
-        tool_description = tool_url[:200]
+        tool_description = tool_url
     elif tool_name == "Grep":
         tool_query = input_json.get("tool_input", {}).get("pattern", "")
         tool_file_path = input_json.get("tool_input", {}).get("path", "")
-        tool_description = f"grep: {tool_query[:100]}"
+        tool_description = f"grep: {tool_query}"
     else:
-        tool_description = tool_input[:200]
+        tool_description = tool_input
 
     # Timing
     start_time = state.get(f"tool_{tool_id}_start") or str(get_timestamp_ms())
@@ -116,7 +114,6 @@ def _handle_post_tool_use(input_json: dict) -> None:
         "input.value": tool_input,
         "output.value": tool_response,
         "tool.description": tool_description,
-        "tool.truncated": truncated,
     }
     if user_id:
         attrs["user.id"] = user_id
@@ -178,7 +175,7 @@ def _handle_user_prompt_submit(input_json: dict) -> None:
     state.set("current_trace_id", generate_trace_id())
     state.set("current_trace_span_id", generate_span_id())
     state.set("current_trace_start_time", str(get_timestamp_ms()))
-    state.set("current_trace_prompt", (input_json.get("prompt", "") or "")[:1000])
+    state.set("current_trace_prompt", (input_json.get("prompt", "") or ""))
 
     # Track transcript position
     transcript = input_json.get("transcript_path", "")
@@ -254,7 +251,7 @@ def _handle_stop(input_json: dict) -> None:
                 if isinstance(val, int):
                     out_tokens += val
 
-    output = output[:5000] or "(No response)"
+    output = output or "(No response)"
     total_tokens = in_tokens + out_tokens
 
     # Build and send LLM span
@@ -368,7 +365,7 @@ def _handle_subagent_stop(input_json: dict) -> None:
                 if isinstance(val, int):
                     out_tokens += val
 
-    output = output[:5000]
+    output = output
     total_tokens = in_tokens + out_tokens
 
     # Build attributes

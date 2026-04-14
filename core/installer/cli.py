@@ -10,6 +10,7 @@ Subcommands:
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -24,7 +25,7 @@ from core.collector_ctl import (
     collector_status,
     collector_stop,
 )
-from core.constants import CONFIG_FILE
+from core.constants import BASE_DIR, CONFIG_FILE
 from core.setup import (
     err,
     info,
@@ -230,9 +231,38 @@ def _clean_harness_artifacts(harness: str) -> None:
 
 def _uninstall(args: argparse.Namespace) -> None:
     """Remove one or all harnesses."""
-    if not args.harness and not args.all:
-        err("specify --harness <name> or --all")
+    if not args.harness and not args.all and not args.purge:
+        err("specify --harness <name>, --all, or --purge")
         sys.exit(EXIT_MISSING_ARGS)
+
+    if args.purge:
+        if not args.non_interactive:
+            confirm = input(
+                f"This will stop the collector, remove all harnesses, and delete {BASE_DIR}.\n"
+                "Continue? [y/N]: "
+            ).strip()
+            if confirm.lower() != "y":
+                print("Cancelled.")
+                return
+
+        # Stop collector
+        collector_stop()
+        info("Collector stopped")
+
+        # Clean up harness artifacts from external config files
+        config = load_config()
+        harnesses_cfg = get_value(config, "harnesses") or {}
+        for config_key in list(harnesses_cfg.keys()):
+            cli_name = "claude" if config_key == "claude-code" else config_key
+            _clean_harness_artifacts(cli_name)
+
+        # Remove the entire harness directory
+        if BASE_DIR.is_dir():
+            shutil.rmtree(BASE_DIR)
+            info(f"Removed {BASE_DIR}")
+        else:
+            info(f"{BASE_DIR} does not exist")
+        return
 
     if args.all:
         if not args.non_interactive:
@@ -424,7 +454,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_uninstall.add_argument(
         "--all",
         action="store_true",
-        help="Full teardown: stop collector, remove all harnesses",
+        help="Stop collector and remove all harnesses from config",
+    )
+    p_uninstall.add_argument(
+        "--purge",
+        action="store_true",
+        help="Full teardown: stop collector, remove all harnesses, delete ~/.arize/harness",
     )
     p_uninstall.add_argument(
         "--non-interactive",

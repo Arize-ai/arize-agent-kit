@@ -327,13 +327,13 @@ class TestStatus:
 
 class TestUninstall:
     def test_uninstall_no_args_exits_2(self, tmp_harness_dir):
-        args = argparse.Namespace(harness=None, all=False, non_interactive=True)
+        args = argparse.Namespace(harness=None, all=False, purge=False, non_interactive=True)
         with pytest.raises(SystemExit) as exc:
             _uninstall(args)
         assert exc.value.code == EXIT_MISSING_ARGS
 
     def test_uninstall_single_harness(self, sample_config, tmp_harness_dir):
-        args = argparse.Namespace(harness="codex", all=False, non_interactive=True)
+        args = argparse.Namespace(harness="codex", all=False, purge=False, non_interactive=True)
         _uninstall(args)
         # Verify codex removed from config
         from core.config import load_config, get_value
@@ -345,7 +345,7 @@ class TestUninstall:
 
     def test_uninstall_claude_maps_to_claude_code(self, sample_config, tmp_harness_dir):
         """'claude' CLI name should map to 'claude-code' config key."""
-        args = argparse.Namespace(harness="claude", all=False, non_interactive=True)
+        args = argparse.Namespace(harness="claude", all=False, purge=False, non_interactive=True)
         _uninstall(args)
         from core.config import load_config, get_value
         config = load_config()
@@ -357,13 +357,13 @@ class TestUninstall:
         config_path = tmp_harness_dir / "config.yaml"
         config_path.write_text(yaml.safe_dump({"harnesses": {}}))
 
-        args = argparse.Namespace(harness="codex", all=False, non_interactive=True)
+        args = argparse.Namespace(harness="codex", all=False, purge=False, non_interactive=True)
         with pytest.raises(SystemExit) as exc:
             _uninstall(args)
         assert exc.value.code == EXIT_ERROR
 
     def test_uninstall_all_non_interactive(self, sample_config, tmp_harness_dir):
-        args = argparse.Namespace(harness=None, all=True, non_interactive=True)
+        args = argparse.Namespace(harness=None, all=True, purge=False, non_interactive=True)
         with patch("core.installer.cli.collector_stop") as mock_stop:
             _uninstall(args)
             mock_stop.assert_called_once()
@@ -372,7 +372,7 @@ class TestUninstall:
         assert get_value(config, "harnesses") == {}
 
     def test_uninstall_all_interactive_confirmed(self, sample_config, tmp_harness_dir):
-        args = argparse.Namespace(harness=None, all=True, non_interactive=False)
+        args = argparse.Namespace(harness=None, all=True, purge=False, non_interactive=False)
         with patch("builtins.input", return_value="y"):
             with patch("core.installer.cli.collector_stop"):
                 _uninstall(args)
@@ -381,7 +381,7 @@ class TestUninstall:
         assert get_value(config, "harnesses") == {}
 
     def test_uninstall_all_interactive_cancelled(self, sample_config, tmp_harness_dir, capsys):
-        args = argparse.Namespace(harness=None, all=True, non_interactive=False)
+        args = argparse.Namespace(harness=None, all=True, purge=False, non_interactive=False)
         with patch("builtins.input", return_value="n"):
             _uninstall(args)
         # Config should be unchanged
@@ -390,7 +390,7 @@ class TestUninstall:
         assert get_value(config, "harnesses.claude-code") is not None
 
     def test_uninstall_single_interactive_cancelled(self, sample_config, tmp_harness_dir, capsys):
-        args = argparse.Namespace(harness="codex", all=False, non_interactive=False)
+        args = argparse.Namespace(harness="codex", all=False, purge=False, non_interactive=False)
         with patch("builtins.input", return_value="n"):
             _uninstall(args)
         from core.config import load_config, get_value

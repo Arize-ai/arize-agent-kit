@@ -95,71 +95,22 @@ def test_install_sh_has_all_commands():
 def test_install_sh_existing_repo_syncs_requested_branch():
     """Existing harness git dir must fetch/checkout INSTALL_BRANCH, not only git pull."""
     text = INSTALL_SH.read_text()
-    assert "Syncing with origin/" in text
+    assert "syncing with origin/" in text.lower()
     assert "checkout -B" in text and "FETCH_HEAD" in text
 
 
-def test_install_sh_venv_not_gated_on_collector_py():
-    """Hooks need the venv even when core/collector.py is missing (e.g. shallow main branch)."""
+def test_install_sh_venv_checks_package_and_cli():
+    """Venv fast-path must verify package import + arize-install console script."""
     text = INSTALL_SH.read_text()
-    assert 'local pyproject="${INSTALL_DIR}/pyproject.toml"' in text
-    assert 'if [[ -f "$pyproject" ]]; then' in text
-    assert "hook_smoke=" in text and "arize-hook-session-start" in text
+    assert '"import core"' in text
+    assert "arize-install" in text
 
 
-def test_install_sh_masks_api_key_prompts():
-    """Backend API keys must be read with masked terminal output (not plain read -r)."""
+def test_install_sh_delegates_to_arize_install():
+    """install.sh must delegate to arize-install Python CLI for all configuration."""
     text = INSTALL_SH.read_text()
-    assert "tty_read_masked_line" in text
-    assert 'tty_read_masked_line "  Arize API key: "' in text
-    assert 'CRED_ARIZE_API_KEY="$REPLY"' in text
-    assert 'tty_read_masked_line "  Phoenix API key (blank if none): "' in text
-    assert 'CRED_PHOENIX_API_KEY="$REPLY"' in text
-
-
-def test_install_sh_has_hook_entry_points():
-    """install.sh must reference all Claude hook entry points."""
-    text = INSTALL_SH.read_text()
-    expected_hooks = [
-        "arize-hook-session-start",
-        "arize-hook-user-prompt-submit",
-        "arize-hook-pre-tool-use",
-        "arize-hook-post-tool-use",
-        "arize-hook-stop",
-        "arize-hook-subagent-stop",
-        "arize-hook-notification",
-        "arize-hook-permission-request",
-        "arize-hook-session-end",
-    ]
-    for hook in expected_hooks:
-        assert hook in text, f"Missing hook entry point: {hook}"
-
-
-def test_install_sh_has_cursor_events():
-    """install.sh must reference all Cursor hook events."""
-    text = INSTALL_SH.read_text()
-    expected_events = [
-        "beforeSubmitPrompt",
-        "afterAgentResponse",
-        "afterAgentThought",
-        "beforeShellExecution",
-        "afterShellExecution",
-        "beforeMCPExecution",
-        "afterMCPExecution",
-        "beforeReadFile",
-        "afterFileEdit",
-        "beforeTabFileRead",
-        "afterTabFileEdit",
-    ]
-    for event in expected_events:
-        assert event in text, f"Missing Cursor event: {event}"
-
-
-def test_install_sh_venv_skip_requires_package_install():
-    """Skipping pip install must require arize-agent-kit + console scripts, not yaml alone."""
-    text = INSTALL_SH.read_text()
-    assert 'import core" 2>/dev/null' in text or '"import core"' in text
-    assert "arize-collector-ctl" in text
+    assert "arize-install" in text
+    assert "exec" in text
 
 
 def test_install_sh_uses_pip_install_package():
@@ -194,15 +145,14 @@ def test_install_bat_does_not_reference_install_py():
     assert "install.py" not in text
 
 
-def test_install_bat_venv_not_gated_on_collector_py():
-    """Windows installer must create venv when pyproject exists without requiring collector.py."""
+def test_install_bat_delegates_to_arize_install():
+    """Windows installer must delegate to arize-install.exe for all configuration."""
     text = INSTALL_BAT.read_text()
-    assert 'if exist "%INSTALL_DIR%\\pyproject.toml" (' in text
-    assert 'if exist "%INSTALL_DIR%\\core\\collector.py" (' in text
+    assert "arize-install" in text
+    assert "ARIZE_INSTALL" in text
 
 
-def test_install_bat_venv_skip_requires_package_install():
-    """Windows venv fast-path must verify package + arize-collector-ctl.exe exists."""
+def test_install_bat_venv_fast_path_checks_cli():
+    """Windows venv fast-path must check arize-install.exe exists before skipping setup."""
     text = INSTALL_BAT.read_text()
-    assert "import core" in text
-    assert "arize-collector-ctl.exe" in text
+    assert "arize-install.exe" in text

@@ -4,6 +4,7 @@ import * as path from "path";
 import { parse as parseYaml } from "yaml";
 import * as fs from "fs";
 import { InstallerBridge } from "./installer";
+import { checkCollectorHealth } from "./status";
 
 /**
  * State sent to the sidebar webview for rendering.
@@ -21,10 +22,14 @@ interface SidebarState {
  * `~/.arize/harness/config.yaml`. Auto-refreshes when the
  * config file changes on disk.
  */
+/** Polling interval for collector health checks (ms). */
+const POLL_INTERVAL_MS = 10_000;
+
 export class SidebarProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | undefined;
   private configWatcher: vscode.FileSystemWatcher | undefined;
   private installer: InstallerBridge | undefined;
+  private pollTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(private readonly extensionUri: vscode.Uri) {}
 
@@ -50,18 +55,33 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     // Watch config.yaml for changes
     this.watchConfigFile();
 
+    // Refresh when panel becomes visible again
+    webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        this.refresh();
+      }
+    });
+
+    // Poll collector health continuously
+    this.pollTimer = setInterval(() => {
+      if (this.view?.visible) {
+        this.refresh();
+      }
+    }, POLL_INTERVAL_MS);
+
     // Send initial state
     this.refresh();
   }
 
   /**
-   * Re-read config and push updated state to the webview.
+   * Re-read config, check collector health, and push updated state to the webview.
    */
-  refresh(): void {
+  async refresh(): Promise<void> {
     if (!this.view) {
       return;
     }
     const state = this.readConfig();
+    state.collector.running = await checkCollectorHealth(state.collector.port);
     this.view.webview.postMessage({ type: "state", ...state });
   }
 
@@ -75,6 +95,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   dispose(): void {
     this.configWatcher?.dispose();
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -111,16 +134,21 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         | Record<string, unknown>
         | undefined;
       const collector = {
-        running: collectorSection?.running === true,
+        running: false,  // Determined by health check in refresh()
         port:
           typeof collectorSection?.port === "number"
             ? collectorSection.port
             : 4318,
       };
 
-      // Backend
+      // Backend — can be a string or an object with a .target key
+      const backendRaw = doc.backend;
       const backend =
-        typeof doc.backend === "string" ? doc.backend : "none";
+        typeof backendRaw === "string"
+          ? backendRaw
+          : typeof backendRaw === "object" && backendRaw !== null
+            ? String((backendRaw as Record<string, unknown>).target ?? "none")
+            : "none";
 
       // Harnesses
       const harnessesSection = doc.harnesses as
@@ -132,9 +160,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           harnesses.push({
             name,
             project:
-              typeof cfg?.project === "string"
-                ? cfg.project
-                : "(default)",
+              typeof cfg?.project_name === "string"
+                ? cfg.project_name
+                : typeof cfg?.project === "string"
+                  ? cfg.project
+                  : "(default)",
           });
         }
       }
@@ -172,6 +202,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     harness?: string;
   }): Promise<void> {
     switch (msg.type) {
+      case "requestState":
+        this.refresh();
+        break;
+
       case "addHarness":
         vscode.commands.executeCommand("arize.setup");
         break;
@@ -248,6 +282,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         `Arize: Failed to ${action} collector.`,
       );
     }
+    // Give the process time to start/stop before checking health
+    await new Promise((r) => setTimeout(r, 1000));
     this.refresh();
   }
 
@@ -471,9 +507,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       }
     }
 
-    // Collector toggle
+    // Collector toggle — update UI optimistically, then send command
     collectorStatus.addEventListener('click', function() {
       const isRunning = collectorDot.classList.contains('running');
+      // Optimistic UI update
+      collectorDot.className = 'dot ' + (isRunning ? 'stopped' : 'running');
+      collectorLabel.textContent = isRunning ? 'Stopping...' : 'Starting...';
       vscode.postMessage({ type: isRunning ? 'stopCollector' : 'startCollector' });
     });
 
@@ -489,6 +528,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         renderState(msg);
       }
     });
+
+    // Request fresh state from extension periodically
+    setInterval(function() {
+      vscode.postMessage({ type: 'requestState' });
+    }, 10000);
   </script>
 </body>
 </html>`;

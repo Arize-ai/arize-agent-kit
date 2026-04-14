@@ -387,7 +387,7 @@ def _build_child_spans(events: list, trace_id: str, parent_span_id: str,
             ra = result.get("attrs", {})
             tool_output = str(
                 ra.get("output") or ra.get("result") or ra.get("tool.output") or ""
-            )[:2000]
+            )
 
         tool_start_ms = decision_ns // 1_000_000 or event_start_time
         tool_end_ms = result_ns // 1_000_000 or tool_start_ms
@@ -515,8 +515,8 @@ def _handle_notify(input_json: dict) -> None:
     user_prompt = _extract_user_prompt(user_input)
 
     # Truncate to reasonable sizes (bash lines 87-89)
-    user_prompt = user_prompt[:5000]
-    assistant_output = assistant_output[:5000]
+    user_prompt = user_prompt
+    assistant_output = assistant_output
     if not assistant_output:
         assistant_output = "(No response)"
 
@@ -572,10 +572,8 @@ def _handle_notify(input_json: dict) -> None:
         count = len(tool_calls)
         attrs["llm.tool_call_count"] = count
         if count > 0:
-            preview = tool_calls[:5]
+            preview = tool_calls
             attrs["llm.tool_calls"] = json.dumps(preview)
-            if count > 5:
-                attrs["llm.tool_calls_omitted"] = count - 5
         debug_dump(f"{debug_prefix}_tool_calls", tool_calls)
 
     # Phase 7: Drain collector event buffer (bash lines 213-254)

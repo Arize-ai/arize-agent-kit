@@ -2,7 +2,7 @@ import { spawn } from "child_process";
 import { join } from "path";
 import * as vscode from "vscode";
 
-import { checkVenvExists, getArizeInstallPath } from "./python";
+import { checkVenvExists, getArizeInstallPath, getCollectorCtlPath } from "./python";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -93,19 +93,6 @@ function _spawn(
 // Standalone helper
 // ---------------------------------------------------------------------------
 
-/**
- * Run an `arize-install` sub-command and return the result.
- *
- * Convenience wrapper used by extension commands that don't need the full
- * InstallerBridge lifecycle (e.g. one-shot collector start/stop).
- */
-export async function runInstallerCommand(
-  arizeInstall: string,
-  args: string[],
-): Promise<SpawnResult> {
-  return _spawn(arizeInstall, args);
-}
-
 // ---------------------------------------------------------------------------
 // Installer bridge
 // ---------------------------------------------------------------------------
@@ -190,13 +177,13 @@ export class InstallerBridge {
    * Start or stop the OTLP collector.
    */
   async controlCollector(action: "start" | "stop"): Promise<boolean> {
-    const arizeInstall = getArizeInstallPath();
-    if (arizeInstall === null) {
+    const collectorCtl = getCollectorCtlPath();
+    if (collectorCtl === null) {
       return false;
     }
 
     try {
-      const result = await _spawn(arizeInstall, ["collector", action], this.onOutput);
+      const result = await _spawn(collectorCtl, [action], this.onOutput);
       return result.code === 0;
     } catch {
       return false;

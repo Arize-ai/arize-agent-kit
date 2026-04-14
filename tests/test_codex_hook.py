@@ -279,31 +279,6 @@ class TestExtractUserPrompt:
 
 class TestTruncationAndDefaults:
 
-    def test_truncation_5000(self, tmp_harness_dir, monkeypatch):
-        """Both user prompt and assistant output are truncated to 5000 chars."""
-        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
-
-        import core.hooks.codex.adapter as adapter
-        import core.constants as c
-        state_dir = c.STATE_BASE_DIR / "codex"
-        state_dir.mkdir(parents=True, exist_ok=True)
-        monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
-
-        sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
-            _handle_notify({
-                "type": "agent-turn-complete",
-                "thread-id": "t1",
-                "input-messages": "x" * 10000,
-                "last-assistant-message": "y" * 10000,
-            })
-
-        span = sent[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        attrs = {a["key"]: a["value"] for a in span["attributes"]}
-        assert len(attrs["input.value"]["stringValue"]) == 5000
-        assert len(attrs["output.value"]["stringValue"]) == 5000
-
     def test_empty_assistant_becomes_no_response(self, tmp_harness_dir, monkeypatch):
         """Empty assistant output becomes '(No response)'."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
@@ -400,8 +375,8 @@ class TestFindToolCalls:
     def test_returns_none_when_absent(self):
         assert _find_tool_calls({"type": "test"}) is None
 
-    def test_tool_count_and_preview(self, tmp_harness_dir, monkeypatch):
-        """Tool count attr set, preview is first 5, omitted count for > 5."""
+    def test_tool_count_and_all_calls(self, tmp_harness_dir, monkeypatch):
+        """Tool count attr set, all tool calls included without truncation."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
 
@@ -425,9 +400,9 @@ class TestFindToolCalls:
         span = sent[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
         assert attrs["llm.tool_call_count"]["intValue"] == 8
-        preview = json.loads(attrs["llm.tool_calls"]["stringValue"])
-        assert len(preview) == 5
-        assert attrs["llm.tool_calls_omitted"]["intValue"] == 3
+        all_calls = json.loads(attrs["llm.tool_calls"]["stringValue"])
+        assert len(all_calls) == 8
+        assert "llm.tool_calls_omitted" not in attrs
 
     def test_no_tool_calls_no_attrs(self, tmp_harness_dir, monkeypatch):
         """When no tool calls found, no tool attributes on span."""

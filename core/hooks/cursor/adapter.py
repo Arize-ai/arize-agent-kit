@@ -22,7 +22,6 @@ _HARNESS = HARNESSES["cursor"]
 SERVICE_NAME = _HARNESS["service_name"]       # "cursor"
 SCOPE_NAME = _HARNESS["scope_name"]           # "arize-cursor-plugin"
 STATE_DIR = STATE_BASE_DIR / _HARNESS["state_subdir"]  # ~/.arize/harness/state/cursor
-MAX_ATTR_CHARS = int(os.environ.get("CURSOR_TRACE_MAX_ATTR_CHARS", "100000"))
 
 
 def trace_id_from_generation(gen_id: str) -> str:
@@ -51,15 +50,6 @@ def sanitize(s: str) -> str:
     Matches bash: printf '%s' "$1" | tr -c '[:alnum:]._-' '_'
     """
     return re.sub(r'[^a-zA-Z0-9._-]', '_', s)
-
-
-def truncate_attr(s: str, max_chars: "int | None" = None) -> str:
-    """Truncate string to MAX_ATTR_CHARS (default 100000).
-
-    Matches bash: if [[ ${#str} -gt $max ]]; then printf '%s' "${str:0:$max}"
-    """
-    limit = max_chars if max_chars is not None else MAX_ATTR_CHARS
-    return s[:limit] if len(s) > limit else s
 
 
 # --- Disk-backed state stack (LIFO) ---
