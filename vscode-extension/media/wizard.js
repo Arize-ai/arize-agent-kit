@@ -592,7 +592,7 @@
   function appendLog(text) {
     var log = document.getElementById("output-log");
     if (!log) { return; }
-    log.textContent += text;
+    log.textContent += text + "\n";
     log.scrollTop = log.scrollHeight;
   }
 
@@ -615,6 +615,9 @@
   // -------------------------------------------------------------------------
 
   render();
+
+  // Signal that the webview is ready (triggers prefill if in reconfigure mode)
+  vscode.postMessage({ type: "ready" });
 
   // Request IDE detection from extension
   vscode.postMessage({ type: "detectIdes" });

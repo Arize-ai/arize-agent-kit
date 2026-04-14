@@ -97,6 +97,7 @@ assert("has wizard-root div", wizardTs.includes('id="wizard-root"'));
 assert("getNonce generates 32-char string", wizardTs.includes("for (let i = 0; i < 32; i++)"));
 
 console.log("\n[wizard.ts — message handling]");
+assert("handles ready message type", wizardTs.includes('case "ready"'));
 assert("handles install message type", wizardTs.includes('case "install"'));
 assert("handles detectIdes message type", wizardTs.includes('case "detectIdes"'));
 assert("handles cancel message type", wizardTs.includes('case "cancel"'));
@@ -106,15 +107,26 @@ assert("install catches errors", wizardTs.includes("catch (err)"));
 assert("sends error message on failure", wizardTs.includes("err instanceof Error ? err.message : String(err)"));
 
 console.log("\n[wizard.ts — IDE detection]");
+assert("uses top-level fs import", wizardTs.includes('import { existsSync } from "fs"'));
+assert("uses top-level os import", wizardTs.includes('import { homedir } from "os"'));
+assert("uses top-level path import", wizardTs.includes('import { join } from "path"'));
 assert("detects Claude via .claude dir", wizardTs.includes('".claude"'));
 assert("detects Codex via .codex dir", wizardTs.includes('".codex"'));
 assert("detects Cursor via .cursor dir", wizardTs.includes('".cursor"'));
+assert("detects Cursor on Linux via .config/Cursor", wizardTs.includes('".config", "Cursor"'));
+assert("detects Cursor on Windows via APPDATA", wizardTs.includes('process.env.APPDATA'));
 assert("sends ideDetection message", wizardTs.includes('type: "ideDetection"'));
 
 console.log("\n[wizard.ts — reconfigure / prefill]");
-assert("openForReconfigure sends prefill message", wizardTs.includes('type: "prefill"'));
-assert("prefill includes backend", wizardTs.includes("backend: config.backend"));
-assert("prefill includes credentials", wizardTs.includes("credentials: config.credentials"));
+assert("openForReconfigure stores pendingPrefill", wizardTs.includes("panel.pendingPrefill"));
+assert("handleReady sends prefill from pendingPrefill", wizardTs.includes("this.pendingPrefill"));
+assert("prefill includes backend", wizardTs.includes("backend: this.pendingPrefill.backend"));
+assert("prefill includes credentials", wizardTs.includes("credentials: this.pendingPrefill.credentials"));
+
+console.log("\n[wizard.ts — double-dispose guard]");
+assert("has disposed field", wizardTs.includes("private disposed = false"));
+assert("dispose checks disposed flag", wizardTs.includes("if (this.disposed)"));
+assert("dispose sets disposed = true", wizardTs.includes("this.disposed = true"));
 
 console.log("\n[wizard.ts — openWizard backward compat]");
 assert("openWizard calls openForSetup", wizardTs.includes("WizardPanel.openForSetup"));
@@ -318,8 +330,13 @@ function runRuntimeTests() {
     });
     var panel3 = mockVscode._getLastPanel();
     assert("reconfigure: panel is created", panel3 !== null);
+    // Prefill is not sent immediately — it waits for the "ready" message
+    var prefillMsgBefore = panel3.webview._sentMessages.find(function (m) { return m.type === "prefill"; });
+    assert("reconfigure: prefill NOT sent before ready", prefillMsgBefore === undefined);
+    // Simulate the webview sending "ready"
+    panel3.webview.simulateMessage({ type: "ready" });
     var prefillMsg = panel3.webview._sentMessages.find(function (m) { return m.type === "prefill"; });
-    assert("reconfigure: sends prefill message", prefillMsg !== undefined);
+    assert("reconfigure: sends prefill after ready", prefillMsg !== undefined);
     assert("reconfigure: prefill has harness", prefillMsg && prefillMsg.harness === "claude");
     assert("reconfigure: prefill has backend", prefillMsg && prefillMsg.backend === "arize");
     assert("reconfigure: prefill has credentials", prefillMsg && prefillMsg.credentials && prefillMsg.credentials.apiKey === "test-key");
@@ -328,6 +345,21 @@ function runRuntimeTests() {
 
     if (wizardMod.WizardPanel.currentPanel) {
       wizardMod.WizardPanel.currentPanel.dispose();
+    }
+
+    console.log("\n[WizardPanel — double-dispose safety]");
+    mockVscode._resetPanel();
+    wizardMod.WizardPanel.openForSetup(extUri);
+    var panelDD = mockVscode._getLastPanel();
+    assert("double-dispose: panel created", panelDD !== null);
+    wizardMod.WizardPanel.currentPanel.dispose();
+    assert("double-dispose: first dispose clears currentPanel", wizardMod.WizardPanel.currentPanel === undefined);
+    // Second dispose should not throw
+    try {
+      panelDD.dispose();
+      assert("double-dispose: second dispose does not throw", true);
+    } catch (e) {
+      assert("double-dispose: second dispose does not throw", false);
     }
 
     console.log("\n[WizardPanel — cancel message disposes panel]");
@@ -367,6 +399,8 @@ function runRuntimeTests() {
       wizardMod.openWizard({ extensionUri: extUri, subscriptions: [] }, { prefill: true, harness: "codex" });
       assert("openWizard creates panel for reconfigure", mockVscode._getLastPanel() !== null);
       var panel6 = mockVscode._getLastPanel();
+      // Simulate ready to trigger prefill
+      panel6.webview.simulateMessage({ type: "ready" });
       var prefillMsg2 = panel6 && panel6.webview._sentMessages.find(function (m) { return m.type === "prefill"; });
       assert("openWizard reconfigure sends prefill", prefillMsg2 !== undefined);
       assert("openWizard reconfigure uses harness from options", prefillMsg2 && prefillMsg2.harness === "codex");
@@ -533,7 +567,11 @@ function runStaticTests() {
 
   console.log("\n[wizard.js — init]");
   assert("js calls render() on load", wizardJs.includes("render();"));
+  assert("js sends ready message on load", wizardJs.includes('vscode.postMessage({ type: "ready" })'));
   assert("js requests IDE detection on load", wizardJs.includes('vscode.postMessage({ type: "detectIdes" })'));
+
+  console.log("\n[wizard.js — appendLog adds newline]");
+  assert("js appendLog adds newline to each line", wizardJs.includes('log.textContent += text + "\\n"'));
 
   console.log("\n[wizard.js — card rendering]");
   assert("js renders claude card", wizardJs.includes('id: "claude"'));

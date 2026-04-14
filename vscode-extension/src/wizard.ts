@@ -1,4 +1,7 @@
 import * as vscode from "vscode";
+import { existsSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 import { InstallerBridge, InstallOptions } from "./installer";
 
 // ---------------------------------------------------------------------------
@@ -14,7 +17,7 @@ export interface WizardOptions {
 
 /** Messages sent from the webview to the extension. */
 interface WebviewToExtension {
-  type: "install" | "detectIdes" | "cancel";
+  type: "install" | "detectIdes" | "cancel" | "ready";
   harness?: string;
   backend?: string;
   credentials?: Record<string, string>;
@@ -33,6 +36,14 @@ export class WizardPanel {
   private readonly extensionUri: vscode.Uri;
   private readonly installer: InstallerBridge;
   private disposables: vscode.Disposable[] = [];
+  private disposed = false;
+  private pendingPrefill?: {
+    harness: string;
+    backend?: string;
+    credentials?: Record<string, string>;
+    userId?: string;
+    scope?: string;
+  };
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -77,15 +88,14 @@ export class WizardPanel {
     config: { backend?: string; credentials?: Record<string, string>; userId?: string; scope?: string },
   ): void {
     const panel = WizardPanel.createOrReveal(extensionUri);
-    // Send prefill data once the webview is ready
-    panel.panel.webview.postMessage({
-      type: "prefill",
+    // Store prefill data — it will be sent when the webview sends "ready"
+    panel.pendingPrefill = {
       harness,
       backend: config.backend,
       credentials: config.credentials,
       userId: config.userId,
       scope: config.scope,
-    });
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -121,6 +131,9 @@ export class WizardPanel {
 
   private async handleMessage(msg: WebviewToExtension): Promise<void> {
     switch (msg.type) {
+      case "ready":
+        this.handleReady();
+        break;
       case "install":
         await this.handleInstall(msg);
         break;
@@ -130,6 +143,20 @@ export class WizardPanel {
       case "cancel":
         this.panel.dispose();
         break;
+    }
+  }
+
+  private handleReady(): void {
+    if (this.pendingPrefill) {
+      this.panel.webview.postMessage({
+        type: "prefill",
+        harness: this.pendingPrefill.harness,
+        backend: this.pendingPrefill.backend,
+        credentials: this.pendingPrefill.credentials,
+        userId: this.pendingPrefill.userId,
+        scope: this.pendingPrefill.scope,
+      });
+      this.pendingPrefill = undefined;
     }
   }
 
@@ -167,10 +194,6 @@ export class WizardPanel {
     };
 
     try {
-      const { existsSync } = await import("fs");
-      const { homedir } = await import("os");
-      const { join } = await import("path");
-
       const home = homedir();
 
       // Claude Code: check for settings directory
@@ -186,11 +209,15 @@ export class WizardPanel {
       ];
       results.codex = codexPaths.some((p) => existsSync(p));
 
-      // Cursor: check for cursor config
+      // Cursor: check for config across platforms
       const cursorPaths = [
-        join(home, ".cursor"),
-        join(home, "Library", "Application Support", "Cursor"),
+        join(home, ".cursor"),                                       // Linux / common
+        join(home, "Library", "Application Support", "Cursor"),      // macOS
+        join(home, ".config", "Cursor"),                             // Linux XDG
       ];
+      if (process.env.APPDATA) {
+        cursorPaths.push(join(process.env.APPDATA, "Cursor"));       // Windows
+      }
       results.cursor = cursorPaths.some((p) => existsSync(p));
     } catch {
       // Silently fall through — all false
@@ -236,6 +263,10 @@ export class WizardPanel {
   // -------------------------------------------------------------------------
 
   dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
     WizardPanel.currentPanel = undefined;
     this.installer.dispose();
     this.panel.dispose();
