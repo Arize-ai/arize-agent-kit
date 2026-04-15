@@ -53,7 +53,18 @@ def _resolve_project_name(span_data, config):
     return "default"
 
 
-def send_to_arize_grpc(span_data: dict, api_key: str, space_id: str) -> bool:
+def send_to_arize(span_data: dict, api_key: str, space_id: str,
+                  endpoint: str = "otlp.arize.com:443") -> bool:
+    """Send spans to Arize AX. Resolves project name, delegates to gRPC sender."""
+    config = _load_config()
+    project_name = _resolve_project_name(span_data, config)
+    return send_to_arize_grpc(span_data, api_key, space_id,
+                              endpoint=endpoint, project_name=project_name)
+
+
+def send_to_arize_grpc(span_data: dict, api_key: str, space_id: str,
+                       endpoint: str = "otlp.arize.com:443",
+                       project_name: str = None) -> bool:
     """Send spans to Arize using gRPC with proper trace IDs."""
     try:
         import grpc
@@ -103,7 +114,8 @@ def send_to_arize_grpc(span_data: dict, api_key: str, space_id: str) -> bool:
 
         # Resolve project name from config, env var, or service.name
         config = _load_config()
-        project_name = _resolve_project_name(span_data, config)
+        if project_name is None:
+            project_name = _resolve_project_name(span_data, config)
 
         # Build the protobuf message from our JSON
         resource_spans = []
@@ -214,11 +226,12 @@ def send_to_arize_grpc(span_data: dict, api_key: str, space_id: str) -> bool:
             resource_spans=resource_spans
         )
 
-        # Send via gRPC (endpoint from config or env)
-        if config:
-            endpoint = config.get("backend", {}).get("arize", {}).get("endpoint", "otlp.arize.com:443")
-        else:
-            endpoint = os.environ.get("ARIZE_OTLP_ENDPOINT", "otlp.arize.com:443")
+        # Send via gRPC (use passed endpoint, or resolve from config/env)
+        if not endpoint:
+            if config:
+                endpoint = config.get("backend", {}).get("arize", {}).get("endpoint", "otlp.arize.com:443")
+            else:
+                endpoint = os.environ.get("ARIZE_OTLP_ENDPOINT", "otlp.arize.com:443")
         credentials = grpc.ssl_channel_credentials()
         channel = grpc.secure_channel(endpoint, credentials)
         stub = trace_service_pb2_grpc.TraceServiceStub(channel)
