@@ -1,0 +1,65 @@
+[project]
+name = "arize-agent-kit"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = ["pyyaml"]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-timeout", "pytest-cov"]
+arize = ["opentelemetry-proto", "grpcio"]
+
+[project.scripts]
+# Core tools
+arize-collector-ctl = "core.collector_ctl:main"
+arize-config = "core.config:main"
+# Claude Code hooks
+arize-hook-session-start = "core.hooks.claude.handlers:session_start"
+arize-hook-pre-tool-use = "core.hooks.claude.handlers:pre_tool_use"
+arize-hook-post-tool-use = "core.hooks.claude.handlers:post_tool_use"
+arize-hook-user-prompt-submit = "core.hooks.claude.handlers:user_prompt_submit"
+arize-hook-stop = "core.hooks.claude.handlers:stop"
+arize-hook-subagent-stop = "core.hooks.claude.handlers:subagent_stop"
+arize-hook-notification = "core.hooks.claude.handlers:notification"
+arize-hook-permission-request = "core.hooks.claude.handlers:permission_request"
+arize-hook-session-end = "core.hooks.claude.handlers:session_end"
+# Codex hook
+arize-hook-codex-notify = "core.hooks.codex.handlers:notify"
+# Codex proxy
+arize-codex-proxy = "core.hooks.codex.proxy:main"
+# Cursor hook
+arize-hook-cursor = "core.hooks.cursor.handlers:main"
+# Setup wizards
+arize-setup-claude = "core.setup.claude:main"
+arize-setup-codex = "core.setup.codex:main"
+arize-setup-cursor = "core.setup.cursor:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=core --cov-report=term-missing --cov-report=xml"
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
+
+[tool.coverage.run]
+source = ["core"]
+omit = [
+    "core/collector.py",
+    "core/send_arize.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+
+[tool.ruff]
+target-version = "py39"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["core*"]

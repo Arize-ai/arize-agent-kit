@@ -1,16 +1,32 @@
 # Claude Code Tracing Plugin
 
-Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for **Claude Code CLI** and the **Claude Agent SDK**. Every prompt, tool call, model response, and session lifecycle event is captured as a span and sent to [Arize AX](https://arize.com) or [Phoenix](https://github.com/Arize-ai/phoenix).
+Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for **Claude Code CLI** and the **Claude Agent SDK**. Every prompt, tool call, model response, and session lifecycle event is captured as a span and exported to [Arize AX](https://arize.com) or [Phoenix](https://github.com/Arize-ai/phoenix) via a shared background collector.
 
 ## Features
 
-- 9 hook-based span types covering the full Claude Code session lifecycle
-- Works with both Claude Code CLI and the Python Agent SDK
-- Sends to Phoenix (bash + curl, no Python) or Arize AX (gRPC via Python)
+- 9 hook-based span types covering the full session lifecycle
+- Works with both Claude Code CLI and the Claude Agent SDK — same install, same hooks, same config
+- Exports to Phoenix or Arize AX through the shared background collector -- no harness-specific exporter dependencies required
 - PID-based session isolation with automatic garbage collection
 - Lazy session initialization for Agent SDK environments (no `SessionStart` event)
 - `ARIZE_USER_ID` support for team-level span attribution
 - Dry-run mode for validating span output without sending data
+
+## Architecture
+
+Claude hooks build OpenInference spans locally and submit them to a shared background collector at `http://127.0.0.1:4318/v1/spans`. The collector handles all backend export (Phoenix REST or Arize AX gRPC), retries, and credential management. This means:
+
+- No additional Python packages (`grpcio`, `opentelemetry-proto`) are needed in the user environment
+- No backend-specific transport logic runs inside hooks
+- All harnesses (Claude, Codex, Cursor) share one export path
+- Cross-platform: works on macOS, Linux, and Windows (Python 3.9+)
+
+```text
+Claude hooks (Python CLI) --> POST http://127.0.0.1:4318/v1/spans --> Phoenix
+                                    (shared collector)              \-> Arize AX
+```
+
+The collector is installed and started automatically by the installer. See [COLLECTOR_ARCHITECTURE.md](../docs/COLLECTOR_ARCHITECTURE.md) for the full design.
 
 ## Installation
 
@@ -21,19 +37,40 @@ claude plugin marketplace add Arize-ai/arize-agent-kit
 claude plugin install claude-code-tracing@arize-agent-kit
 ```
 
-### Curl installer
+### Pip installer
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash
+pip install arize-agent-kit
+python -m core.install claude
 ```
 
-### Manual (Agent SDK)
+The installer:
 
-Clone the repository and point your Agent SDK project at the plugin directory:
+1. Installs the package and CLI entry points into the venv
+2. Writes hook entries directly into `~/.claude/settings.json` (one per lifecycle event)
+3. Registers the plugin path in `settings.json` under `plugins`
+4. Sets up and starts the shared background collector
+
+Hooks are Python CLI entry points (e.g. `arize-hook-session-start`) installed in the venv. Each hook event maps to a dedicated command.
+
+### Claude Agent SDK
+
+The same installer works for both Claude Code CLI and the Claude Agent SDK — they share the same hooks and settings. Run the curl installer above, then pass the plugin path when launching your agent:
+
+```typescript
+import { Agent } from '@anthropic-ai/agent-sdk';
+
+const agent = new Agent({
+  plugins: ['~/.arize/harness/claude-code-tracing'],
+  // ... other options
+});
+```
+
+Or clone the repository for manual setup:
 
 ```bash
 git clone https://github.com/Arize-ai/arize-agent-kit.git
-# In your SDK config, set the plugin path to:
+# Point your SDK config at:
 #   /path/to/arize-agent-kit/claude-code-tracing
 ```
 
@@ -42,52 +79,42 @@ git clone https://github.com/Arize-ai/arize-agent-kit.git
 Run the interactive setup after installation:
 
 ```bash
-bash claude-code-tracing/scripts/setup.sh
+arize-setup-claude
 ```
 
 The setup script will:
 
-1. Ask whether to store tracing env vars globally in `~/.claude/settings.json` or project-locally in `.claude/settings.local.json`
-2. Ask which backend to configure: Phoenix or Arize AX
-3. Write the required env vars into the selected Claude settings file
-4. Optionally add `ARIZE_USER_ID` for span attribution
+1. Ask which backend to configure: Phoenix or Arize AX
+2. Write backend credentials and harness settings to the shared config at `~/.arize/harness/config.yaml`
+3. Optionally add `ARIZE_USER_ID` for span attribution
 
-Or configure manually by adding environment variables to either `~/.claude/settings.json` or `.claude/settings.local.json`:
+### Shared Config File
 
-### Phoenix (self-hosted)
+The single source of truth for backend credentials, collector settings, and per-harness configuration is `~/.arize/harness/config.yaml`. Each harness (e.g. `claude-code`, `codex`) gets its own entry under `harnesses` with a dedicated `project_name`:
 
-```json
-{
-  "env": {
-    "PHOENIX_ENDPOINT": "http://localhost:6006",
-    "ARIZE_TRACE_ENABLED": "true"
-  }
-}
+```yaml
+collector:
+  host: "127.0.0.1"
+  port: 4318
+backend:
+  target: "phoenix"
+  phoenix:
+    endpoint: "..."
+    api_key: "..."
+harnesses:
+  claude-code:
+    project_name: "claude-code"
 ```
 
-Requires: `jq`, `curl`. No Python needed.
+Environment variables (see below) still work as a fallback for the legacy direct-send path, but the config file is the recommended way to manage all settings.
 
-### Arize AX (cloud)
+Backend credentials and harness project names are stored in `~/.arize/harness/config.yaml` and read by the shared collector — not by hooks directly. No environment variables need to be set in Claude settings for tracing to work. Tracing is enabled by default (`ARIZE_TRACE_ENABLED` defaults to `true`).
 
-```json
-{
-  "env": {
-    "ARIZE_API_KEY": "<your-api-key>",
-    "ARIZE_SPACE_ID": "<your-space-id>",
-    "ARIZE_TRACE_ENABLED": "true"
-  }
-}
-```
-
-Requires: `jq`, `curl`, Python 3 with `opentelemetry-proto` and `grpcio`:
-
-```bash
-pip install opentelemetry-proto grpcio
-```
+Requires: Python 3.9+. No additional packages needed in the user environment — the collector bundles its own gRPC dependencies for Arize AX.
 
 ## Hooks
 
-The plugin registers 9 Claude Code hooks. Each hook creates one OpenInference span:
+The installer registers 9 Claude Code hooks as Python CLI entry points in `~/.claude/settings.json`. Each hook creates one OpenInference span:
 
 | Hook | Span Kind | Description |
 |------|-----------|-------------|
@@ -103,41 +130,42 @@ The plugin registers 9 Claude Code hooks. Each hook creates one OpenInference sp
 
 All spans include `session.id`, `project.name`, `trace.number`, and `openinference.span.kind` attributes.
 
+Spans are submitted locally to the shared collector at `http://127.0.0.1:4318/v1/spans`. The collector forwards them to the configured backend.
+
 ## Agent SDK Compatibility
 
-The plugin works with the Claude Agent SDK (Python) with one difference: the SDK does not fire a `SessionStart` event. The `UserPromptSubmit` hook performs lazy session initialization when it detects no prior session state.
+The plugin works identically with both Claude Code CLI and the Claude Agent SDK. The same hooks, settings, and collector are shared — no separate installation or configuration is needed.
 
-Hook commands in `plugin.json` use `${CLAUDE_PLUGIN_ROOT}` so the plugin directory can be located anywhere on disk.
+The one difference is that the Agent SDK does not fire a `SessionStart` event. The `UserPromptSubmit` hook performs lazy session initialization when it detects no prior session state, so tracing starts automatically on the first prompt.
 
-## Environment Variables
+Hook commands use Python CLI entry points (e.g. `~/.arize/harness/venv/bin/arize-hook-session-start`) written into `~/.claude/settings.json` by the installer. The `plugin.json` also declares hooks for marketplace installs.
+
+## Environment Variables (fallback)
+
+The config file `~/.arize/harness/config.yaml` is the primary and recommended way to configure tracing. The environment variables below serve as a fallback for the legacy direct-send path or for overriding specific values at runtime.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ARIZE_TRACE_ENABLED` | No | `true` | Enable or disable tracing |
-| `ARIZE_API_KEY` | For AX | - | Arize AX API key |
-| `ARIZE_SPACE_ID` | For AX | - | Arize AX space ID |
-| `ARIZE_OTLP_ENDPOINT` | No | `otlp.arize.com:443` | OTLP gRPC endpoint (on-prem Arize) |
-| `PHOENIX_ENDPOINT` | For Phoenix | `http://localhost:6006` | Phoenix collector URL |
-| `PHOENIX_API_KEY` | No | - | Phoenix API key (if auth enabled) |
-| `ARIZE_PROJECT_NAME` | No | Working dir basename | Project name in Arize/Phoenix |
+| `ARIZE_TRACE_ENABLED` | No | `true` | Set to `false` to disable tracing (enabled by default) |
+| `ARIZE_PROJECT_NAME` | No | Config file / working dir basename | Project name override (prefer `harnesses` config) |
 | `ARIZE_USER_ID` | No | - | User identifier added to all spans as `user.id` |
 | `ARIZE_DRY_RUN` | No | `false` | Print spans to log instead of sending |
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
 | `ARIZE_LOG_FILE` | No | `/tmp/arize-claude-code.log` | Log file path (empty to disable) |
+| `ARIZE_COLLECTOR_HOST` | No | `127.0.0.1` | Shared collector listen address |
+| `ARIZE_COLLECTOR_PORT` | No | `4318` | Shared collector listen port |
+
+Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.) and project names are configured in the shared config file `~/.arize/harness/config.yaml` and read by the collector. They do not need to be set as environment variables in Claude settings.
 
 ### User Identification
 
-Set `ARIZE_USER_ID` to tag all spans with a `user.id` attribute. This is useful for team environments where multiple users share a project:
+Set `user_id` in `~/.arize/harness/config.yaml` to tag all spans with a `user.id` attribute. This is useful for team environments where multiple users share a project:
 
-```json
-{
-  "env": {
-    "ARIZE_USER_ID": "alice@example.com"
-  }
-}
+```yaml
+user_id: "alice@example.com"
 ```
 
-The interactive setup (`scripts/setup.sh`) prompts for this value. If not set via the environment variable, the plugin also checks for a `user_id` field in the hook input JSON.
+The `ARIZE_USER_ID` environment variable can also be used and takes precedence over the config file. The hook input JSON `user_id` field is used as a final fallback.
 
 ## Usage
 
@@ -151,64 +179,73 @@ ARIZE_DRY_RUN=true claude
 ARIZE_VERBOSE=true claude
 ```
 
-Check the log file for diagnostics:
+Check the hook log file for diagnostics:
 
 ```bash
 tail -f /tmp/arize-claude-code.log
+```
+
+Check the collector log for backend export diagnostics:
+
+```bash
+tail -f ~/.arize/harness/logs/collector.log
+```
+
+Verify the collector is running:
+
+```bash
+curl -sf http://127.0.0.1:4318/health
 ```
 
 ## Directory Structure
 
 ```
 claude-code-tracing/
-  .claude-plugin/plugin.json   Hook registrations (9 hooks)
-  hooks/common.sh              Adapter: PID-based state, session resolution, GC
-  hooks/session_start.sh       SessionStart hook
-  hooks/user_prompt_submit.sh  UserPromptSubmit hook (with lazy init)
-  hooks/pre_tool_use.sh        PreToolUse hook
-  hooks/post_tool_use.sh       PostToolUse hook
-  hooks/stop.sh                Stop hook
-  hooks/subagent_stop.sh       SubagentStop hook
-  hooks/notification.sh        Notification hook
-  hooks/permission_request.sh  PermissionRequest hook
-  hooks/session_end.sh         SessionEnd hook
-  scripts/setup.sh             Interactive configuration wizard
+  .claude-plugin/plugin.json   Hook registrations (9 hooks, CLI entry points)
   skills/                      Claude Code skill for guided setup
+  README.md
 ```
 
-Shared logic lives in `core/` at the repository root:
+Setup is provided by the `arize-setup-claude` CLI entry point (defined in `core/setup/claude.py`).
+
+Hook logic lives in `core/` at the repository root (installed as a Python package):
 
 ```
-core/common.sh       Env vars, logging, state primitives, span building, sending
-core/send_arize.py   Arize AX gRPC sender (Python)
+core/
+  hooks/claude/
+    adapter.py       Claude-specific session resolution, GC, init
+    handlers.py      One exported function per Claude Code hook event
+  common.py          Shared: span building, sending, state, logging, IDs
+  collector.py       Shared background collector/exporter
+  collector_ctl.py   Collector lifecycle management (start/stop/status/ensure)
+  config.py          YAML config helper
+  constants.py       Single source of truth for all paths
 ```
 
 ## Troubleshooting
 
-**Spans not appearing in Phoenix**
+**Spans not appearing**
 
-1. Verify Phoenix is running: `curl -s http://localhost:6006/healthz`
-2. Check `PHOENIX_ENDPOINT` is set and `ARIZE_TRACE_ENABLED` is `true`
-3. Check the log: `tail -20 /tmp/arize-claude-code.log`
-4. Test with dry run: `ARIZE_DRY_RUN=true ARIZE_VERBOSE=true claude`
+1. Verify hooks are registered in `~/.claude/settings.json` under the `hooks` key (each event should have a command pointing to the corresponding CLI entry point)
+2. Verify the collector is running: `curl -sf http://127.0.0.1:4318/health`
+3. If the collector is not running, start it: `arize-collector-ctl start`
+4. Check the hook log: `tail -20 /tmp/arize-claude-code.log`
+5. Check the collector log: `tail -20 ~/.arize/harness/logs/collector.log`
+6. Test with dry run: `ARIZE_DRY_RUN=true ARIZE_VERBOSE=true claude`
+7. To disable tracing, set `ARIZE_TRACE_ENABLED=false` in your environment
 
-**Spans not appearing in Arize AX**
+**Collector not running**
 
-1. Verify `ARIZE_API_KEY` and `ARIZE_SPACE_ID` are set
-2. Ensure Python dependencies are installed: `python3 -c "import opentelemetry; import grpc"`
-3. Check `ARIZE_OTLP_ENDPOINT` if using an on-prem deployment
-4. Check the log for gRPC errors: `grep ERROR /tmp/arize-claude-code.log`
-
-**"jq required" error**
-
-Install jq: `brew install jq` (macOS) or `apt-get install jq` (Linux).
+1. Verify the shared config exists: `cat ~/.arize/harness/config.yaml`
+2. Start the collector: `arize-collector-ctl start`
+3. Check collector logs for startup errors: `tail -20 ~/.arize/harness/logs/collector.log`
 
 **Session state issues**
 
-State files are stored in `~/.arize-claude-code/`. To reset:
+State files are stored in `~/.arize/harness/state/claude-code/`. To reset:
 
 ```bash
-rm -rf ~/.arize-claude-code/state_*.json
+rm -rf ~/.arize/harness/state/claude-code/state_*.yaml
 ```
 
 Stale PID-based state files are garbage-collected automatically.
@@ -222,5 +259,6 @@ Verify `ARIZE_USER_ID` is set in `.claude/settings.local.json` under the `env` k
 - [Arize AX](https://arize.com)
 - [Phoenix](https://github.com/Arize-ai/phoenix)
 - [OpenInference](https://github.com/Arize-ai/openinference)
+- [Collector Architecture](../docs/COLLECTOR_ARCHITECTURE.md)
 - [Root README](../README.md)
 - [Development Guide](../DEVELOPMENT.md)

@@ -4,34 +4,34 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 
 ## Architecture
 
-This integration has three components:
+This integration uses the shared collector at `127.0.0.1:4318` for both span export and Codex event buffering:
 
 ```
 Codex CLI
   │
-  ├─ notify hook ──► notify.sh ──► OpenInference LLM spans (per turn)
-  │                     │
-  │                     ├─ Reads events from collector (child spans)
-  │                     └─ Sends to Phoenix (REST) or Arize AX (gRPC)
+  ├─ notify hook ──► arize-hook-codex-notify ──► OpenInference LLM spans (per turn)
+  │                          │
+  │                          ├─ Drains buffered events from collector (GET /drain/{id})
+  │                          └─ Sends built spans to collector (POST /v1/spans)
+  │                                   └─► Phoenix (REST) or Arize AX (gRPC)
   │
-  └─ OTLP export ──► collector.py ──► Buffers events by thread-id
-                      (port 4318)       └─ Drained by notify.sh per turn
+  └─ OTLP export ──► collector (POST /v1/logs)
+                      └─ Buffers native Codex events by thread-id
 ```
 
-1. **`notify.sh`** -- Codex calls this after every agent turn. It builds an OpenInference LLM span from the turn payload (input messages, assistant response, tool calls, token usage).
+1. **Shared collector** (`core/collector.py`, port 4318) -- background process shared by all harnesses. Accepts span exports (`POST /v1/spans`), buffers Codex OTLP log events (`POST /v1/logs`), and serves buffered events (`GET /drain/{id}`, `GET /flush/{id}`). Exports to Phoenix or Arize AX. Managed via `arize-collector-ctl`.
 
-2. **`collector.py`** -- A lightweight OTLP log receiver (stdlib Python, port 4318). Codex's native telemetry exports events here. The collector buffers them by thread-id until `notify.sh` drains them.
+2. **`arize-hook-codex-notify`** -- Codex calls this after every agent turn. It builds an OpenInference LLM span from the turn payload, drains buffered events from the collector, assembles child spans (TOOL, CHAIN), and submits the complete span tree back to the collector for export.
 
-3. **`collector_ctl.sh`** -- Lifecycle management for the collector process (start, stop, status, ensure).
-
-When both the notify hook and native OTLP export are enabled, `notify.sh` builds a parent LLM span and attaches child spans (TOOL, CHAIN) from collector events, producing a rich trace tree per turn.
+When both the notify hook and native OTLP export are enabled, the notify handler builds a parent LLM span and attaches child spans from buffered event data, producing a rich trace tree per turn.
 
 ## Installation
 
-### Curl installer (recommended)
+### Pip installer (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash
+pip install arize-agent-kit
+python -m core.install codex
 ```
 
 The installer detects Codex and guides you through configuration.
@@ -39,25 +39,8 @@ The installer detects Codex and guides you through configuration.
 ### Dedicated installer
 
 ```bash
-git clone https://github.com/Arize-ai/arize-agent-kit.git
-cd arize-agent-kit/codex-tracing
-bash install.sh
-```
-
-The installer supports interactive and non-interactive modes:
-
-```bash
-# Interactive
-bash install.sh
-
-# Non-interactive: Phoenix
-bash install.sh --target phoenix
-
-# Non-interactive: Arize AX with native OTLP
-bash install.sh --target arize --otlp
-
-# Uninstall
-bash install.sh uninstall
+pip install arize-agent-kit
+arize-setup-codex
 ```
 
 ### Manual setup
@@ -65,30 +48,50 @@ bash install.sh uninstall
 1. Set the notify hook in `~/.codex/config.toml`:
 
 ```toml
-notify = ["bash", "/path/to/arize-agent-kit/codex-tracing/hooks/notify.sh"]
+notify = ["~/.arize/harness/venv/bin/arize-hook-codex-notify"]
 ```
 
-2. Create `~/.codex/arize-env.sh` with your backend configuration (see below).
+2. Create the shared collector config at `~/.arize/harness/config.yaml` with your backend and harness settings (see [Configuration](#configuration) below and [COLLECTOR_ARCHITECTURE.md](../docs/COLLECTOR_ARCHITECTURE.md) for the full schema).
+
+3. Optionally create `~/.codex/arize-env.sh` for env-var overrides (see [Environment Variables](#environment-variables)).
 
 ## Configuration
 
-All env vars go in `~/.codex/arize-env.sh`. The notify hook sources this file automatically.
+The single source of truth is `~/.arize/harness/config.yaml`. The notify hook and collector both read from this file. Environment variables in `~/.codex/arize-env.sh` are still supported as overrides but are no longer the primary configuration mechanism.
 
-**Phoenix** (self-hosted) -- requires `jq` and `curl`, no Python:
+**Phoenix** (self-hosted):
 
-```bash
-export PHOENIX_ENDPOINT="http://localhost:6006"
-export ARIZE_TRACE_ENABLED="true"
+```yaml
+collector:
+  host: "127.0.0.1"
+  port: 4318
+backend:
+  target: "phoenix"
+  phoenix:
+    endpoint: "http://localhost:6006"
+    api_key: ""
+harnesses:
+  codex:
+    project_name: "codex"
 ```
 
-**Arize AX** (cloud) -- also requires Python with `opentelemetry-proto` and `grpcio`:
+**Arize AX** (cloud):
 
-```bash
-export ARIZE_API_KEY="<your-api-key>"
-export ARIZE_SPACE_ID="<your-space-id>"
-export ARIZE_TRACE_ENABLED="true"
-# pip install opentelemetry-proto grpcio
+```yaml
+collector:
+  host: "127.0.0.1"
+  port: 4318
+backend:
+  target: "arize"
+  arize:
+    api_key: "<your-api-key>"
+    space_id: "<your-space-id>"
+harnesses:
+  codex:
+    project_name: "codex"
 ```
+
+Env-var overrides (optional) can still be placed in `~/.codex/arize-env.sh`.
 
 ## How It Works
 
@@ -99,8 +102,8 @@ Each Codex agent turn produces a **parent LLM span** with optional child spans:
 | Span | Kind | Source | Description |
 |------|------|--------|-------------|
 | Turn N | LLM | notify payload | Parent span with input/output, token counts, model name |
-| Tool call | TOOL | collector events | One per `codex.tool_decision` + `codex.tool_result` pair |
-| API Request | CHAIN | collector events | One per `codex.api_request` or `codex.websocket_request` |
+| Tool call | TOOL | event buffer events | One per `codex.tool_decision` + `codex.tool_result` pair |
+| API Request | CHAIN | event buffer events | One per `codex.api_request` or `codex.websocket_request` |
 
 ### Parent Span Attributes
 
@@ -109,7 +112,7 @@ The parent LLM span includes:
 - `session.id`, `trace.number`, `project.name` -- session tracking
 - `input.value`, `output.value` -- user prompt and assistant response
 - `llm.output_messages` -- structured assistant output
-- `llm.model_name` -- model extracted from collector events
+- `llm.model_name` -- model extracted from event buffer events
 - `llm.token_count.prompt`, `llm.token_count.completion`, `llm.token_count.total` -- token usage
 - `codex.thread_id`, `codex.turn_id` -- Codex identifiers
 - `codex.sandbox_mode`, `codex.approval_mode` -- session settings
@@ -117,25 +120,27 @@ The parent LLM span includes:
 
 ### Multi-Span Assembly
 
-When the collector is running, `notify.sh` drains buffered events for the current thread-id and builds child spans. These are merged with the parent span into a single OTLP `resourceSpans` payload via `build_multi_span()`, producing a hierarchical trace tree.
+When Codex OTLP export is enabled, the notify handler drains buffered events for the current thread-id from the shared collector and builds child spans. These are merged with the parent span into a single OTLP `resourceSpans` payload, producing a hierarchical trace tree.
 
 ## Environment Variables
+
+These env vars are **optional overrides**. Prefer setting values in `~/.arize/harness/config.yaml` (see [Configuration](#configuration)). If set, env vars take precedence over the config file.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `ARIZE_TRACE_ENABLED` | No | `true` | Enable or disable tracing |
-| `ARIZE_API_KEY` | For AX | - | Arize AX API key |
-| `ARIZE_SPACE_ID` | For AX | - | Arize AX space ID |
+| `ARIZE_API_KEY` | No | config.yaml | Arize AX API key (override) |
+| `ARIZE_SPACE_ID` | No | config.yaml | Arize AX space ID (override) |
 | `ARIZE_OTLP_ENDPOINT` | No | `otlp.arize.com:443` | OTLP gRPC endpoint (on-prem Arize) |
-| `PHOENIX_ENDPOINT` | For Phoenix | `http://localhost:6006` | Phoenix collector URL |
-| `PHOENIX_API_KEY` | No | - | Phoenix API key (if auth enabled) |
-| `ARIZE_PROJECT_NAME` | No | Working dir basename | Project name in Arize/Phoenix |
+| `PHOENIX_ENDPOINT` | No | config.yaml | Phoenix collector URL (override) |
+| `PHOENIX_API_KEY` | No | config.yaml | Phoenix API key (override) |
+| `ARIZE_PROJECT_NAME` | No | config.yaml | Project name (override; defaults to harness `project_name`) |
 | `ARIZE_USER_ID` | No | - | User identifier added to all spans as `user.id` |
 | `ARIZE_DRY_RUN` | No | `false` | Print spans to log instead of sending |
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
-| `ARIZE_TRACE_DEBUG` | No | `false` | Write debug dumps to `~/.arize-codex/debug/` |
+| `ARIZE_TRACE_DEBUG` | No | `false` | Write debug dumps to `~/.arize/harness/state/codex/debug/` |
 | `ARIZE_LOG_FILE` | No | `/tmp/arize-codex.log` | Log file path (empty to disable) |
-| `CODEX_COLLECTOR_PORT` | No | `4318` | Port for the OTLP event collector |
+| `ARIZE_COLLECTOR_PORT` | No | `4318` | Port for the shared collector |
 
 ### User Identification
 
@@ -145,40 +150,49 @@ Set `ARIZE_USER_ID` to tag all spans with a `user.id` attribute:
 export ARIZE_USER_ID="alice@example.com"
 ```
 
-Add this to `~/.codex/arize-env.sh` so it persists across sessions.
+Add this to `~/.codex/arize-env.sh` so it persists across sessions (this is one of the few settings that remains env-var only).
 
-## Collector Management
+## Process Management
 
-The event collector is managed via `collector_ctl.sh`:
+### Shared Collector (port 4318)
+
+The shared collector exports spans to the configured backend (Phoenix or Arize AX).  It is managed via the `arize-collector-ctl` CLI:
 
 ```bash
-source codex-tracing/scripts/collector_ctl.sh
-
-collector_start    # Start the collector daemon
-collector_stop     # Stop the collector
-collector_status   # Check if running (exit code 0/1)
-collector_ensure   # Start if not already running
+arize-collector-ctl start    # Start the shared collector
+arize-collector-ctl stop     # Stop it
+arize-collector-ctl status   # Check if running (exit code 0/1)
+arize-collector-ctl ensure   # Start if not already running
 ```
 
-The collector listens on `127.0.0.1:4318`, buffers events by thread ID, supports protobuf and JSON OTLP formats, and auto-exits after 30 minutes of inactivity. PID file: `~/.arize-codex/collector.pid`.
+Config: `~/.arize/harness/config.yaml`.  PID: `~/.arize/harness/run/collector.pid`.  Log: `~/.arize/harness/logs/collector.log`.
+
+The shared collector also buffers Codex's native OTLP log events (`POST /v1/logs`) by thread ID for child-span assembly. No separate event buffer process is needed.
 
 ## Directory Structure
 
-``` 
+```
 codex-tracing/
-  hooks/common.sh              Adapter: thread-id state, debug dump, multi-span
-  hooks/notify.sh              Notify hook (LLM spans with child span assembly)
-  scripts/collector.py         OTLP event collector daemon
-  scripts/collector_ctl.sh     Collector lifecycle management
-  install.sh                   Interactive/non-interactive installer
   skills/                      Codex setup skill
+  README.md
 ```
 
-Shared logic lives in `core/` at the repository root:
+Setup is provided by the `arize-setup-codex` CLI entry point (defined in `core/setup/codex.py`).
+
+Hook logic lives in `core/` at the repository root (installed as a Python package):
 
 ```
-core/common.sh       Env vars, logging, state primitives, span building, sending
-core/send_arize.py   Arize AX gRPC sender (Python)
+core/
+  hooks/codex/
+    adapter.py       Codex-specific session resolution, GC, event drain
+    handlers.py      Notify handler entry point
+    proxy.py         Codex proxy script
+  common.py          Shared: span building, sending, state, logging, IDs
+  collector.py       Shared collector: span export + event buffering
+  collector_ctl.py   Collector lifecycle management
+  config.py          YAML config helper
+  constants.py       Single source of truth for all paths
+  send_arize.py      Arize AX gRPC sender (used by collector)
 ```
 
 ## Troubleshooting
@@ -186,39 +200,37 @@ core/send_arize.py   Arize AX gRPC sender (Python)
 **Spans not appearing in Phoenix**
 
 1. Verify Phoenix is running: `curl -s http://localhost:6006/healthz`
-2. Check env vars in `~/.codex/arize-env.sh`
-3. Check the log: `tail -20 /tmp/arize-codex.log`
-4. Test with dry run: `ARIZE_DRY_RUN=true codex`
+2. Check the shared collector: `curl -s http://127.0.0.1:4318/health`
+3. Check config: `cat ~/.arize/harness/config.yaml` (and `~/.codex/arize-env.sh` if using env-var overrides)
+4. Check the shared collector log: `tail -20 ~/.arize/harness/logs/collector.log`
+5. Check the harness log: `tail -20 /tmp/arize-codex.log`
+6. Test with dry run: `ARIZE_DRY_RUN=true codex`
 
 **Spans not appearing in Arize AX**
 
-1. Verify `ARIZE_API_KEY` and `ARIZE_SPACE_ID` are set in `~/.codex/arize-env.sh`
-2. Ensure Python dependencies: `python3 -c "import opentelemetry; import grpc"`
-3. Check the log for gRPC errors: `grep ERROR /tmp/arize-codex.log`
+1. Verify `ARIZE_API_KEY` and `ARIZE_SPACE_ID` in `~/.arize/harness/config.yaml`
+2. Check the shared collector: `curl -s http://127.0.0.1:4318/health`
+3. Check the shared collector log for gRPC errors: `grep ERROR ~/.arize/harness/logs/collector.log`
 
-**Collector not starting**
+**Shared collector not starting**
 
-1. Check if port 4318 is in use: `lsof -i :4318`
-2. Check collector status: `source scripts/collector_ctl.sh && collector_status`
-3. Check PID file: `cat ~/.arize-codex/collector.pid`
-4. Look for collector errors in `~/.arize-codex/debug/`
+1. Check config exists: `cat ~/.arize/harness/config.yaml`
+2. Check if port 4318 is in use: `arize-collector-ctl status`
+3. Check PID file: `cat ~/.arize/harness/run/collector.pid`
+4. Check log: `tail -20 ~/.arize/harness/logs/collector.log`
 
 **Missing child spans (tool calls, API requests)**
 
-1. Ensure native OTLP export is enabled in Codex config
-2. Verify the collector is running: `curl -s http://127.0.0.1:4318/health`
-3. Enable debug dumps: `export ARIZE_TRACE_DEBUG=true` and check `~/.arize-codex/debug/`
-
-**"jq required" error**
-
-Install jq: `brew install jq` (macOS) or `apt-get install jq` (Linux).
+1. Ensure native OTLP export is enabled in Codex config (`[otel]` section pointing to `127.0.0.1:4318`)
+2. Verify the collector is running: `curl -s http://127.0.0.1:4318/health` (check `event_buffer` in response)
+3. Enable debug dumps: `export ARIZE_TRACE_DEBUG=true` and check `~/.arize/harness/state/codex/debug/`
 
 **Session state issues**
 
-State files are stored in `~/.arize-codex/`. To reset:
+State files are stored in `~/.arize/harness/state/codex/`. To reset:
 
 ```bash
-rm -rf ~/.arize-codex/state_*.json
+rm -rf ~/.arize/harness/state/codex/state_*.yaml
 ```
 
 Stale state files older than 24 hours are garbage-collected automatically.
@@ -228,5 +240,6 @@ Stale state files older than 24 hours are garbage-collected automatically.
 - [Arize AX](https://arize.com)
 - [Phoenix](https://github.com/Arize-ai/phoenix)
 - [OpenInference](https://github.com/Arize-ai/openinference)
+- [Collector Architecture](../docs/COLLECTOR_ARCHITECTURE.md)
 - [Root README](../README.md)
 - [Development Guide](../DEVELOPMENT.md)

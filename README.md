@@ -4,11 +4,13 @@ Trace AI coding sessions to [Arize AX](https://arize.com) or [Phoenix](https://g
 
 ## Supported Harnesses
 
-| Harness | Integration | Install Method | Guide |
-|---------|-------------|----------------|-------|
-| Claude Code CLI | `claude-code-tracing` | Marketplace or curl | [claude-code-tracing/README.md](claude-code-tracing/README.md) |
-| Claude Agent SDK | `claude-code-tracing` | Local plugin path | [claude-code-tracing/README.md](claude-code-tracing/README.md) |
-| OpenAI Codex CLI | `codex-tracing` | `install.sh` or curl | [codex-tracing/README.md](codex-tracing/README.md) |
+| Harness | Integration | Install Method |
+|---------|-------------|----------------|
+| [Claude Code CLI / Agent SDK](claude-code-tracing/README.md) | `claude-code-tracing` | Marketplace or `install.sh` / `install.bat` |
+| [OpenAI Codex CLI](codex-tracing/README.md) | `codex-tracing` | `install.sh` / `install.bat` |
+| [Cursor IDE](cursor-tracing/README.md) | `cursor-tracing` | `install.sh` / `install.bat` |
+
+Claude Code CLI and the Claude Agent SDK share the same plugin, hooks, and configuration — one install covers both.
 
 ## Quick Install
 
@@ -19,60 +21,90 @@ claude plugin marketplace add Arize-ai/arize-agent-kit
 claude plugin install claude-code-tracing@arize-agent-kit
 ```
 
-**Any harness (curl):**
+**Any harness (curl-pipe):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash
+INSTALL_URL="https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh"
+
+curl -sSL "$INSTALL_URL" | bash -s -- claude   # Claude Code / Agent SDK
+curl -sSL "$INSTALL_URL" | bash -s -- codex    # OpenAI Codex
+curl -sSL "$INSTALL_URL" | bash -s -- cursor   # Cursor IDE
 ```
 
-The installer detects available harnesses and prompts you to choose which integrations to set up.
+**Or run locally:**
+
+```bash
+./install.sh claude   # Claude Code / Agent SDK
+./install.sh codex    # OpenAI Codex
+./install.sh cursor   # Cursor IDE
+```
+
+The installer:
+
+1. **Asks for your backend** — Phoenix endpoint or Arize AX credentials
+2. **Writes config** — saves backend credentials and harness settings to `~/.arize/harness/config.yaml`
+3. **Starts a background collector** — a lightweight local process at `127.0.0.1:4318` that handles all backend export (HTTP for Phoenix, gRPC for Arize AX)
+4. **Configures your harness** — sets up hooks so spans flow automatically
+
+### Uninstall
+
+```bash
+./install.sh uninstall
+```
+
+This stops the background collector, removes the collector runtime, and cleans up harness-specific configuration. You will be prompted before any user-owned config (credentials, state files) is deleted.
 
 ## Configuration
 
-All integrations share the same environment variables. Set them in your harness settings file or export them in your shell.
+All configuration lives in `~/.arize/harness/config.yaml`, written by the installer. This file is the single source of truth for backend credentials, collector settings, and per-harness project names.
 
-### Environment Variables
+### config.yaml Fields
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `ARIZE_TRACE_ENABLED` | No | `true` | Enable or disable tracing |
-| `ARIZE_API_KEY` | For AX | - | Arize AX API key |
-| `ARIZE_SPACE_ID` | For AX | - | Arize AX space ID |
-| `ARIZE_OTLP_ENDPOINT` | No | `otlp.arize.com:443` | OTLP gRPC endpoint (on-prem Arize) |
-| `PHOENIX_ENDPOINT` | For Phoenix | `http://localhost:6006` | Phoenix collector URL |
-| `PHOENIX_API_KEY` | No | - | Phoenix API key (if auth enabled) |
-| `ARIZE_PROJECT_NAME` | No | `default` | Project name in Arize/Phoenix |
-| `ARIZE_USER_ID` | No | - | User identifier added to all spans as `user.id` |
-| `ARIZE_DRY_RUN` | No | `false` | Print spans to log instead of sending |
-| `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
-| `ARIZE_LOG_FILE` | No | `/tmp/arize-<harness>.log` | Log file path (empty to disable) |
+**Collector**
 
-### Backend Requirements
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `collector.host` | No | `127.0.0.1` | Collector listen address |
+| `collector.port` | No | `4318` | Collector listen port |
 
-| Backend | Auth | Dependencies | Latency |
-|---------|------|--------------|---------|
-| **Phoenix** (self-hosted) | `PHOENIX_ENDPOINT` | `jq`, `curl` | ~local |
-| **Arize AX** (cloud) | `ARIZE_API_KEY` + `ARIZE_SPACE_ID` | `jq`, `curl`, Python, `opentelemetry-proto`, `grpcio` | ~remote |
+**Backend**
 
-Phoenix requires no Python — spans are sent via the REST API with bash and `jq`. Arize AX uses gRPC, which requires Python with `opentelemetry-proto` and `grpcio`.
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `backend.target` | Yes | — | `phoenix` or `arize` |
 
-## Repository Layout
+**Phoenix backend** (`backend.target: "phoenix"`)
 
-```
-core/                   Shared span building, state primitives, and gRPC sender
-claude-code-tracing/    Claude Code CLI and Agent SDK integration
-codex-tracing/          OpenAI Codex CLI integration
-install.sh              Curl-pipe installer for non-marketplace harnesses
-DEVELOPMENT.md          Guide for adding new harness adapters
-```
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `backend.phoenix.endpoint` | Yes | `http://localhost:6006` | Phoenix server URL |
+| `backend.phoenix.api_key` | No | — | Phoenix API key (if auth is enabled) |
 
-## Testing
+**Arize AX backend** (`backend.target: "arize"`)
 
-Validate span output without sending data:
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `backend.arize.api_key` | Yes | — | Arize AX API key |
+| `backend.arize.space_id` | Yes | — | Arize AX space ID |
+| `backend.arize.endpoint` | No | `otlp.arize.com:443` | Arize OTLP gRPC endpoint (for on-prem) |
 
-```bash
-ARIZE_DRY_RUN=true <your-harness-command>
-```
+**User**
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `user_id` | No | — | User identifier added to all spans as `user.id` |
+
+**Per-harness project names** (under `harnesses.<name>`) — sets the project name in Arize/Phoenix
+
+| Name | Field | Default |
+|------|-------|---------|
+| `claude-code` | `project_name` | `claude-code` |
+| `codex` | `project_name` | `codex` |
+| `cursor` | `project_name` | `cursor` |
+
+The collector handles all backend-specific transport (HTTP for Phoenix, gRPC for Arize AX). Harnesses use Python CLI entry points — no external dependencies (`curl`, `jq`, `bash`) are required.
+
+See [COLLECTOR_ARCHITECTURE.md](docs/COLLECTOR_ARCHITECTURE.md) for the full collector contract.
 
 ## Contributing
 

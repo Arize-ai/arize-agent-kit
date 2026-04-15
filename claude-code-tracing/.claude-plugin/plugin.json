@@ -1,6 +1,6 @@
 {
   "name": "claude-code-tracing",
-  "description": "Automatic tracing of Claude Code sessions to Arize AX or Phoenix with OpenInference spans. Supports 9 hooks for comprehensive observability.",
+  "description": "Automatic tracing of Claude Code sessions to Arize AX or Phoenix with OpenInference spans.",
   "version": "1.0.0",
   "author": {
     "name": "Arize AI",
@@ -15,98 +15,9 @@
     "openinference",
     "arize",
     "phoenix",
-    "claude-code"
+    "claude-code",
+    "observability"
   ],
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session_start.sh\""
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt_submit.sh\""
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_use.sh\""
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.sh\""
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/stop.sh\""
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/subagent_stop.sh\""
-          }
-        ]
-      }
-    ],
-    "Notification": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/notification.sh\""
-          }
-        ]
-      }
-    ],
-    "PermissionRequest": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/permission_request.sh\""
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session_end.sh\""
-          }
-        ]
-      }
-    ]
-  }
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json"
 }
