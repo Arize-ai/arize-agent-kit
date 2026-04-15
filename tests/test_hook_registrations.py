@@ -21,7 +21,7 @@ REPO_ROOT = Path(__file__).parent.parent
 HARNESS_DIRS = ["claude-code-tracing", "codex-tracing", "cursor-tracing"]
 
 EXPECTED_ENTRY_POINTS = {
-    "arize-collector-ctl": "core.collector_ctl:main",
+    "arize-codex-buffer": "core.codex_buffer_ctl:main",
     "arize-config": "core.config:main",
     "arize-hook-session-start": "core.hooks.claude.handlers:session_start",
     "arize-hook-pre-tool-use": "core.hooks.claude.handlers:pre_tool_use",
@@ -283,14 +283,20 @@ class TestNoBashReferences:
                 assert script not in content, \
                     f"{f.relative_to(REPO_ROOT)}: still references {script}"
 
-    def test_no_source_collector_ctl_sh(self):
-        """No 'source core/collector_ctl.sh' or 'source.*collector_ctl.sh' references."""
-        pattern = re.compile(r'source\s+.*?collector_ctl\.sh')
-        for f in _collect_md_files():
-            content = f.read_text()
-            matches = pattern.findall(content)
-            assert not matches, \
-                f"{f.relative_to(REPO_ROOT)}: still references collector_ctl.sh sourcing: {matches}"
+    def test_no_stale_collector_ctl_imports(self):
+        """No stale collector_ctl Python imports in hook files."""
+        pattern = re.compile(r'(?:from|import)\s+.*?collector_ctl')
+        hook_dirs = [
+            REPO_ROOT / "core" / "hooks",
+        ]
+        for hook_dir in hook_dirs:
+            if not hook_dir.exists():
+                continue
+            for f in hook_dir.rglob("*.py"):
+                content = f.read_text()
+                matches = pattern.findall(content)
+                assert not matches, \
+                    f"{f.relative_to(REPO_ROOT)}: still imports collector_ctl: {matches}"
 
     def test_no_install_py_references(self):
         """No 'install.py' references in harness docs (should be install.sh)."""
@@ -381,7 +387,7 @@ class TestDocumentationConsistency:
         """Claude SKILL.md should use CLI entry points."""
         skill = (REPO_ROOT / "claude-code-tracing" / "skills" / "setup-claude-code-tracing" / "SKILL.md").read_text()
         assert "arize-collector-ctl start" in skill
-        assert "collector_ctl.sh" not in skill
+        assert "collector_ctl" not in skill
 
 
 # --- Codex config.toml pattern ---
