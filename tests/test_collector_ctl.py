@@ -51,14 +51,14 @@ def ctl_paths(tmp_harness_dir, monkeypatch):
     import core.collector_ctl as ctl
     import core.constants as c
 
-    monkeypatch.setattr(ctl, "PID_FILE", c.PID_FILE)
+    monkeypatch.setattr(ctl, "CODEX_BUFFER_PID_FILE", c.CODEX_BUFFER_PID_FILE)
     monkeypatch.setattr(ctl, "PID_DIR", c.PID_DIR)
     monkeypatch.setattr(ctl, "CONFIG_FILE", c.CONFIG_FILE)
-    monkeypatch.setattr(ctl, "COLLECTOR_BIN", c.COLLECTOR_BIN)
-    monkeypatch.setattr(ctl, "COLLECTOR_LOG_FILE", c.COLLECTOR_LOG_FILE)
+    monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", c.CODEX_BUFFER_BIN)
+    monkeypatch.setattr(ctl, "CODEX_BUFFER_LOG_FILE", c.CODEX_BUFFER_LOG_FILE)
     monkeypatch.setattr(ctl, "LOG_DIR", c.LOG_DIR)
-    monkeypatch.setattr(ctl, "DEFAULT_COLLECTOR_HOST", c.DEFAULT_COLLECTOR_HOST)
-    monkeypatch.setattr(ctl, "DEFAULT_COLLECTOR_PORT", c.DEFAULT_COLLECTOR_PORT)
+    monkeypatch.setattr(ctl, "DEFAULT_BUFFER_HOST", c.DEFAULT_BUFFER_HOST)
+    monkeypatch.setattr(ctl, "DEFAULT_BUFFER_PORT", c.DEFAULT_BUFFER_PORT)
 
     return tmp_harness_dir
 
@@ -206,7 +206,7 @@ class TestCollectorStatus:
     def test_stopped_when_dead_pid(self, ctl_paths, sample_config):
         """PID file with dead PID is cleaned up and reports stopped."""
         import core.constants as c
-        pid_file = c.PID_FILE
+        pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("99999\n")
         assert pid_file.exists()
 
@@ -220,7 +220,7 @@ class TestCollectorStatus:
     def test_stopped_when_non_numeric_pid(self, ctl_paths, sample_config):
         """Non-numeric PID file content is cleaned up."""
         import core.constants as c
-        pid_file = c.PID_FILE
+        pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("not-a-number\n")
 
         status, pid, addr = collector_status()
@@ -231,7 +231,7 @@ class TestCollectorStatus:
     def test_stopped_when_empty_pid_file(self, ctl_paths, sample_config):
         """Empty PID file is cleaned up."""
         import core.constants as c
-        pid_file = c.PID_FILE
+        pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("")
 
         status, pid, addr = collector_status()
@@ -242,7 +242,7 @@ class TestCollectorStatus:
     def test_running_when_process_alive_and_healthy(self, ctl_paths, mock_collector):
         """Process alive + health OK = running."""
         import core.constants as c
-        pid_file = c.PID_FILE
+        pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
         config = {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}
@@ -257,7 +257,7 @@ class TestCollectorStatus:
     def test_running_when_process_alive_but_health_fails(self, ctl_paths):
         """Process alive but health fails = still reports running (benefit of the doubt)."""
         import core.constants as c
-        pid_file = c.PID_FILE
+        pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
         # Config points to a port with nothing listening
@@ -273,7 +273,7 @@ class TestCollectorStatus:
     def test_pid_file_with_extra_whitespace(self, ctl_paths, sample_config):
         """PID file with extra whitespace/newlines is parsed correctly."""
         import core.constants as c
-        pid_file = c.PID_FILE
+        pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(f"  {os.getpid()}  \n\n")
 
         status, pid, addr = collector_status()
@@ -294,7 +294,7 @@ class TestCollectorStart:
     def test_idempotent_when_already_running(self, ctl_paths, mock_collector):
         """If collector is already running, start returns True without launching."""
         import core.constants as c
-        pid_file = c.PID_FILE
+        pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
         config = {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}
@@ -342,11 +342,11 @@ class TestCollectorStart:
         assert result is True
 
     def test_returns_false_when_no_collector_runtime(self, ctl_paths, sample_config, monkeypatch):
-        """If neither COLLECTOR_BIN nor collector.py exist, start fails."""
+        """If neither CODEX_BUFFER_BIN nor collector.py exist, start fails."""
         import core.collector_ctl as ctl
 
-        # Point COLLECTOR_BIN to nonexistent path
-        monkeypatch.setattr(ctl, "COLLECTOR_BIN", Path("/nonexistent/arize-collector"))
+        # Point CODEX_BUFFER_BIN to nonexistent path
+        monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-collector"))
 
         # Point __file__ to a dir that has no collector.py
         fake_core = ctl_paths / "fake_core"
@@ -360,8 +360,8 @@ class TestCollectorStart:
         """Successful launch via collector.py calls Popen with correct args."""
         import core.collector_ctl as ctl
 
-        # Point COLLECTOR_BIN to nonexistent so it falls through to collector.py
-        monkeypatch.setattr(ctl, "COLLECTOR_BIN", Path("/nonexistent/arize-collector"))
+        # Point CODEX_BUFFER_BIN to nonexistent so it falls through to collector.py
+        monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-collector"))
 
         # Create a fake collector.py at the expected path
         fake_core = ctl_paths / "fake_core"
@@ -398,14 +398,14 @@ class TestCollectorStart:
         assert popen_kwargs.get("start_new_session") is True
 
     def test_start_uses_collector_bin_when_available(self, ctl_paths, sample_config, monkeypatch):
-        """When COLLECTOR_BIN exists and is executable, it is preferred over collector.py."""
+        """When CODEX_BUFFER_BIN exists and is executable, it is preferred over collector.py."""
         import core.collector_ctl as ctl
 
-        # Create a fake COLLECTOR_BIN
+        # Create a fake CODEX_BUFFER_BIN
         collector_bin = ctl_paths / "arize-collector"
         collector_bin.write_text("#!/bin/sh\n")
         collector_bin.chmod(0o755)
-        monkeypatch.setattr(ctl, "COLLECTOR_BIN", collector_bin)
+        monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", collector_bin)
 
         # Mock socket to raise (port is free)
         monkeypatch.setattr(
@@ -433,8 +433,8 @@ class TestCollectorStart:
         """If health check never passes but process is alive, returns True (benefit of the doubt)."""
         import core.collector_ctl as ctl
 
-        # Point COLLECTOR_BIN to nonexistent so it falls through to collector.py
-        monkeypatch.setattr(ctl, "COLLECTOR_BIN", Path("/nonexistent/arize-collector"))
+        # Point CODEX_BUFFER_BIN to nonexistent so it falls through to collector.py
+        monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-collector"))
 
         # Create fake collector.py
         fake_core = ctl_paths / "fake_core_alive"
@@ -467,8 +467,8 @@ class TestCollectorStart:
         """If Popen raises OSError, collector_start returns False."""
         import core.collector_ctl as ctl
 
-        # Point COLLECTOR_BIN to nonexistent so it falls through to collector.py
-        monkeypatch.setattr(ctl, "COLLECTOR_BIN", Path("/nonexistent/arize-collector"))
+        # Point CODEX_BUFFER_BIN to nonexistent so it falls through to collector.py
+        monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-collector"))
 
         # Create fake collector.py
         fake_core = ctl_paths / "fake_core_oserr"
@@ -505,7 +505,7 @@ class TestCollectorStop:
     def test_stop_cleans_up_stale_pid_file(self, ctl_paths):
         """Stop with dead PID removes PID file."""
         import core.constants as c
-        pid_file = c.PID_FILE
+        pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("99999\n")
 
         result = collector_stop()
@@ -515,7 +515,7 @@ class TestCollectorStop:
     def test_stop_with_non_numeric_pid(self, ctl_paths):
         """Stop with garbage PID file removes it."""
         import core.constants as c
-        pid_file = c.PID_FILE
+        pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("garbage\n")
 
         result = collector_stop()
@@ -525,7 +525,7 @@ class TestCollectorStop:
     def test_stop_with_empty_pid_file(self, ctl_paths):
         """Stop with empty PID file removes it."""
         import core.constants as c
-        pid_file = c.PID_FILE
+        pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("")
 
         result = collector_stop()
@@ -535,7 +535,7 @@ class TestCollectorStop:
     def test_stop_sends_sigterm_to_alive_process(self, ctl_paths, _mock_ctl_sleep):
         """Stop sends SIGTERM to a live process and waits for it to die."""
         import core.constants as c
-        pid_file = c.PID_FILE
+        pid_file = c.CODEX_BUFFER_PID_FILE
 
         # Start a subprocess that we can kill
         proc = subprocess.Popen(
@@ -564,7 +564,7 @@ class TestCollectorStop:
     def test_stop_removes_pid_file_even_if_process_wont_die(self, ctl_paths):
         """Stop removes PID file even if process ignores SIGTERM."""
         import core.constants as c
-        pid_file = c.PID_FILE
+        pid_file = c.CODEX_BUFFER_PID_FILE
 
         # Use our own PID — we won't die from SIGTERM during test
         # but the function should still remove the PID file
@@ -607,7 +607,7 @@ class TestCollectorEnsure:
     def test_skips_start_when_running(self, ctl_paths, mock_collector):
         """ensure() does not call start if status is running."""
         import core.constants as c
-        pid_file = c.PID_FILE
+        pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
         config = {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}
@@ -654,7 +654,7 @@ class TestCLI:
     def test_status_prints_running(self, ctl_paths, mock_collector, capsys):
         """'status' command prints 'running' with PID and address."""
         import core.constants as c
-        pid_file = c.PID_FILE
+        pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
         config = {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}
@@ -742,26 +742,26 @@ class TestEdgeCases:
     def test_pid_file_with_float(self, ctl_paths, sample_config):
         """PID file with float value is handled (ValueError on int())."""
         import core.constants as c
-        c.PID_FILE.write_text("123.456\n")
+        c.CODEX_BUFFER_PID_FILE.write_text("123.456\n")
         status, pid, addr = collector_status()
         assert status == "stopped"
-        assert not c.PID_FILE.exists()
+        assert not c.CODEX_BUFFER_PID_FILE.exists()
 
     def test_pid_file_with_negative_pid(self, ctl_paths, sample_config):
         """PID file with negative PID is handled — treated as dead."""
         import core.constants as c
-        c.PID_FILE.write_text("-1\n")
+        c.CODEX_BUFFER_PID_FILE.write_text("-1\n")
         status, pid, addr = collector_status()
         assert status == "stopped"
-        assert not c.PID_FILE.exists()
+        assert not c.CODEX_BUFFER_PID_FILE.exists()
 
     def test_pid_file_with_zero(self, ctl_paths, sample_config):
         """PID file with 0 — always treated as dead (guarded)."""
         import core.constants as c
-        c.PID_FILE.write_text("0\n")
+        c.CODEX_BUFFER_PID_FILE.write_text("0\n")
         status, pid, addr = collector_status()
         assert status == "stopped"
-        assert not c.PID_FILE.exists()
+        assert not c.CODEX_BUFFER_PID_FILE.exists()
 
     def test_status_then_stop_then_status(self, ctl_paths):
         """Verify status->stop->status cycle is clean."""
@@ -785,7 +785,7 @@ class TestEdgeCases:
         import core.collector_ctl as ctl
 
         # Point both runtime locations to nonexistent paths
-        monkeypatch.setattr(ctl, "COLLECTOR_BIN", Path("/nonexistent/arize-collector"))
+        monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-collector"))
         fake_parent = ctl_paths / "fake_core2"
         fake_parent.mkdir(exist_ok=True)
         monkeypatch.setattr(ctl, "__file__", str(fake_parent / "collector_ctl.py"))

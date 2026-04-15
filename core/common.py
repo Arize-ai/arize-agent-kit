@@ -65,8 +65,8 @@ class _Env:
                 return str(v)
         except Exception:
             pass
-        from core.constants import DEFAULT_COLLECTOR_HOST
-        return DEFAULT_COLLECTOR_HOST
+        from core.constants import DEFAULT_BUFFER_HOST
+        return DEFAULT_BUFFER_HOST
 
     @property
     def collector_port(self) -> int:
@@ -84,8 +84,8 @@ class _Env:
                 return int(v)
         except Exception:
             pass
-        from core.constants import DEFAULT_COLLECTOR_PORT
-        return DEFAULT_COLLECTOR_PORT
+        from core.constants import DEFAULT_BUFFER_PORT
+        return DEFAULT_BUFFER_PORT
 
     @property
     def collector_url(self) -> str:

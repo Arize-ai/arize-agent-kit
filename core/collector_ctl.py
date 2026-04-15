@@ -15,14 +15,14 @@ import urllib.request
 from pathlib import Path
 
 from core.constants import (
-    COLLECTOR_BIN,
-    COLLECTOR_LOG_FILE,
+    CODEX_BUFFER_BIN,
+    CODEX_BUFFER_LOG_FILE,
+    CODEX_BUFFER_PID_FILE,
     CONFIG_FILE,
-    DEFAULT_COLLECTOR_HOST,
-    DEFAULT_COLLECTOR_PORT,
+    DEFAULT_BUFFER_HOST,
+    DEFAULT_BUFFER_PORT,
     LOG_DIR,
     PID_DIR,
-    PID_FILE,
 )
 from core.config import load_config, get_value
 
@@ -85,9 +85,9 @@ def _resolve_host_port() -> tuple:
         port = None
 
     if not host:
-        host = DEFAULT_COLLECTOR_HOST
+        host = DEFAULT_BUFFER_HOST
     if not port:
-        port = DEFAULT_COLLECTOR_PORT
+        port = DEFAULT_BUFFER_PORT
     return (str(host), int(port))
 
 
@@ -107,16 +107,16 @@ def collector_status() -> tuple:
     Returns:
         ("running", pid, "host:port") or ("stopped", None, None)
     """
-    if not PID_FILE.is_file():
+    if not CODEX_BUFFER_PID_FILE.is_file():
         return ("stopped", None, None)
 
     try:
-        pid_text = PID_FILE.read_text().strip()
+        pid_text = CODEX_BUFFER_PID_FILE.read_text().strip()
         pid = int(pid_text)
     except (ValueError, OSError):
         # Non-numeric or unreadable PID file — remove it
         try:
-            PID_FILE.unlink()
+            CODEX_BUFFER_PID_FILE.unlink()
         except OSError:
             pass
         return ("stopped", None, None)
@@ -124,7 +124,7 @@ def collector_status() -> tuple:
     if not _is_process_alive(pid):
         # Stale PID file — clean up
         try:
-            PID_FILE.unlink()
+            CODEX_BUFFER_PID_FILE.unlink()
         except OSError:
             pass
         return ("stopped", None, None)
@@ -153,12 +153,12 @@ def collector_start() -> bool:
 
     # Find collector runtime
     collector_py = Path(__file__).parent / "collector.py"
-    if COLLECTOR_BIN.is_file() and os.access(COLLECTOR_BIN, os.X_OK):
-        cmd = [str(COLLECTOR_BIN)]
+    if CODEX_BUFFER_BIN.is_file() and os.access(CODEX_BUFFER_BIN, os.X_OK):
+        cmd = [str(CODEX_BUFFER_BIN)]
     elif collector_py.is_file():
         cmd = [sys.executable, str(collector_py)]
     else:
-        _log(f"Collector runtime not found at {COLLECTOR_BIN} or {collector_py}")
+        _log(f"Collector runtime not found at {CODEX_BUFFER_BIN} or {collector_py}")
         return False
 
     host, port = _resolve_host_port()
@@ -185,7 +185,7 @@ def collector_start() -> bool:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     # Launch process
-    log_fd = open(COLLECTOR_LOG_FILE, "a")
+    log_fd = open(CODEX_BUFFER_LOG_FILE, "a")
     try:
         if _is_windows():
             proc = subprocess.Popen(
@@ -228,15 +228,15 @@ def collector_stop() -> str:
 
     Returns "stopped".
     """
-    if not PID_FILE.is_file():
+    if not CODEX_BUFFER_PID_FILE.is_file():
         return "stopped"
 
     try:
-        pid_text = PID_FILE.read_text().strip()
+        pid_text = CODEX_BUFFER_PID_FILE.read_text().strip()
         pid = int(pid_text)
     except (ValueError, OSError):
         try:
-            PID_FILE.unlink()
+            CODEX_BUFFER_PID_FILE.unlink()
         except OSError:
             pass
         return "stopped"
@@ -265,7 +265,7 @@ def collector_stop() -> str:
 
     # Remove PID file regardless
     try:
-        PID_FILE.unlink()
+        CODEX_BUFFER_PID_FILE.unlink()
     except OSError:
         pass
 

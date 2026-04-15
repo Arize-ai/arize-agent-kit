@@ -4,15 +4,15 @@ from pathlib import Path
 from core.constants import (
     BASE_DIR,
     BIN_DIR,
-    COLLECTOR_BIN,
-    COLLECTOR_LOG_FILE,
+    CODEX_BUFFER_BIN,
+    CODEX_BUFFER_LOG_FILE,
+    CODEX_BUFFER_PID_FILE,
     CONFIG_FILE,
-    DEFAULT_COLLECTOR_HOST,
-    DEFAULT_COLLECTOR_PORT,
+    DEFAULT_BUFFER_HOST,
+    DEFAULT_BUFFER_PORT,
     HARNESSES,
     LOG_DIR,
     PID_DIR,
-    PID_FILE,
     STATE_BASE_DIR,
     VENV_DIR,
 )
@@ -26,11 +26,11 @@ class TestPaths:
             ("BASE_DIR", BASE_DIR),
             ("CONFIG_FILE", CONFIG_FILE),
             ("PID_DIR", PID_DIR),
-            ("PID_FILE", PID_FILE),
+            ("CODEX_BUFFER_PID_FILE", CODEX_BUFFER_PID_FILE),
             ("LOG_DIR", LOG_DIR),
-            ("COLLECTOR_LOG_FILE", COLLECTOR_LOG_FILE),
+            ("CODEX_BUFFER_LOG_FILE", CODEX_BUFFER_LOG_FILE),
             ("BIN_DIR", BIN_DIR),
-            ("COLLECTOR_BIN", COLLECTOR_BIN),
+            ("CODEX_BUFFER_BIN", CODEX_BUFFER_BIN),
             ("VENV_DIR", VENV_DIR),
             ("STATE_BASE_DIR", STATE_BASE_DIR),
         ]:
@@ -44,8 +44,8 @@ class TestPaths:
         assert CONFIG_FILE.parent == BASE_DIR
 
     def test_pid_file_under_run(self):
-        assert PID_FILE.parent == PID_DIR
-        assert PID_FILE.name == "collector.pid"
+        assert CODEX_BUFFER_PID_FILE.parent == PID_DIR
+        assert CODEX_BUFFER_PID_FILE.name == "codex-buffer.pid"
 
     def test_state_base_dir_under_base(self):
         assert STATE_BASE_DIR.parent == BASE_DIR
@@ -54,10 +54,10 @@ class TestPaths:
 
 class TestNetworkDefaults:
     def test_default_host(self):
-        assert DEFAULT_COLLECTOR_HOST == "127.0.0.1"
+        assert DEFAULT_BUFFER_HOST == "127.0.0.1"
 
     def test_default_port(self):
-        assert DEFAULT_COLLECTOR_PORT == 4318
+        assert DEFAULT_BUFFER_PORT == 4318
 
 
 class TestHarnesses:
