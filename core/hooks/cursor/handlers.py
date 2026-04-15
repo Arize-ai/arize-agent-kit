@@ -20,7 +20,6 @@ from core.common import (
     log,
     send_span,
 )
-from core.collector_ctl import collector_ensure
 from core.hooks.cursor.adapter import (
     SERVICE_NAME,
     SCOPE_NAME,
@@ -81,9 +80,6 @@ def _dispatch(event: str, input_json: dict) -> None:
     # Early exit: tracing disabled
     if not env.trace_enabled:
         return
-
-    # Ensure collector is running before dispatching
-    collector_ensure()
 
     # Early exit: no backend configured
     target = get_target()

@@ -19,7 +19,6 @@ from core.common import (
     build_span, send_span, log, error,
     generate_trace_id, generate_span_id, get_timestamp_ms, env,
 )
-from core.collector_ctl import collector_ensure
 
 
 # ---------------------------------------------------------------------------
@@ -40,8 +39,7 @@ def _read_stdin() -> dict:
 # ---------------------------------------------------------------------------
 
 def _handle_session_start(input_json: dict) -> None:
-    """Handle session_start: ensure collector running and initialize session."""
-    collector_ensure()
+    """Handle session_start: initialize session."""
     state = resolve_session(input_json)
     ensure_session_initialized(state, input_json)
     log(f"Session started: {state.get('session_id')}")
@@ -140,7 +138,6 @@ def _handle_post_tool_use(input_json: dict) -> None:
 
 def _handle_user_prompt_submit(input_json: dict) -> None:
     """Handle user_prompt_submit: set up a new trace (close orphaned turn first)."""
-    collector_ensure()
     state = resolve_session(input_json)
     ensure_session_initialized(state, input_json)
     session_id = state.get("session_id")

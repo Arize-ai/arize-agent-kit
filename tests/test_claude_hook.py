@@ -99,17 +99,9 @@ class TestReadStdin:
 
 class TestSessionStart:
 
-    def test_calls_collector_ensure(self, mock_resolve, captured_spans):
-        """session_start calls collector_ensure()."""
-        with mock.patch("core.hooks.claude.handlers.collector_ensure") as ce, \
-             mock.patch("core.hooks.claude.handlers.ensure_session_initialized"):
-            _handle_session_start({"session_id": "s1"})
-            ce.assert_called_once()
-
     def test_calls_resolve_and_init(self, state, captured_spans):
         """session_start calls resolve_session and ensure_session_initialized."""
-        with mock.patch("core.hooks.claude.handlers.collector_ensure"), \
-             mock.patch("core.hooks.claude.handlers.resolve_session", return_value=state) as rs, \
+        with mock.patch("core.hooks.claude.handlers.resolve_session", return_value=state) as rs, \
              mock.patch("core.hooks.claude.handlers.ensure_session_initialized") as esi:
             inp = {"session_id": "s1"}
             _handle_session_start(inp)
@@ -722,7 +714,6 @@ class TestErrorHandling:
         with mock.patch("core.hooks.claude.handlers.check_requirements", return_value=True), \
              mock.patch.object(sys, "stdin",
                                new=__import__("io").StringIO("not valid json")), \
-             mock.patch("core.hooks.claude.handlers.collector_ensure"), \
              mock.patch("core.hooks.claude.handlers.resolve_session") as rs, \
              mock.patch("core.hooks.claude.handlers.ensure_session_initialized"):
             session_start()
