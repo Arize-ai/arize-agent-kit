@@ -10,7 +10,7 @@ arize = ["opentelemetry-proto", "grpcio"]
 
 [project.scripts]
 # Core tools
-arize-collector-ctl = "core.collector_ctl:main"
+arize-codex-buffer = "core.codex_buffer_ctl:main"
 arize-config = "core.config:main"
 # Claude Code hooks
 arize-hook-session-start = "core.hooks.claude.handlers:session_start"
@@ -41,7 +41,7 @@ markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 [tool.coverage.run]
 source = ["core"]
 omit = [
-    "core/collector.py",
+    "core/codex_buffer.py",
     "core/send_arize.py",
 ]
 

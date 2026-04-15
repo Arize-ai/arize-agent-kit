@@ -21,7 +21,7 @@ REPO_ROOT = Path(__file__).parent.parent
 HARNESS_DIRS = ["claude-code-tracing", "codex-tracing", "cursor-tracing"]
 
 EXPECTED_ENTRY_POINTS = {
-    "arize-collector-ctl": "core.collector_ctl:main",
+    "arize-codex-buffer": "core.codex_buffer_ctl:main",
     "arize-config": "core.config:main",
     "arize-hook-session-start": "core.hooks.claude.handlers:session_start",
     "arize-hook-pre-tool-use": "core.hooks.claude.handlers:pre_tool_use",
@@ -284,13 +284,13 @@ class TestNoBashReferences:
                     f"{f.relative_to(REPO_ROOT)}: still references {script}"
 
     def test_no_source_collector_ctl_sh(self):
-        """No 'source core/collector_ctl.sh' or 'source.*collector_ctl.sh' references."""
-        pattern = re.compile(r'source\s+.*?collector_ctl\.sh')
+        """No 'collector_ctl.sh' references in markdown or shell files."""
+        pattern = re.compile(r'collector_ctl\.sh')
         for f in _collect_md_files():
             content = f.read_text()
             matches = pattern.findall(content)
             assert not matches, \
-                f"{f.relative_to(REPO_ROOT)}: still references collector_ctl.sh sourcing: {matches}"
+                f"{f.relative_to(REPO_ROOT)}: still references collector_ctl.sh: {matches}"
 
     def test_no_install_py_references(self):
         """No 'install.py' references in harness docs (should be install.sh)."""
@@ -337,7 +337,7 @@ class TestDocumentationConsistency:
     def test_development_md_has_cli_entry_points_table(self):
         """DEVELOPMENT.md should document CLI entry points."""
         dev_md = (REPO_ROOT / "DEVELOPMENT.md").read_text()
-        assert "arize-collector-ctl" in dev_md
+        assert "arize-codex-buffer" in dev_md
         assert "arize-config" in dev_md
         assert "arize-hook-session-start" in dev_md
         assert "arize-hook-codex-notify" in dev_md
@@ -347,40 +347,40 @@ class TestDocumentationConsistency:
         """Claude Code README should reference CLI entry points."""
         readme = (REPO_ROOT / "claude-code-tracing" / "README.md").read_text()
         assert "arize-hook-session-start" in readme
-        assert "arize-collector-ctl start" in readme
+        assert "arize-codex-buffer start" in readme
         assert "Python 3.9+" in readme
 
     def test_codex_readme_references_cli_entry_points(self):
         """Codex README should reference CLI entry points."""
         readme = (REPO_ROOT / "codex-tracing" / "README.md").read_text()
         assert "arize-hook-codex-notify" in readme
-        assert "arize-collector-ctl" in readme
+        assert "arize-codex-buffer" in readme
 
     def test_cursor_readme_references_cli_entry_points(self):
         """Cursor README should reference CLI entry points."""
         readme = (REPO_ROOT / "cursor-tracing" / "README.md").read_text()
         assert "arize-hook-cursor" in readme
-        assert "arize-collector-ctl start" in readme
+        assert "arize-codex-buffer start" in readme
         assert "Python 3.9+" in readme
 
     def test_cursor_skill_references_cli_entry_points(self):
         """Cursor SKILL.md should use CLI entry points for hooks."""
         skill = (REPO_ROOT / "cursor-tracing" / "skills" / "setup-cursor-tracing" / "SKILL.md").read_text()
         assert "arize-hook-cursor" in skill
-        assert "arize-collector-ctl start" in skill
+        assert "arize-codex-buffer start" in skill
         assert "hook-handler.sh" not in skill
 
     def test_codex_skill_references_cli_entry_points(self):
         """Codex SKILL.md should use CLI entry points."""
         skill = (REPO_ROOT / "codex-tracing" / "skills" / "setup-codex-tracing" / "SKILL.md").read_text()
         assert "arize-hook-codex-notify" in skill
-        assert "arize-collector-ctl" in skill
+        assert "arize-codex-buffer" in skill
         assert "notify.sh" not in skill
 
     def test_claude_skill_references_cli_entry_points(self):
         """Claude SKILL.md should use CLI entry points."""
         skill = (REPO_ROOT / "claude-code-tracing" / "skills" / "setup-claude-code-tracing" / "SKILL.md").read_text()
-        assert "arize-collector-ctl start" in skill
+        assert "arize-codex-buffer start" in skill
         assert "collector_ctl.sh" not in skill
 
 
