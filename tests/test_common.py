@@ -1001,6 +1001,197 @@ class TestResolveBackend:
         result = resolve_backend(self._make_span())
         assert result["target"] == "none"
 
+    def test_project_name_from_env_var(self, monkeypatch):
+        """Project name falls back to ARIZE_PROJECT_NAME env var."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.setenv("ARIZE_PROJECT_NAME", "env-proj")
+
+        cfg = {
+            "backend": {"target": "phoenix", "phoenix": {"endpoint": "http://x:6006"}},
+            "harnesses": {"svc": {}},  # no project_name in harness config
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("svc"))
+        assert result["project_name"] == "env-proj"
+
+    def test_project_name_defaults_to_service_name(self, monkeypatch):
+        """Project name defaults to service.name when no config or env var."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+
+        cfg = {
+            "backend": {"target": "phoenix", "phoenix": {"endpoint": "http://x:6006"}},
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("my-service"))
+        assert result["project_name"] == "my-service"
+
+    def test_project_name_defaults_to_default(self, monkeypatch):
+        """Project name defaults to 'default' when no service.name, config, or env var."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+
+        cfg = {"backend": {"target": "phoenix", "phoenix": {"endpoint": "http://x:6006"}}}
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span(""))
+        assert result["project_name"] == "default"
+
+    def test_global_arize_config(self, monkeypatch):
+        """Global arize config returns arize credentials."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+
+        cfg = {
+            "backend": {
+                "target": "arize",
+                "arize": {
+                    "api_key": "global-arize-key",
+                    "space_id": "global-space",
+                    "endpoint": "otlp.arize.com:443",
+                },
+            },
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("test-svc"))
+        assert result["target"] == "arize"
+        assert result["api_key"] == "global-arize-key"
+        assert result["space_id"] == "global-space"
+        assert result["endpoint"] == "otlp.arize.com:443"
+        assert result["project_name"] == "test-svc"
+
+    def test_harness_phoenix_overrides_global_arize(self, monkeypatch):
+        """Per-harness phoenix target overrides global arize target."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+
+        cfg = {
+            "backend": {
+                "target": "arize",
+                "arize": {"api_key": "g-key", "space_id": "g-space"},
+            },
+            "harnesses": {
+                "cursor": {
+                    "project_name": "cursor-proj",
+                    "backend": {
+                        "target": "phoenix",
+                        "phoenix": {"endpoint": "http://cursor-phoenix:6006"},
+                    },
+                },
+            },
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("cursor"))
+        assert result["target"] == "phoenix"
+        assert result["endpoint"] == "http://cursor-phoenix:6006"
+        assert result["project_name"] == "cursor-proj"
+
+    def test_arize_default_endpoint(self, monkeypatch):
+        """Arize backend defaults endpoint to otlp.arize.com:443."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+
+        cfg = {
+            "backend": {
+                "target": "arize",
+                "arize": {"api_key": "key", "space_id": "space"},
+            },
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span())
+        assert result["endpoint"] == "otlp.arize.com:443"
+
+
+# ── send_span integration edge cases ─────────────────────────────────────
+
+
+class TestSendSpanEdgeCases:
+    """Additional edge case tests for send_span()."""
+
+    _SAMPLE_SPAN = {
+        "resourceSpans": [{
+            "resource": {"attributes": []},
+            "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
+        }]
+    }
+
+    @pytest.fixture(autouse=True)
+    def _mock_sleep(self, monkeypatch):
+        monkeypatch.setattr("time.sleep", lambda s: None)
+
+    @mock.patch("core.common.resolve_backend")
+    @mock.patch("core.common.urllib.request.urlopen")
+    def test_phoenix_non_200_returns_false(self, mock_urlopen, mock_resolve, monkeypatch):
+        """Phoenix send returns False for non-2xx status."""
+        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
+        monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
+
+        mock_resolve.return_value = {
+            "target": "phoenix",
+            "endpoint": "http://phoenix:6006",
+            "api_key": "",
+            "project_name": "default",
+        }
+        mock_resp = mock.MagicMock()
+        mock_resp.status = 500
+        mock_resp.__enter__ = mock.Mock(return_value=mock_resp)
+        mock_resp.__exit__ = mock.Mock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        assert send_span(self._SAMPLE_SPAN) is False
+
+    @mock.patch("core.common.resolve_backend")
+    def test_resolve_backend_exception_returns_false(self, mock_resolve, monkeypatch):
+        """send_span returns False when resolve_backend raises."""
+        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
+        monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
+
+        mock_resolve.side_effect = RuntimeError("config corruption")
+
+        assert send_span(self._SAMPLE_SPAN) is False
+
+    def test_dry_run_logs_span_name(self, capsys, monkeypatch):
+        """dry_run mode logs the span name."""
+        monkeypatch.setenv("ARIZE_DRY_RUN", "true")
+        monkeypatch.setenv("ARIZE_VERBOSE", "true")
+
+        span = {
+            "resourceSpans": [{
+                "resource": {"attributes": []},
+                "scopeSpans": [{"scope": {"name": "t"}, "spans": [{"name": "my-operation"}]}],
+            }]
+        }
+        result = send_span(span)
+        assert result is True
+        assert "my-operation" in capsys.readouterr().err
+
+    def test_no_collector_references_in_common(self):
+        """Verify _send_to_collector, collector_host, collector_port, collector_url
+        and direct_send are not present in core.common module."""
+        import core.common as mod
+        assert not hasattr(mod, "_send_to_collector")
+        assert not hasattr(mod.env, "collector_host")
+        assert not hasattr(mod.env, "collector_port")
+        assert not hasattr(mod.env, "collector_url")
+        assert not hasattr(mod.env, "direct_send")
+
 
 # ── Additional FileLock coverage (mkdir fallback) ─────────────────────────
 
