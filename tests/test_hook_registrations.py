@@ -283,20 +283,14 @@ class TestNoBashReferences:
                 assert script not in content, \
                     f"{f.relative_to(REPO_ROOT)}: still references {script}"
 
-    def test_no_stale_collector_ctl_imports(self):
-        """No stale collector_ctl Python imports in hook files."""
-        pattern = re.compile(r'(?:from|import)\s+.*?collector_ctl')
-        hook_dirs = [
-            REPO_ROOT / "core" / "hooks",
-        ]
-        for hook_dir in hook_dirs:
-            if not hook_dir.exists():
-                continue
-            for f in hook_dir.rglob("*.py"):
-                content = f.read_text()
-                matches = pattern.findall(content)
-                assert not matches, \
-                    f"{f.relative_to(REPO_ROOT)}: still imports collector_ctl: {matches}"
+    def test_no_source_collector_ctl_sh(self):
+        """No 'collector_ctl.sh' references in markdown or shell files."""
+        pattern = re.compile(r'collector_ctl\.sh')
+        for f in _collect_md_files():
+            content = f.read_text()
+            matches = pattern.findall(content)
+            assert not matches, \
+                f"{f.relative_to(REPO_ROOT)}: still references collector_ctl.sh: {matches}"
 
     def test_no_install_py_references(self):
         """No 'install.py' references in harness docs (should be install.sh)."""
