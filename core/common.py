@@ -53,45 +53,6 @@ class _Env:
         return os.environ.get("ARIZE_LOG_FILE", "/tmp/arize-agent-kit.log")
 
     @property
-    def collector_host(self) -> str:
-        val = os.environ.get("ARIZE_COLLECTOR_HOST", "")
-        if val:
-            return val
-        try:
-            from core.config import load_config, get_value
-            cfg = load_config()
-            v = get_value(cfg, "collector.host")
-            if v:
-                return str(v)
-        except Exception:
-            pass
-        from core.constants import DEFAULT_BUFFER_HOST
-        return DEFAULT_BUFFER_HOST
-
-    @property
-    def collector_port(self) -> int:
-        val = os.environ.get("ARIZE_COLLECTOR_PORT", "")
-        if val:
-            try:
-                return int(val)
-            except ValueError:
-                pass
-        try:
-            from core.config import load_config, get_value
-            cfg = load_config()
-            v = get_value(cfg, "collector.port")
-            if v is not None:
-                return int(v)
-        except Exception:
-            pass
-        from core.constants import DEFAULT_BUFFER_PORT
-        return DEFAULT_BUFFER_PORT
-
-    @property
-    def collector_url(self) -> str:
-        return f"http://{self.collector_host}:{self.collector_port}"
-
-    @property
     def phoenix_endpoint(self) -> str:
         return os.environ.get("PHOENIX_ENDPOINT", "")
 
@@ -103,9 +64,6 @@ class _Env:
     def space_id(self) -> str:
         return os.environ.get("ARIZE_SPACE_ID", "")
 
-    @property
-    def direct_send(self) -> bool:
-        return os.environ.get("ARIZE_DIRECT_SEND", "").lower() == "true"
 
 
 env = _Env()
@@ -274,23 +232,6 @@ def resolve_backend(span_dict: dict) -> dict:
         return {"target": "none", "project_name": project_name}
 
 
-def _send_to_collector(span_dict: dict) -> bool:
-    """POST span to the local collector. Returns True on success."""
-    url = f"{env.collector_url}/v1/spans"
-    try:
-        body = _json.dumps(span_dict).encode("utf-8")
-        req = urllib.request.Request(
-            url, data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return 200 <= resp.status < 300
-    except Exception as e:
-        log(f"Collector send failed ({url}): {e}")
-        return False
-
-
 def _extract_span_name(span_dict: dict) -> str:
     """Extract the first span name from an OTLP payload."""
     try:
@@ -300,7 +241,10 @@ def _extract_span_name(span_dict: dict) -> str:
 
 
 def send_span(span_dict: dict) -> bool:
-    """Send a span payload. Tries collector first, falls back to direct send.
+    """Send a span payload directly to the configured backend.
+
+    Resolves per-harness credentials from config.yaml, falling back to global
+    backend config and then environment variables.
 
     Never raises. Returns True on success, False on failure.
     """
@@ -312,21 +256,16 @@ def send_span(span_dict: dict) -> bool:
         if env.verbose:
             log(f"span payload: {_json.dumps(span_dict)}")
 
-        # Try collector first (unless direct send requested)
-        if not env.direct_send:
-            if _send_to_collector(span_dict):
-                return True
-
-        # Direct send fallback — resolve per-harness backend config
         backend = resolve_backend(span_dict)
         target = backend["target"]
+
         if target == "phoenix":
-            endpoint = backend["endpoint"]
             project = backend["project_name"]
+            endpoint = backend["endpoint"]
+            api_key = backend.get("api_key", "")
             url = f"{endpoint}/v1/projects/{project}/spans"
             body = _json.dumps(span_dict).encode("utf-8")
             headers = {"Content-Type": "application/json"}
-            api_key = backend.get("api_key", "")
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
             req = urllib.request.Request(url, data=body, headers=headers, method="POST")
@@ -341,8 +280,8 @@ def send_span(span_dict: dict) -> bool:
                 from core.send_arize import send_to_arize
                 return send_to_arize(
                     span_dict,
-                    api_key=backend.get("api_key", ""),
-                    space_id=backend.get("space_id", ""),
+                    api_key=backend["api_key"],
+                    space_id=backend["space_id"],
                     endpoint=backend.get("endpoint", "otlp.arize.com:443"),
                 )
             except ImportError:
