@@ -356,12 +356,20 @@ class TestBufferStart:
         finally:
             server.shutdown()
 
-    def test_detects_existing_buffer_on_port(self, ctl_paths, mock_collector):
+    def test_detects_existing_buffer_on_port(self, ctl_paths, mock_collector, monkeypatch):
         """If port has a healthy buffer already, start returns True."""
         import core.constants as c
+        import core.codex_buffer_ctl as ctl
+
         config = {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
+
+        # Create a fake codex_buffer.py so the runtime check passes
+        fake_core = ctl_paths / "fake_core_detect"
+        fake_core.mkdir(exist_ok=True)
+        (fake_core / "codex_buffer.py").write_text("# fake buffer\n")
+        monkeypatch.setattr(ctl, "__file__", str(fake_core / "codex_buffer_ctl.py"))
 
         # No PID file, but the port has a healthy buffer
         result = buffer_start()
