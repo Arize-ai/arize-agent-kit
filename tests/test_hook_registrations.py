@@ -381,7 +381,7 @@ class TestDocumentationConsistency:
         """Claude SKILL.md should use CLI entry points."""
         skill = (REPO_ROOT / "claude-code-tracing" / "skills" / "setup-claude-code-tracing" / "SKILL.md").read_text()
         assert "arize-collector-ctl start" in skill
-        assert "collector_ctl" not in skill
+        assert "collector_ctl.sh" not in skill
 
 
 # --- Codex config.toml pattern ---
