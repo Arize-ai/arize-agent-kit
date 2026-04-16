@@ -151,7 +151,7 @@ Read the file (or create `{}` if it doesn't exist), then merge env vars into the
 }
 ```
 
-If a custom project name was provided, set it in `harnesses.claude-code.project_name` in the shared collector config (`~/.arize/harness/config.yaml`), not as an env var.
+If a custom project name was provided, set it in `harnesses.claude-code.project_name` in the config (`~/.arize/harness/config.yaml`), not as an env var.
 
 If a user ID was provided, also set `"ARIZE_USER_ID": "<id>"`. This adds a `user.id` attribute to all traced spans.
 
@@ -238,7 +238,7 @@ Optional env vars that can also be added to the settings file:
 - `ARIZE_DRY_RUN`: Set to `"true"` to test without sending data
 - `ARIZE_VERBOSE`: Set to `"true"` for debug output
 
-To customize the project name, set it in `harnesses.claude-code.project_name` in the shared collector config (`~/.arize/harness/config.yaml`) rather than as an env var.
+To customize the project name, set it in `harnesses.claude-code.project_name` in the config (`~/.arize/harness/config.yaml`) rather than as an env var.
 
 ### 5. Add the plugin to their code
 
