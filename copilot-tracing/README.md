@@ -2,6 +2,10 @@
 
 Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for **GitHub Copilot** sessions. Supports both **VS Code Copilot** (8 hook events with full transcript parsing) and **Copilot CLI** (6 hook events with deferred turns). Every prompt, tool use, agent response, subagent lifecycle, and stop event is captured as a span and exported to [Arize AX](https://arize.com) or [Phoenix](https://github.com/Arize-ai/phoenix).
 
+## Implementation Status
+
+> **Note:** This README documents the planned Copilot tracing integration. The hook handlers (`core/hooks/copilot/`), setup script (`core/setup/copilot.py`), CLI entry points (`arize-hook-copilot-*`), and `install.sh copilot` support are being added in subsequent changes. The plugin directory and documentation are provided first to define the interface contract.
+
 ## Features
 
 - **Dual-mode support**: VS Code Copilot (8 events) and Copilot CLI (6 events) from a single handler
@@ -63,6 +67,8 @@ Copilot CLI
 ## Installation
 
 ### Automated installer (recommended)
+
+Once Copilot support is fully implemented, the installer will accept `copilot` as a harness argument:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- copilot
@@ -279,9 +285,9 @@ copilot-tracing/
   README.md
 ```
 
-Setup is provided by the `arize-setup-copilot` CLI entry point (defined in `core/setup/copilot.py`).
+Setup will be provided by the `arize-setup-copilot` CLI entry point (defined in `core/setup/copilot.py`, not yet implemented).
 
-Hook logic lives in `core/` at the repository root (installed as a Python package):
+Hook logic will live in `core/` at the repository root (installed as a Python package):
 
 ```
 core/
@@ -304,7 +310,9 @@ Each hook event has a dedicated CLI entry point:
 | `arize-hook-copilot-pre-tool` | `PreToolUse` | `preToolUse` |
 | `arize-hook-copilot-post-tool` | `PostToolUse` | `postToolUse` |
 | `arize-hook-copilot-stop` | `Stop` | -- |
+| `arize-hook-copilot-subagent-start` | `SubagentStart` | -- |
 | `arize-hook-copilot-subagent-stop` | `SubagentStop` | -- |
+| `arize-hook-copilot-pre-compact` | `PreCompact` | -- |
 | `arize-hook-copilot-error` | -- | `errorOccurred` |
 | `arize-hook-copilot-session-end` | -- | `sessionEnd` |
 
