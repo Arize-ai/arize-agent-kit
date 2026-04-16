@@ -115,7 +115,7 @@ def _handle_before_submit_prompt(input_json, conversation_id, gen_id, trace_id, 
     gen_root_span_save(gen_id, sid)
 
     prompt = (_jq_str(input_json, "prompt", "input", "text"))
-    model = _jq_str(input_json, "model_name", "model")
+    model = _jq_str(input_json, "model", "model_name")
 
     # Save root span state — sent by afterAgentResponse with output + timing
     state_push(f"root_{sanitize(gen_id)}", {
@@ -134,12 +134,20 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
-    response = (_jq_str(input_json, "response", "output", "text"))
-    model = _jq_str(input_json, "model_name", "model")
+    # "text" is the documented field; fall back to "response"/"output" for compat
+    response = (_jq_str(input_json, "text", "response", "output"))
+    # "model" is a base field on all hook events
+    model = _jq_str(input_json, "model", "model_name")
 
-    # Send LLM child span
+    # Read prompt from deferred root state
+    safe_gen = sanitize(gen_id) if gen_id else ""
+    root_state = state_pop(f"root_{safe_gen}") if safe_gen else None
+    prompt = root_state.get("prompt", "") if root_state else ""
+
+    # Send LLM child span with input + output + model
     attrs = {
         "openinference.span.kind": "LLM",
+        "input.value": prompt,
         "output.value": response,
         "session.id": conversation_id,
     }
@@ -154,12 +162,10 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
     log(f"afterAgentResponse: child span {sid}")
 
     # Send deferred root span with input + output
-    safe_gen = sanitize(gen_id) if gen_id else ""
-    root_state = state_pop(f"root_{safe_gen}") if safe_gen else None
     if root_state:
         root_attrs = {
             "openinference.span.kind": "CHAIN",
-            "input.value": root_state.get("prompt", ""),
+            "input.value": prompt,
             "output.value": response,
             "session.id": root_state.get("conversation_id", conversation_id),
         }

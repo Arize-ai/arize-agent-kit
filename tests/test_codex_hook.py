@@ -573,62 +573,6 @@ class TestBuildChildSpans:
         span = children[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["name"] == "search"
 
-    def test_api_request_creates_internal_span(self):
-        """codex.api_request -> INTERNAL child span."""
-        events = [
-            {
-                "event": "codex.api_request",
-                "time_ns": "1500000000",
-                "attrs": {"model": "gpt-4", "status": "200", "attempt": "1", "duration_ms": "500"},
-            },
-        ]
-        attrs = {}
-        children, _, _ = _build_child_spans(
-            events, "trace123", "parent456", "sess1", 1000, attrs,
-        )
-        assert len(children) == 1
-        span = children[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        assert span["name"] == "API Request (gpt-4)"
-        span_attrs = {a["key"]: a["value"] for a in span["attributes"]}
-        assert span_attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
-        assert span_attrs["codex.request.model"]["stringValue"] == "gpt-4"
-        assert span_attrs["codex.request.duration_ms"]["intValue"] == 500
-
-    def test_websocket_request_creates_internal_span(self):
-        """codex.websocket_request also creates INTERNAL child span."""
-        events = [
-            {
-                "event": "codex.websocket_request",
-                "time_ns": "1500000000",
-                "attrs": {"model": "o3"},
-            },
-        ]
-        attrs = {}
-        children, _, _ = _build_child_spans(
-            events, "trace123", "parent456", "sess1", 1000, attrs,
-        )
-        assert len(children) == 1
-        span = children[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        assert "API Request" in span["name"]
-
-    def test_optional_attrs_omitted_when_empty(self):
-        """auth_mode and connection_reused omitted when empty."""
-        events = [
-            {
-                "event": "codex.api_request",
-                "time_ns": "1500000000",
-                "attrs": {"model": "gpt-4", "auth_mode": "", "auth.connection_reused": ""},
-            },
-        ]
-        attrs = {}
-        children, _, _ = _build_child_spans(
-            events, "trace123", "parent456", "sess1", 1000, attrs,
-        )
-        span = children[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        attr_keys = {a["key"] for a in span["attributes"]}
-        assert "codex.request.auth_mode" not in attr_keys
-        assert "codex.request.connection_reused" not in attr_keys
-
 
 # ---------------------------------------------------------------------------
 # Event enrichment tests

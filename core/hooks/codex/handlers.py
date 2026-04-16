@@ -396,44 +396,6 @@ def _build_child_spans(events: list, trace_id: str, parent_span_id: str,
         )
         child_spans.append(child_span)
 
-    # --- INTERNAL child spans from API/websocket requests (bash lines 381-421) ---
-    api_events = [
-        e for e in events
-        if e.get("event") in ("codex.api_request", "codex.websocket_request")
-    ]
-    for req_event in api_events:
-        ra = req_event.get("attrs", {})
-        req_model = ra.get("model") or ra.get("llm.model_name") or "unknown"
-        req_status = str(ra.get("status") or ra.get("status_code") or ra.get("success") or "ok")
-        req_attempt = str(ra.get("attempt", "1"))
-        req_duration_ms = ra.get("duration_ms", "0")
-        req_auth_mode = ra.get("auth_mode", "")
-        req_conn_reused = ra.get("auth.connection_reused", "")
-        req_ns = _safe_int(req_event.get("time_ns", 0))
-        req_start_ms = req_ns // 1_000_000 or event_start_time
-
-        request_attrs = {
-            "openinference.span.kind": "CHAIN",
-            "codex.request.model": req_model,
-            "codex.request.status": req_status,
-            "codex.request.attempt": req_attempt,
-            "codex.request.duration_ms": _safe_int(req_duration_ms),
-            "session.id": session_id,
-        }
-        # Only include non-empty optional attrs (matches bash with_entries filter)
-        if req_auth_mode:
-            request_attrs["codex.request.auth_mode"] = req_auth_mode
-        if req_conn_reused:
-            request_attrs["codex.request.connection_reused"] = req_conn_reused == "true"
-
-        child_span = build_span(
-            f"API Request ({req_model})", "INTERNAL",
-            generate_span_id(), trace_id, parent_span_id,
-            req_start_ms, req_start_ms, request_attrs,
-            SERVICE_NAME, SCOPE_NAME,
-        )
-        child_spans.append(child_span)
-
     return child_spans, event_start_time, event_end_time
 
 
