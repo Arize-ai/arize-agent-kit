@@ -99,7 +99,7 @@ Walk the user through finding their credentials:
 
 Both `ARIZE_API_KEY` and `ARIZE_SPACE_ID` are required.
 
-### 3. Python dependencies (handled by the shared collector)
+### 3. Python dependencies (bundled with the package)
 
 Arize AX uses gRPC for export, but the gRPC dependencies are bundled with the package — they are **not** required in the user's Python environment.  No `pip install` step is needed for basic tracing.
 
@@ -253,7 +253,7 @@ source ~/.codex/arize-env.sh && echo "ARIZE_TRACE_ENABLED=$ARIZE_TRACE_ENABLED"
 arize-codex-buffer status
 ```
 
-5. **Phoenix connectivity** (if using Phoenix):
+4. **Phoenix connectivity** (if using Phoenix):
 ```bash
 curl -sf ${PHOENIX_ENDPOINT}/v1/traces >/dev/null && echo "Phoenix reachable" || echo "Phoenix not reachable"
 ```
