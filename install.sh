@@ -502,6 +502,7 @@ stop_codex_buffer() {
 
 start_codex_buffer() {
     local buffer_port="4318"
+    # Legacy installs may still have collector.port in config
     local cfg_port
     cfg_port=$(cfg_get "collector.port") || true
     [[ -n "$cfg_port" ]] && buffer_port="$cfg_port"
@@ -601,7 +602,7 @@ collect_backend_credentials() {
     CRED_ARIZE_API_KEY=""
     CRED_ARIZE_SPACE_ID=""
     CRED_ARIZE_ENDPOINT="otlp.arize.com:443"
-    CRED_COLLECTOR_PORT=4318
+    CRED_BUFFER_PORT=4318
     CRED_BACKEND_TARGET=""
     CRED_PER_HARNESS=false
 
@@ -681,12 +682,12 @@ collect_backend_credentials() {
         if [[ "$harness_name" == "codex" ]]; then
             echo ""
             local port_str
-            read -rp "  Buffer service port [${CRED_COLLECTOR_PORT}]: " port_str < "$_tty_in"
+            read -rp "  Buffer service port [${CRED_BUFFER_PORT}]: " port_str < "$_tty_in"
             if [[ -n "$port_str" ]]; then
                 if [[ "$port_str" =~ ^[0-9]+$ ]]; then
-                    CRED_COLLECTOR_PORT="$port_str"
+                    CRED_BUFFER_PORT="$port_str"
                 else
-                    warn "Invalid port '${port_str}', using default ${CRED_COLLECTOR_PORT}"
+                    warn "Invalid port '${port_str}', using default ${CRED_BUFFER_PORT}"
                 fi
             fi
         fi
@@ -743,14 +744,15 @@ setup_shared_runtime() {
         fi
     fi
 
-    if [[ -n "$existing_backend" ]]; then
-        CRED_BACKEND_TARGET="$existing_backend"
+    # Always call collect_backend_credentials so the user gets the
+    # per-harness override prompt when a global backend already exists.
+    collect_backend_credentials "$harness_name"
+
+    if [[ -n "$existing_backend" && "$CRED_PER_HARNESS" != true ]]; then
         info "Existing backend config found (${existing_backend}) — adding harness entry"
         if [[ -n "$harness_name" ]]; then
             defer_harness_merge=true
         fi
-    else
-        collect_backend_credentials "$harness_name"
     fi
 
     # Collect project name for this harness
@@ -786,17 +788,34 @@ setup_shared_runtime() {
     fi
 
     # Write/update config
-    if [[ -n "$existing_backend" ]]; then
-        # Deferred harness merge (now that venv with pyyaml exists)
-        if [[ "$defer_harness_merge" == true ]]; then
-            local vp
-            vp=$(venv_python 2>/dev/null) || true
-            if [[ -n "$vp" ]]; then
-                cfg_set "harnesses.${harness_name}.project_name" "${CRED_PROJECT_NAME}"
-                info "Added harness '${harness_name}' to ${CONFIG_FILE}"
-            else
-                warn "Could not add harness '${harness_name}' to config — venv not available"
+    if [[ "$defer_harness_merge" == true ]]; then
+        # Existing global config — merge harness entry (now that venv with pyyaml exists)
+        local vp
+        vp=$(venv_python 2>/dev/null) || true
+        if [[ -n "$vp" ]]; then
+            cfg_set "harnesses.${harness_name}.project_name" "${CRED_PROJECT_NAME}"
+            info "Added harness '${harness_name}' to ${CONFIG_FILE}"
+        else
+            warn "Could not add harness '${harness_name}' to config — venv not available"
+        fi
+    elif [[ "$CRED_PER_HARNESS" == true && -n "$existing_backend" ]]; then
+        # User chose per-harness override — write per-harness backend block
+        local vp
+        vp=$(venv_python 2>/dev/null) || true
+        if [[ -n "$vp" ]]; then
+            cfg_set "harnesses.${harness_name}.project_name" "${CRED_PROJECT_NAME}"
+            cfg_set "harnesses.${harness_name}.backend.target" "${CRED_BACKEND_TARGET}"
+            if [[ "$CRED_BACKEND_TARGET" == "phoenix" ]]; then
+                cfg_set "harnesses.${harness_name}.backend.phoenix.endpoint" "${CRED_PHOENIX_ENDPOINT}"
+                cfg_set "harnesses.${harness_name}.backend.phoenix.api_key" "${CRED_PHOENIX_API_KEY}"
+            elif [[ "$CRED_BACKEND_TARGET" == "arize" ]]; then
+                cfg_set "harnesses.${harness_name}.backend.arize.endpoint" "${CRED_ARIZE_ENDPOINT}"
+                cfg_set "harnesses.${harness_name}.backend.arize.api_key" "${CRED_ARIZE_API_KEY}"
+                cfg_set "harnesses.${harness_name}.backend.arize.space_id" "${CRED_ARIZE_SPACE_ID}"
             fi
+            info "Added harness '${harness_name}' with per-harness backend to ${CONFIG_FILE}"
+        else
+            warn "Could not add harness '${harness_name}' to config — venv not available"
         fi
     else
         write_config "$CRED_BACKEND_TARGET" "$harness_name" \
@@ -1119,6 +1138,7 @@ ENVEOF
 
     # --- 3. Configure OTLP exporter in config.toml ---
     local buffer_port
+    # Legacy installs may still have collector.port in config
     buffer_port=$(cfg_get "collector.port") || true
     [[ -z "$buffer_port" ]] && buffer_port=4318
 
