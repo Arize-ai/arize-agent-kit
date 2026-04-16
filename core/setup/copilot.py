@@ -39,6 +39,9 @@ def _run() -> None:
     # Project name
     project_name = prompt_project_name("copilot")
 
+    # Optional: User ID
+    user_id = prompt_user_id()
+
     if existing_backend:
         print_color(
             f"Existing config found: backend={existing_backend} in ~/.arize/harness/config.yaml",
@@ -49,6 +52,8 @@ def _run() -> None:
 
         # Add copilot harness entry
         set_value(config, "harnesses.copilot.project_name", project_name)
+        if user_id:
+            set_value(config, "user_id", user_id)
         save_config(config)
         info("Added copilot harness to existing config")
     else:
@@ -57,15 +62,10 @@ def _run() -> None:
         info(f"Target: {'Phoenix at ' + credentials['endpoint'] if target == 'phoenix' else 'Arize AX (endpoint: ' + credentials['endpoint'] + ')'}")
 
         # Write config.yaml
-        write_config(target, credentials, "copilot", project_name)
+        write_config(target, credentials, "copilot", project_name, user_id=user_id)
         info("Wrote config to ~/.arize/harness/config.yaml")
 
-    # Optional: User ID
-    user_id = prompt_user_id()
     if user_id:
-        config = load_config()
-        set_value(config, "user_id", user_id)
-        save_config(config)
         info(f"User ID set: {user_id}")
 
     # Summary
