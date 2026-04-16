@@ -25,6 +25,15 @@ arize-hook-session-end = "core.hooks.claude.handlers:session_end"
 arize-hook-codex-notify = "core.hooks.codex.handlers:notify"
 # Codex proxy
 arize-codex-proxy = "core.hooks.codex.proxy:main"
+# Copilot hooks
+arize-hook-copilot-session-start = "core.hooks.copilot.handlers:session_start"
+arize-hook-copilot-user-prompt = "core.hooks.copilot.handlers:user_prompt_submitted"
+arize-hook-copilot-pre-tool = "core.hooks.copilot.handlers:pre_tool_use"
+arize-hook-copilot-post-tool = "core.hooks.copilot.handlers:post_tool_use"
+arize-hook-copilot-stop = "core.hooks.copilot.handlers:stop"
+arize-hook-copilot-error = "core.hooks.copilot.handlers:error_occurred"
+arize-hook-copilot-session-end = "core.hooks.copilot.handlers:session_end"
+arize-hook-copilot-subagent-stop = "core.hooks.copilot.handlers:subagent_stop"
 # Cursor hook
 arize-hook-cursor = "core.hooks.cursor.handlers:main"
 # Setup wizards
