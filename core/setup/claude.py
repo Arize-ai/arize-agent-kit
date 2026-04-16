@@ -118,16 +118,18 @@ def _run() -> None:
     settings = _load_settings(settings_path)
     env_block = settings.setdefault("env", {})
 
+    env_block["ARIZE_TRACE_ENABLED"] = "true"
+    if not env_block.get("ARIZE_PROJECT_NAME"):
+        env_block["ARIZE_PROJECT_NAME"] = "claude-code"
+
     if target == "phoenix":
         env_block["PHOENIX_ENDPOINT"] = credentials["endpoint"]
-        env_block["ARIZE_TRACE_ENABLED"] = "true"
         print("")
         print_color(f"✓ Configured for Phoenix at {credentials['endpoint']}", "green")
     else:
         env_block["ARIZE_API_KEY"] = credentials["api_key"]
         env_block["ARIZE_SPACE_ID"] = credentials["space_id"]
         env_block["ARIZE_OTLP_ENDPOINT"] = credentials["endpoint"]
-        env_block["ARIZE_TRACE_ENABLED"] = "true"
         print("")
         print_color(f"✓ Configured for Arize AX (endpoint: {credentials['endpoint']})", "green")
         print("")
