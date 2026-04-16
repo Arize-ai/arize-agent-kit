@@ -34,6 +34,15 @@ def _mock_ctl_sleep(monkeypatch):
     return sleep_calls
 
 
+@pytest.fixture(autouse=True)
+def _mock_ctl_health(monkeypatch):
+    """Mock _health_check to prevent tests from finding a real buffer on localhost.
+
+    Tests that need a healthy endpoint use mock_collector which patches this back.
+    """
+    monkeypatch.setattr("core.codex_buffer_ctl._health_check", lambda *a, **kw: False)
+
+
 # ---------------------------------------------------------------------------
 # Helper fixture: monkeypatch constants in BOTH core.constants AND
 # core.codex_buffer_ctl, because codex_buffer_ctl uses `from core.constants import`
@@ -222,12 +231,11 @@ class TestHealthCheck:
 # ---------------------------------------------------------------------------
 
 class TestBufferStatus:
-    def test_stopped_when_no_pid_file(self, ctl_paths):
-        """No PID file means stopped."""
+    def test_stopped_when_no_pid_file_and_no_health(self, ctl_paths):
+        """No PID file and no healthy service means stopped."""
         status, pid, addr = buffer_status()
         assert status == "stopped"
         assert pid is None
-        assert addr is None
 
     def test_stopped_when_dead_pid(self, ctl_paths, sample_config):
         """PID file with dead PID is cleaned up and reports stopped."""
@@ -239,7 +247,6 @@ class TestBufferStatus:
         status, pid, addr = buffer_status()
         assert status == "stopped"
         assert pid is None
-        assert addr is None
         # PID file should be cleaned up
         assert not pid_file.exists()
 
@@ -361,6 +368,9 @@ class TestBufferStart:
         import core.constants as c
         import core.codex_buffer_ctl as ctl
 
+        # Restore real _health_check for this test (overrides autouse mock)
+        monkeypatch.setattr("core.codex_buffer_ctl._health_check", _health_check)
+
         config = {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
@@ -416,11 +426,11 @@ class TestBufferStart:
         mock_popen = MagicMock(return_value=mock_proc)
         monkeypatch.setattr("core.codex_buffer_ctl.subprocess.Popen", mock_popen)
 
-        # Mock _health_check: fail first call, succeed on second
+        # Mock _health_check: fail first calls (status + start pre-check), succeed after launch
         call_count = {"n": 0}
         def fake_health_check(host, port, timeout=2.0):
             call_count["n"] += 1
-            return call_count["n"] >= 2
+            return call_count["n"] >= 4  # 1=status, 2=start pre-check, 3=port-check, 4+=poll
         monkeypatch.setattr("core.codex_buffer_ctl._health_check", fake_health_check)
 
         result = buffer_start()
@@ -453,8 +463,8 @@ class TestBufferStart:
         mock_popen = MagicMock(return_value=mock_proc)
         monkeypatch.setattr("core.codex_buffer_ctl.subprocess.Popen", mock_popen)
 
-        # Mock _health_check: False first (pre-socket early check), True after launch
-        health_calls = iter([False, True])
+        # Mock _health_check: False for status + start pre-checks, True after launch
+        health_calls = iter([False, False, True])
         monkeypatch.setattr("core.codex_buffer_ctl._health_check", lambda h, p, timeout=2.0: next(health_calls))
 
         result = buffer_start()

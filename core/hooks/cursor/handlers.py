@@ -15,7 +15,6 @@ from core.common import (
     build_span,
     env,
     error,
-    get_target,
     get_timestamp_ms,
     log,
     send_span,
@@ -79,12 +78,6 @@ def _dispatch(event: str, input_json: dict) -> None:
 
     # Early exit: tracing disabled
     if not env.trace_enabled:
-        return
-
-    # Early exit: no backend configured
-    target = get_target()
-    if target == "none":
-        log("No backend configured, skipping")
         return
 
     trace_id = trace_id_from_generation(gen_id) if gen_id else ""
