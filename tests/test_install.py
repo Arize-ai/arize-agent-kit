@@ -155,6 +155,55 @@ def test_install_sh_has_cursor_events():
         assert event in text, f"Missing Cursor event: {event}"
 
 
+def test_install_sh_has_copilot_hook_entry_points():
+    """install.sh must reference all Copilot hook entry points."""
+    text = INSTALL_SH.read_text()
+    expected_hooks = [
+        "arize-hook-copilot-session-start",
+        "arize-hook-copilot-user-prompt",
+        "arize-hook-copilot-pre-tool",
+        "arize-hook-copilot-post-tool",
+        "arize-hook-copilot-stop",
+        "arize-hook-copilot-subagent-stop",
+        "arize-hook-copilot-error",
+        "arize-hook-copilot-session-end",
+    ]
+    for hook in expected_hooks:
+        assert hook in text, f"Missing Copilot hook entry point: {hook}"
+
+
+def test_install_sh_has_setup_copilot_function():
+    """install.sh must define setup_copilot function."""
+    text = INSTALL_SH.read_text()
+    assert "setup_copilot()" in text
+
+
+def test_install_sh_copilot_vscode_hooks_format():
+    """install.sh must write VS Code hooks with PascalCase keys and command field."""
+    text = INSTALL_SH.read_text()
+    assert "copilot-tracing.json" in text
+    # VS Code events use PascalCase
+    for event in ["SessionStart", "UserPromptSubmit", "PreToolUse",
+                   "PostToolUse", "Stop", "SubagentStop"]:
+        assert f'"{event}": "arize-hook-copilot-' in text, \
+            f"Missing VS Code PascalCase event: {event}"
+    # VS Code uses "command" field
+    assert '"type": "command", "command": hook_cmd' in text
+
+
+def test_install_sh_copilot_cli_hooks_format():
+    """install.sh must write CLI hooks with camelCase keys, bash field, version 1."""
+    text = INSTALL_SH.read_text()
+    # CLI events use camelCase
+    for event in ["sessionStart", "userPromptSubmitted", "preToolUse",
+                   "postToolUse", "errorOccurred", "sessionEnd"]:
+        assert f'"{event}": "arize-hook-copilot-' in text, \
+            f"Missing CLI camelCase event: {event}"
+    # CLI uses "bash" field and version 1
+    assert '"type": "command", "bash": hook_cmd' in text
+    assert '"version": 1' in text
+
+
 def test_install_sh_venv_skip_requires_package_install():
     """Skipping pip install must require arize-agent-kit + console scripts, not yaml alone."""
     text = INSTALL_SH.read_text()
@@ -259,9 +308,10 @@ class TestCollectorToBufferRename:
         assert "arize-collector-ctl" not in self.text
 
     def test_main_calls_setup_shared_runtime(self):
-        """main() must call setup_shared_runtime for all three harnesses."""
+        """main() must call setup_shared_runtime for all four harnesses."""
         assert 'setup_shared_runtime "claude-code"' in self.text
         assert 'setup_shared_runtime "codex"' in self.text
+        assert 'setup_shared_runtime "copilot"' in self.text
         assert 'setup_shared_runtime "cursor"' in self.text
 
 
