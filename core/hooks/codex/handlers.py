@@ -608,5 +608,100 @@ def notify():
         error(f"codex notify hook failed: {e}")
 
 
+def drain_idle():
+    """Entry point for arize-hook-codex-drain. Flushes idle conversations from the buffer.
+
+    Called by the proxy after `codex exec` exits. Fetches conversations that have
+    been idle for >2 seconds, builds span trees from their events, and sends them.
+    """
+    try:
+        load_env_file(Path.home() / ".codex" / "arize-env.sh")
+
+        if not check_requirements():
+            return
+
+        buffer_ensure()
+
+        import time
+        import urllib.request
+        port = int(os.environ.get("ARIZE_COLLECTOR_PORT", "4318"))
+
+        # Wait for events to finish arriving after codex exits
+        time.sleep(5)
+
+        # Fetch conversations idle for >5 seconds (safe margin for completed sessions)
+        url = f"http://127.0.0.1:{port}/flush-idle?timeout_seconds=5"
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                conversations = json.loads(resp.read())
+        except Exception as e:
+            error(f"Failed to fetch idle conversations: {e}")
+            return
+
+        if not conversations:
+            return
+
+        log(f"Draining {len(conversations)} idle conversation(s)")
+
+        for conv_id, events in conversations.items():
+            if not events:
+                continue
+
+            log(f"Processing {len(events)} events for conversation {conv_id}")
+
+            # Resolve session for this conversation
+            state = resolve_session(conv_id)
+            ensure_session_initialized(state, conv_id, os.getcwd())
+            session_id = state.get("session_id")
+            state.increment("trace_count")
+            trace_count = state.get("trace_count")
+            project_name = state.get("project_name")
+            user_id = state.get("user_id")
+
+            # Generate IDs
+            trace_id = generate_trace_id()
+            span_id = generate_span_id()
+            start_time = get_timestamp_ms()
+            end_time = start_time
+
+            # Build parent span attrs from events
+            attrs = {
+                "session.id": session_id,
+                "trace.number": trace_count,
+                "project.name": project_name,
+                "openinference.span.kind": "LLM",
+                "codex.thread_id": conv_id,
+                "codex.drain_source": "flush-idle",
+            }
+            if user_id:
+                attrs["user.id"] = user_id
+
+            # Build child spans and enrich parent from events
+            child_spans, event_start, event_end = _build_child_spans(
+                events, trace_id, span_id, session_id, start_time, attrs,
+            )
+            if event_start != start_time or event_end != start_time:
+                start_time = event_start
+                end_time = event_end
+
+            # Build and send
+            parent_span = build_span(
+                f"Turn {trace_count}", "LLM", span_id, trace_id, "",
+                start_time, end_time, attrs, SERVICE_NAME, SCOPE_NAME,
+            )
+
+            if child_spans:
+                all_spans = [parent_span] + child_spans
+                multi_payload = build_multi_span(all_spans, SERVICE_NAME, SCOPE_NAME)
+                _send_span(multi_payload)
+            else:
+                _send_span(parent_span)
+
+            log(f"Drained conversation {conv_id}: turn {trace_count}, {len(child_spans)} children")
+
+    except Exception as e:
+        error(f"codex drain-idle failed: {e}")
+
+
 if __name__ == "__main__":
     notify()

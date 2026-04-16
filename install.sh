@@ -1197,12 +1197,14 @@ OTELEOF
         fi
 
         if [[ -f "$proxy_template" ]]; then
-            local ctl_cmd
+            local ctl_cmd drain_cmd
             ctl_cmd=$(venv_bin "arize-codex-buffer")
+            drain_cmd=$(venv_bin "arize-hook-codex-drain")
             sed \
                 -e "s|__REAL_CODEX__|${real_codex_bin}|g" \
                 -e "s|__ARIZE_ENV_FILE__|${env_file}|g" \
                 -e "s|__SHARED_COLLECTOR_CTL__|${ctl_cmd}|g" \
+                -e "s|__DRAIN_CMD__|${drain_cmd}|g" \
                 "$proxy_template" > "$proxy_path"
             chmod +x "$proxy_path"
             info "Installed codex proxy to ${proxy_path}"

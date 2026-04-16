@@ -5,6 +5,7 @@ ARIZE_CODEX_PROXY=true
 REAL_CODEX="__REAL_CODEX__"
 ARIZE_ENV_FILE="__ARIZE_ENV_FILE__"
 BUFFER_CTL="__SHARED_COLLECTOR_CTL__"
+DRAIN_CMD="__DRAIN_CMD__"
 
 # Source env file if it exists
 if [[ -f "$ARIZE_ENV_FILE" ]]; then
@@ -28,4 +29,21 @@ elif [[ -f "$BUFFER_CTL" ]]; then
     "$BUFFER_CTL" start >/dev/null 2>&1
 fi
 
-exec "$REAL_CODEX" "$@"
+# Check if any arg is "exec" (non-interactive mode)
+_is_exec=false
+for _arg in "$@"; do
+    [[ "$_arg" == "exec" ]] && _is_exec=true && break
+done
+
+if [[ "$_is_exec" == true ]]; then
+    # Run as subprocess so we can drain the buffer after exit
+    "$REAL_CODEX" "$@"
+    EXIT_CODE=$?
+    # Drain idle conversations from the buffer
+    if [[ -f "$DRAIN_CMD" ]]; then
+        "$DRAIN_CMD" >/dev/null 2>&1 || true
+    fi
+    exit $EXIT_CODE
+else
+    exec "$REAL_CODEX" "$@"
+fi

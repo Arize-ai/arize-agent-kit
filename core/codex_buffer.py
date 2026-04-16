@@ -84,6 +84,22 @@ def _flush_events(conversation_id):
     return events
 
 
+def _flush_idle(timeout_seconds=2.0):
+    """Flush conversations with no new events for timeout_seconds.
+
+    Returns dict of {conversation_id: [events, ...]} for all idle conversations.
+    Active conversations (with recent events) are left in the buffer.
+    """
+    now = time.time()
+    result = {}
+    with _event_lock:
+        idle = [k for k, t in _event_timestamps.items() if now - t >= timeout_seconds]
+        for k in idle:
+            result[k] = _event_buffers.pop(k, [])
+            _event_timestamps.pop(k, None)
+    return result
+
+
 def _drain_events(conversation_id, since_ns=0, wait_ms=0, quiet_ms=0):
     """Return events newer than since_ns, optionally waiting for more to arrive.
 
@@ -267,6 +283,11 @@ class CodexBufferHandler(BaseHTTPRequestHandler):
                 return
             events = _flush_events(conv_id)
             self._send_json(200, events)
+        elif path == "/flush-idle":
+            query = parse_qs(parsed.query)
+            timeout = float(query.get("timeout_seconds", ["2"])[0] or "2")
+            result = _flush_idle(timeout)
+            self._send_json(200, result)
         elif path.startswith("/drain/"):
             conv_id = path[len("/drain/"):]
             if not conv_id:

@@ -105,10 +105,18 @@ def main() -> None:
         print("[arize] Could not find real codex binary on PATH", file=sys.stderr)
         sys.exit(1)
 
-    # 3. exec replaces this process (matches bash ``exec "$REAL_CODEX" "$@"``)
-    if os.name == "nt":
-        # Windows: no exec, use subprocess with exit code passthrough
+    # 3. For exec mode: wrap so we can drain the buffer after codex exits.
+    #    For interactive mode: exec replaces this process.
+    is_exec = "exec" in sys.argv[1:]
+
+    if is_exec or os.name == "nt":
         result = subprocess.run([real_codex] + sys.argv[1:])
+        if is_exec:
+            try:
+                from core.hooks.codex.handlers import drain_idle
+                drain_idle()
+            except Exception:
+                pass  # never fail the proxy
         sys.exit(result.returncode)
     else:
         os.execvp(real_codex, [real_codex] + sys.argv[1:])
