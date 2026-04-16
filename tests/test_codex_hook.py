@@ -845,6 +845,41 @@ class TestIntegration:
 
 
 # ---------------------------------------------------------------------------
+# Span sending tests
+# ---------------------------------------------------------------------------
+
+class TestSendSpan:
+
+    def test_send_span_delegates_to_backend_sender(self):
+        """Codex hook sends completed spans via core.common.send_span()."""
+        payload = {
+            "resourceSpans": [{
+                "resource": {"attributes": []},
+                "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
+            }]
+        }
+
+        with mock.patch("core.hooks.codex.handlers.send_span_to_backend", return_value=True) as mock_send:
+            _send_span(payload, 4318)
+
+        mock_send.assert_called_once_with(payload)
+
+    def test_send_span_logs_error_when_backend_send_fails(self, capsys):
+        """Backend send failures are surfaced as Codex hook errors."""
+        payload = {
+            "resourceSpans": [{
+                "resource": {"attributes": []},
+                "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
+            }]
+        }
+
+        with mock.patch("core.hooks.codex.handlers.send_span_to_backend", return_value=False):
+            _send_span(payload, 4318)
+
+        assert "Failed to send span to backend" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
 # Error handling tests
 # ---------------------------------------------------------------------------
 

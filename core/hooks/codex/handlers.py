@@ -24,6 +24,7 @@ from core.common import (
     generate_trace_id,
     get_timestamp_ms,
     log,
+    send_span as send_span_to_backend,
 )
 from core.hooks.codex.adapter import (
     SCOPE_NAME,
@@ -264,33 +265,14 @@ def _drain_events(thread_id: str, state, collector_port: int) -> list:
 # ---------------------------------------------------------------------------
 
 def _send_span(payload: dict, collector_port: int) -> None:
-    """Send an OTLP span payload to the collector via HTTP POST.
+    """Send the completed span payload directly to the configured backend.
 
-    POST http://127.0.0.1:{port}/v1/spans with JSON body.
-    Matches bash send_to_collector / send_span.
+    ``collector_port`` is retained for API compatibility with existing tests and
+    callers; Codex still uses the local buffer service for event drain, but the
+    final span tree must go through ``core.common.send_span()``.
     """
-    if env.dry_run:
-        try:
-            names = [s["name"] for s in payload.get("resourceSpans", [{}])[0]
-                     .get("scopeSpans", [{}])[0].get("spans", [])]
-            log(f"DRY RUN: {names}")
-        except Exception:
-            log("DRY RUN: (unparseable payload)")
-        return
-
-    url = f"http://127.0.0.1:{collector_port}/v1/spans"
-    body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            resp.read()
-    except Exception as e:
-        error(f"Failed to send span to collector: {e}")
+    if not send_span_to_backend(payload):
+        error("Failed to send span to backend")
 
 
 # ---------------------------------------------------------------------------
