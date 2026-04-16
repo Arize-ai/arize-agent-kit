@@ -110,34 +110,32 @@ def buffer_status() -> tuple:
     Returns:
         ("running", pid, "host:port") or ("stopped", None, None)
     """
-    if not CODEX_BUFFER_PID_FILE.is_file():
-        return ("stopped", None, None)
+    host, port = _resolve_host_port()
+    addr = f"{host}:{port}"
 
-    try:
-        pid_text = CODEX_BUFFER_PID_FILE.read_text().strip()
-        pid = int(pid_text)
-    except (ValueError, OSError):
-        # Non-numeric or unreadable PID file — remove it
+    # Try PID file first
+    if CODEX_BUFFER_PID_FILE.is_file():
         try:
-            CODEX_BUFFER_PID_FILE.unlink()
-        except OSError:
-            pass
-        return ("stopped", None, None)
+            pid_text = CODEX_BUFFER_PID_FILE.read_text().strip()
+            pid = int(pid_text)
+        except (ValueError, OSError):
+            pid = None
 
-    if not _is_process_alive(pid):
+        if pid and _is_process_alive(pid):
+            return ("running", pid, addr)
+
         # Stale PID file — clean up
         try:
             CODEX_BUFFER_PID_FILE.unlink()
         except OSError:
             pass
-        return ("stopped", None, None)
 
-    host, port = _resolve_host_port()
-    addr = f"{host}:{port}"
+    # No valid PID file — fall back to health check (buffer may have been
+    # started by the proxy or another process without writing a PID file)
+    if _health_check(host, port, timeout=2.0):
+        return ("running", None, addr)
 
-    # Health check — but process is alive, so give benefit of the doubt either way
-    _health_check(host, port, timeout=2.0)
-    return ("running", pid, addr)
+    return ("stopped", None, None)
 
 
 def buffer_start() -> bool:
