@@ -86,9 +86,9 @@ def test_install_sh_unknown_command_exits_nonzero():
 # ---------------------------------------------------------------------------
 
 def test_install_sh_has_all_commands():
-    """install.sh must support claude, codex, cursor, update, uninstall."""
+    """install.sh must support claude, codex, copilot, cursor, update, uninstall."""
     text = INSTALL_SH.read_text()
-    for cmd in ["claude", "codex", "cursor", "update", "uninstall"]:
+    for cmd in ["claude", "codex", "copilot", "cursor", "update", "uninstall"]:
         assert cmd in text, f"Missing command: {cmd}"
 
 

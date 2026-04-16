@@ -399,12 +399,65 @@ with open(hooks_file, "w") as f:
         """Invalid existing JSON is handled gracefully."""
         with tempfile.TemporaryDirectory() as tmpdir:
             hooks_file = os.path.join(tmpdir, "copilot-tracing.json")
+            venv_bin = os.path.join(tmpdir, "venv", "bin")
             with open(hooks_file, "w") as f:
                 f.write("not valid json{{{")
 
-            # Run by passing through _run_vscode_python with manual setup
-            data, _ = self._run_vscode_python()  # Fresh run works
+            code = '''
+import json, os
+
+hooks_file = os.environ["_VSCODE_HOOKS_FILE"]
+venv_bin_dir = os.environ["_VENV_BIN_DIR"]
+
+VSCODE_HOOK_EVENTS = {
+    "SessionStart": "arize-hook-copilot-session-start",
+    "UserPromptSubmit": "arize-hook-copilot-user-prompt",
+    "PreToolUse": "arize-hook-copilot-pre-tool",
+    "PostToolUse": "arize-hook-copilot-post-tool",
+    "Stop": "arize-hook-copilot-stop",
+    "SubagentStop": "arize-hook-copilot-subagent-stop",
+}
+
+if os.path.isfile(hooks_file):
+    try:
+        with open(hooks_file) as f:
+            hooks_data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        hooks_data = {}
+else:
+    hooks_data = {}
+
+hooks = hooks_data.setdefault("hooks", {})
+
+for event, entry_point in VSCODE_HOOK_EVENTS.items():
+    hook_cmd = os.path.join(venv_bin_dir, entry_point)
+    event_hooks = hooks.setdefault(event, [])
+    already = any(
+        h.get("command", "") == hook_cmd
+        for entry in event_hooks
+        for h in entry.get("hooks", [])
+    )
+    if not already:
+        event_hooks.append({"hooks": [{"type": "command", "command": hook_cmd}]})
+
+with open(hooks_file, "w") as f:
+    json.dump(hooks_data, f, indent=2)
+    f.write("\\n")
+'''
+            env = os.environ.copy()
+            env["_VSCODE_HOOKS_FILE"] = hooks_file
+            env["_VENV_BIN_DIR"] = venv_bin
+
+            result = subprocess.run(
+                ["python3", "-c", code],
+                env=env, capture_output=True, text=True, timeout=10,
+            )
+            assert result.returncode == 0, f"Python error: {result.stderr}"
+
+            with open(hooks_file) as f:
+                data = json.load(f)
             assert "hooks" in data
+            assert len(data["hooks"]) == 6
 
 
 class TestEmbeddedPythonCLIHooks:
