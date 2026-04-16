@@ -496,6 +496,21 @@ class TestPostToolUse:
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["tool.url"]["stringValue"] == "https://example.com"
 
+    def test_cli_input_value_normalized_like_vscode(self, mock_resolve, state, captured_spans):
+        """CLI mode re-serializes parsed toolArgs so input.value matches VS Code json.dumps format."""
+        state.set("current_trace_id", "trace-abc")
+        state.set("current_trace_span_id", "span-parent")
+        tool_dict = {"file_path": "/foo.py"}
+        inp = _cli_base({
+            "toolName": "Read",
+            "toolArgs": json.dumps(tool_dict),
+            "toolResult": {"textResultForLlm": "ok"},
+        })
+        _handle_post_tool_use(inp)
+        attrs = _get_span_attrs(captured_spans[0])
+        # Should match json.dumps of the parsed dict (same as VS Code mode)
+        assert attrs["input.value"]["stringValue"] == json.dumps(tool_dict)
+
 
 # ---------------------------------------------------------------------------
 # stop tests (VS Code only)
@@ -740,7 +755,24 @@ class TestSessionEnd:
 class TestSubagentStop:
 
     def test_builds_llm_span_for_subagent(self, mock_resolve, state, captured_spans, transcript_file):
-        """Builds LLM span for subagent with agent_type."""
+        """Builds LLM span for subagent with agent_type using transcript_path (VS Code base field)."""
+        state.set("current_trace_id", "t" * 32)
+        state.set("current_trace_span_id", "s" * 16)
+        inp = _vscode_base({
+            "agent_type": "code-review",
+            "agent_id": "agent-1",
+            "transcript_path": transcript_file,
+        })
+        _handle_subagent_stop(inp)
+        assert len(captured_spans) == 1
+        attrs = _get_span_attrs(captured_spans[0])
+        assert attrs["openinference.span.kind"]["stringValue"] == "LLM"
+        assert attrs["copilot.agent.type"]["stringValue"] == "code-review"
+        assert attrs["subagent.type"]["stringValue"] == "code-review"
+        assert "I found the issue." in attrs["output.value"]["stringValue"]
+
+    def test_falls_back_to_agent_transcript_path(self, mock_resolve, state, captured_spans, transcript_file):
+        """Falls back to agent_transcript_path if transcript_path not present."""
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
         inp = _vscode_base({
@@ -751,9 +783,6 @@ class TestSubagentStop:
         _handle_subagent_stop(inp)
         assert len(captured_spans) == 1
         attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["openinference.span.kind"]["stringValue"] == "LLM"
-        assert attrs["copilot.agent.type"]["stringValue"] == "code-review"
-        assert attrs["subagent.type"]["stringValue"] == "code-review"
         assert "I found the issue." in attrs["output.value"]["stringValue"]
 
     def test_skips_empty_agent_type(self, mock_resolve, state, captured_spans):

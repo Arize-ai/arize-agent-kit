@@ -252,11 +252,12 @@ def _handle_post_tool_use(input_json: dict) -> None:
         # toolArgs is a JSON string in CLI mode
         tool_args_raw = input_json.get("toolArgs", "")
         if isinstance(tool_args_raw, str):
-            tool_input = tool_args_raw
             try:
                 tool_input_raw = json.loads(tool_args_raw)
+                tool_input = json.dumps(tool_input_raw)
             except (json.JSONDecodeError, TypeError):
                 tool_input_raw = {}
+                tool_input = tool_args_raw
         else:
             tool_input_raw = tool_args_raw or {}
             tool_input = json.dumps(tool_input_raw)
@@ -564,7 +565,8 @@ def _handle_subagent_stop(input_json: dict) -> None:
     out_tokens = 0
     start_time = end_time
 
-    transcript_path = input_json.get("agent_transcript_path", "")
+    transcript_path = (input_json.get("transcript_path", "")
+                       or input_json.get("agent_transcript_path", ""))
     if transcript_path and Path(transcript_path).is_file():
         p = Path(transcript_path)
         try:
