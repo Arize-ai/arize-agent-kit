@@ -53,4 +53,11 @@ HARNESSES = {
         "state_subdir": "cursor",
         "default_log_file": Path("/tmp/arize-cursor.log"),
     },
+    "copilot": {
+        "service_name": "copilot",
+        "scope_name": "arize-copilot-plugin",
+        "default_project_name": "copilot",
+        "state_subdir": "copilot",
+        "default_log_file": Path("/tmp/arize-copilot.log"),
+    },
 }

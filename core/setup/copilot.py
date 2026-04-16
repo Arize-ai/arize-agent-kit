@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Arize Copilot Tracing - Interactive Setup.
 
-Writes config.yaml and prints instructions for both VS Code and CLI modes.
+Configures tracing for GitHub Copilot in both VS Code and CLI modes.
+Writes config.yaml to ~/.arize/harness/config.yaml.
 """
 
 import sys
@@ -38,6 +39,9 @@ def _run() -> None:
     # Project name
     project_name = prompt_project_name("copilot")
 
+    # Optional: User ID
+    user_id = prompt_user_id()
+
     if existing_backend:
         print_color(
             f"Existing config found: backend={existing_backend} in ~/.arize/harness/config.yaml",
@@ -48,6 +52,8 @@ def _run() -> None:
 
         # Add copilot harness entry
         set_value(config, "harnesses.copilot.project_name", project_name)
+        if user_id:
+            set_value(config, "user_id", user_id)
         save_config(config)
         info("Added copilot harness to existing config")
     else:
@@ -56,15 +62,10 @@ def _run() -> None:
         info(f"Target: {'Phoenix at ' + credentials['endpoint'] if target == 'phoenix' else 'Arize AX (endpoint: ' + credentials['endpoint'] + ')'}")
 
         # Write config.yaml
-        write_config(target, credentials, "copilot", project_name)
+        write_config(target, credentials, "copilot", project_name, user_id=user_id)
         info("Wrote config to ~/.arize/harness/config.yaml")
 
-    # Optional: User ID
-    user_id = prompt_user_id()
     if user_id:
-        config = load_config()
-        set_value(config, "user_id", user_id)
-        save_config(config)
         info(f"User ID set: {user_id}")
 
     # Summary
@@ -76,18 +77,19 @@ def _run() -> None:
     print("  Configuration:")
     print("    Config file: ~/.arize/harness/config.yaml")
     print("")
-    print("  Next steps:")
-    print("    1. Register hooks in your project:")
-    print("       VS Code: .github/hooks/*.json (command field)")
-    print("       CLI:     .github/hooks/hooks.json (bash field)")
+    print("  VS Code Copilot:")
+    print("    Hooks are registered via .github/hooks/*.json or Claude-format settings.")
+    print("    Traced events: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse,")
+    print("                   Stop, SubagentStop, ErrorOccurred, SessionEnd")
+    print("    (SubagentStart and PreCompact are fired by VS Code but not traced)")
     print("")
-    print("    2. Start the shared collector (if not already running):")
-    print("       arize-collector-ctl start")
-    print("")
-    print("    3. Open Copilot — traces will be sent to your configured backend")
+    print("  Copilot CLI:")
+    print("    Hooks are registered via .github/hooks/hooks.json (version: 1).")
+    print("    Events: sessionStart, sessionEnd, userPromptSubmitted,")
+    print("            preToolUse, postToolUse, errorOccurred")
     print("")
     print("  To verify setup:")
-    print("    ARIZE_DRY_RUN=true arize-hook-copilot-session-start")
+    print(f"    ARIZE_DRY_RUN=true arize-hook-copilot-session-start")
     print("")
 
 
