@@ -110,37 +110,34 @@ def _dispatch(event: str, input_json: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _handle_before_submit_prompt(input_json, conversation_id, gen_id, trace_id, now_ms):
-    """Root span for the turn. Replaces bash lines 75-105."""
+    """Root span for the turn — deferred until afterAgentResponse so it gets output.value."""
     sid = span_id_16()
     gen_root_span_save(gen_id, sid)
 
     prompt = (_jq_str(input_json, "prompt", "input", "text"))
     model = _jq_str(input_json, "model_name", "model")
 
-    attrs = {
-        "openinference.span.kind": "CHAIN",
-        "input.value": prompt,
-        "session.id": conversation_id,
-    }
-    if model:
-        attrs["llm.model_name"] = model
-
-    span = build_span(
-        "User Prompt", "CHAIN", sid, trace_id, "",
-        now_ms, now_ms, attrs, SERVICE_NAME, SCOPE_NAME,
-    )
-    send_span(span)
-    log(f"beforeSubmitPrompt: root span {sid} (trace={trace_id})")
+    # Save root span state — sent by afterAgentResponse with output + timing
+    state_push(f"root_{sanitize(gen_id)}", {
+        "span_id": sid,
+        "trace_id": trace_id,
+        "conversation_id": conversation_id,
+        "start_ms": now_ms,
+        "prompt": prompt,
+        "model": model,
+    })
+    log(f"beforeSubmitPrompt: deferred root span {sid} (trace={trace_id})")
 
 
 def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, now_ms):
-    """LLM response span. Replaces bash lines 110-133."""
+    """LLM child span + send deferred root span with input+output."""
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
     response = (_jq_str(input_json, "response", "output", "text"))
     model = _jq_str(input_json, "model_name", "model")
 
+    # Send LLM child span
     attrs = {
         "openinference.span.kind": "LLM",
         "output.value": response,
@@ -154,7 +151,30 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
         now_ms, now_ms, attrs, SERVICE_NAME, SCOPE_NAME,
     )
     send_span(span)
-    log(f"afterAgentResponse: span {sid}")
+    log(f"afterAgentResponse: child span {sid}")
+
+    # Send deferred root span with input + output
+    safe_gen = sanitize(gen_id) if gen_id else ""
+    root_state = state_pop(f"root_{safe_gen}") if safe_gen else None
+    if root_state:
+        root_attrs = {
+            "openinference.span.kind": "CHAIN",
+            "input.value": root_state.get("prompt", ""),
+            "output.value": response,
+            "session.id": root_state.get("conversation_id", conversation_id),
+        }
+        root_model = model or root_state.get("model", "")
+        if root_model:
+            root_attrs["llm.model_name"] = root_model
+
+        root_span = build_span(
+            "User Prompt", "CHAIN",
+            root_state["span_id"], root_state.get("trace_id", trace_id), "",
+            root_state.get("start_ms", now_ms), now_ms, root_attrs,
+            SERVICE_NAME, SCOPE_NAME,
+        )
+        send_span(root_span)
+        log(f"afterAgentResponse: sent deferred root span {root_state['span_id']}")
 
 
 def _handle_after_agent_thought(input_json, conversation_id, gen_id, trace_id, now_ms):
@@ -391,7 +411,7 @@ def _handle_after_tab_file_edit(input_json, conversation_id, gen_id, trace_id, n
 
 
 def _handle_stop(input_json, conversation_id, gen_id, trace_id, now_ms):
-    """CHAIN span + generation cleanup. Replaces bash lines 435-462."""
+    """Stop span + generation cleanup."""
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 

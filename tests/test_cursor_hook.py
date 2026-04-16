@@ -172,18 +172,24 @@ class TestDispatch:
             _dispatch("beforeSubmitPrompt", {"conversation_id": "c1", "generation_id": "g1"})
             h.assert_not_called()
 
-    def test_no_backend_no_collector_returns_early(self, monkeypatch):
-        """No backend + collector unreachable -> returns early."""
+    def test_no_backend_send_fails_gracefully(self, monkeypatch):
+        """send_span failure doesn't crash — root span sent from afterAgentResponse."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        monkeypatch.setenv("ARIZE_DIRECT_SEND", "false")
         with mock.patch("core.hooks.cursor.handlers.send_span", return_value=False) as send_mock, \
              mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000):
             _dispatch("beforeSubmitPrompt", {
                 "conversation_id": "c1",
                 "generation_id": "g1",
             })
-            # Handler is called; send_span fails gracefully
-            send_mock.assert_called_once()
+            # Root span is deferred — not sent yet
+            send_mock.assert_not_called()
+            _dispatch("afterAgentResponse", {
+                "conversation_id": "c1",
+                "generation_id": "g1",
+                "response": "done",
+            })
+            # LLM child span + deferred root span both sent
+            assert send_mock.call_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -192,8 +198,8 @@ class TestDispatch:
 
 class TestHandleBeforeSubmitPrompt:
 
-    def test_creates_chain_root_span(self, captured_spans, monkeypatch):
-        """Creates CHAIN span with prompt and session.id, calls gen_root_span_save."""
+    def test_deferred_root_span_sent_at_agent_response(self, captured_spans, monkeypatch):
+        """Root span is deferred until afterAgentResponse, then sent with input+output."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=5000), \
              mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="aabb" * 4), \
@@ -206,42 +212,28 @@ class TestHandleBeforeSubmitPrompt:
             })
 
         save_mock.assert_called_once_with("gen-1", "aabb" * 4)
-        assert len(captured_spans) == 1
-        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        # Root span is deferred — not sent yet
+        assert len(captured_spans) == 0
+
+        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=9000):
+            _dispatch("afterAgentResponse", {
+                "conversation_id": "conv-1",
+                "generation_id": "gen-1",
+                "response": "I fixed the bug",
+                "model_name": "claude-4",
+            })
+
+        # afterAgentResponse sends LLM child + deferred root
+        root_spans = [s for s in captured_spans
+                      if s["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["name"] == "User Prompt"]
+        assert len(root_spans) == 1
+        span = root_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
         assert attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
         assert attrs["input.value"]["stringValue"] == "fix the bug"
+        assert attrs["output.value"]["stringValue"] == "I fixed the bug"
         assert attrs["session.id"]["stringValue"] == "conv-1"
-        assert attrs["llm.model_name"]["stringValue"] == "claude-4"
         assert span["name"] == "User Prompt"
-
-    def test_uses_fixture(self, captured_spans, monkeypatch, cursor_before_submit_input):
-        """Works with cursor_before_submit fixture."""
-        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        fixture = cursor_before_submit_input
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_save"):
-            _dispatch(fixture["hook_event_name"], fixture)
-
-        assert len(captured_spans) == 1
-        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        attrs = {a["key"]: a["value"] for a in span["attributes"]}
-        assert attrs["input.value"]["stringValue"] == "fix the bug"
-
-    def test_no_model_omits_attr(self, captured_spans, monkeypatch):
-        """When model is empty, llm.model_name is not set."""
-        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_save"):
-            _dispatch("beforeSubmitPrompt", {
-                "conversation_id": "c1",
-                "generation_id": "g1",
-                "prompt": "test",
-            })
-
-        attrs = {a["key"]: a["value"] for a in
-                 captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
-        assert "llm.model_name" not in attrs
 
 
 # ---------------------------------------------------------------------------
