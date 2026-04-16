@@ -335,47 +335,60 @@ def _build_child_spans(events: list, trace_id: str, parent_span_id: str,
                 attrs["codex.approval_mode"] = approval
             break
 
-    # --- TOOL child spans from tool_decision + tool_result pairs (bash lines 328-379) ---
+    # --- TOOL child spans from tool_decision + tool_result pairs ---
     decisions = [e for e in events if e.get("event") == "codex.tool_decision"]
     results = [e for e in events if e.get("event") == "codex.tool_result"]
+
+    # Index results by call_id for fast matching
+    results_by_call_id = {}
+    for r in results:
+        cid = r.get("attrs", {}).get("call_id", "")
+        if cid:
+            results_by_call_id[cid] = r
 
     for i, decision in enumerate(decisions):
         da = decision.get("attrs", {})
         tool_name = (da.get("tool_name") or da.get("tool.name")
                      or da.get("name") or "unknown_tool")
+        call_id = da.get("call_id", "")
         decision_ns = _safe_int(decision.get("time_ns", 0))
         approval_status = (da.get("approved") or da.get("approval")
                            or da.get("decision") or da.get("status") or "unknown")
 
-        # Match result by tool name, fall back to index
-        result = None
-        for r in results:
-            ra = r.get("attrs", {})
-            rname = ra.get("tool_name") or ra.get("tool.name") or ra.get("name")
-            if rname == tool_name:
-                result = r
-                break
+        # Match result by call_id first, then by index
+        result = results_by_call_id.get(call_id)
         if result is None and i < len(results):
             result = results[i]
 
         result_ns = _safe_int(result.get("time_ns", 0)) if result else decision_ns
+        tool_input = ""
         tool_output = ""
+        tool_duration_ms = 0
         if result:
             ra = result.get("attrs", {})
+            # arguments contains the tool input as JSON (e.g. {"cmd":"pwd","workdir":"..."})
+            tool_input = str(ra.get("arguments") or ra.get("input") or "")
             tool_output = str(
                 ra.get("output") or ra.get("result") or ra.get("tool.output") or ""
-            )[:2000]
+            )
+            tool_duration_ms = _safe_int(ra.get("duration_ms", 0))
 
         tool_start_ms = decision_ns // 1_000_000 or event_start_time
         tool_end_ms = result_ns // 1_000_000 or tool_start_ms
+        if not tool_end_ms or tool_end_ms == tool_start_ms:
+            tool_end_ms = tool_start_ms + tool_duration_ms
 
         tool_attrs = {
             "openinference.span.kind": "TOOL",
             "tool.name": tool_name,
+            "input.value": tool_input,
             "output.value": tool_output,
             "codex.tool.approval_status": approval_status,
             "session.id": session_id,
         }
+        if call_id:
+            tool_attrs["codex.tool.call_id"] = call_id
+
         child_span = build_span(
             tool_name, "TOOL", generate_span_id(), trace_id,
             parent_span_id, tool_start_ms, tool_end_ms, tool_attrs,
@@ -491,9 +504,6 @@ def _handle_notify(input_json: dict) -> None:
     assistant_output = _as_text(assistant_msg)
     user_prompt = _extract_user_prompt(user_input)
 
-    # Truncate to reasonable sizes (bash lines 87-89)
-    user_prompt = user_prompt[:5000]
-    assistant_output = assistant_output[:5000]
     if not assistant_output:
         assistant_output = "(No response)"
 

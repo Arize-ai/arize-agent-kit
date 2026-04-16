@@ -83,29 +83,6 @@ class TestSanitize:
         assert adapter.sanitize("") == ""
 
 
-# ── truncate_attr ─────────────────────────────────────────────────────────
-
-
-class TestTruncateAttr:
-    def test_shorter_unchanged(self):
-        assert adapter.truncate_attr("short") == "short"
-
-    def test_longer_truncated(self, monkeypatch):
-        monkeypatch.setattr(adapter, "MAX_ATTR_CHARS", 5)
-        assert adapter.truncate_attr("abcdefgh") == "abcde"
-
-    def test_exact_length(self, monkeypatch):
-        monkeypatch.setattr(adapter, "MAX_ATTR_CHARS", 5)
-        assert adapter.truncate_attr("abcde") == "abcde"
-
-    def test_custom_max_chars(self):
-        assert adapter.truncate_attr("abcdefgh", max_chars=3) == "abc"
-
-    def test_env_var_respected(self, monkeypatch):
-        monkeypatch.setattr(adapter, "MAX_ATTR_CHARS", 4)
-        assert adapter.truncate_attr("abcdefgh") == "abcd"
-
-
 # ── state_push / state_pop ────────────────────────────────────────────────
 
 

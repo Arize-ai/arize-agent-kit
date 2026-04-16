@@ -31,7 +31,7 @@ from core.hooks.cursor.adapter import (
     state_pop,
     state_push,
     trace_id_from_generation,
-    truncate_attr,
+
 )
 
 
@@ -114,7 +114,7 @@ def _handle_before_submit_prompt(input_json, conversation_id, gen_id, trace_id, 
     sid = span_id_16()
     gen_root_span_save(gen_id, sid)
 
-    prompt = truncate_attr(_jq_str(input_json, "prompt", "input", "text"))
+    prompt = (_jq_str(input_json, "prompt", "input", "text"))
     model = _jq_str(input_json, "model_name", "model")
 
     attrs = {
@@ -138,7 +138,7 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
-    response = truncate_attr(_jq_str(input_json, "response", "output", "text"))
+    response = (_jq_str(input_json, "response", "output", "text"))
     model = _jq_str(input_json, "model_name", "model")
 
     attrs = {
@@ -162,7 +162,7 @@ def _handle_after_agent_thought(input_json, conversation_id, gen_id, trace_id, n
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
-    thought = truncate_attr(_jq_str(input_json, "thought", "thinking", "text"))
+    thought = (_jq_str(input_json, "thought", "thinking", "text"))
 
     attrs = {
         "openinference.span.kind": "CHAIN",
@@ -215,8 +215,7 @@ def _handle_after_shell_execution(input_json, conversation_id, gen_id, trace_id,
     if after_cmd:
         command = after_cmd
 
-    output = truncate_attr(_jq_str(input_json, "output", "stdout", "result"))
-    command = truncate_attr(command)
+    output = (_jq_str(input_json, "output", "stdout", "result"))
     exit_code = _jq_str(input_json, "exit_code", "exitCode")
 
     attrs = {
@@ -281,8 +280,7 @@ def _handle_after_mcp_execution(input_json, conversation_id, gen_id, trace_id, n
         tool_name = after_tool
     tool_name = tool_name or "unknown"
 
-    result = truncate_attr(_jq_str(input_json, "result", "output", "result_json"))
-    tool_input = truncate_attr(tool_input)
+    result = (_jq_str(input_json, "result", "output", "result_json"))
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -305,7 +303,7 @@ def _handle_before_read_file(input_json, conversation_id, gen_id, trace_id, now_
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
-    file_path = truncate_attr(_jq_str(input_json, "file_path", "filePath", "path"))
+    file_path = (_jq_str(input_json, "file_path", "filePath", "path"))
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -330,7 +328,6 @@ def _handle_after_file_edit(input_json, conversation_id, gen_id, trace_id, now_m
     file_path = _jq_str(input_json, "file_path", "filePath", "path")
     edits = _jq_str(input_json, "edits", "changes", "diff")
     input_val = f"{file_path}: {edits}" if edits else file_path
-    input_val = truncate_attr(input_val)
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -352,7 +349,7 @@ def _handle_before_tab_file_read(input_json, conversation_id, gen_id, trace_id, 
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
-    file_path = truncate_attr(_jq_str(input_json, "file_path", "filePath", "path"))
+    file_path = (_jq_str(input_json, "file_path", "filePath", "path"))
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -377,7 +374,6 @@ def _handle_after_tab_file_edit(input_json, conversation_id, gen_id, trace_id, n
     file_path = _jq_str(input_json, "file_path", "filePath", "path")
     edits = _jq_str(input_json, "edits", "changes", "diff")
     input_val = f"{file_path}: {edits}" if edits else file_path
-    input_val = truncate_attr(input_val)
 
     attrs = {
         "openinference.span.kind": "TOOL",

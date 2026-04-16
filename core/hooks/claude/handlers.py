@@ -66,12 +66,8 @@ def _handle_post_tool_use(input_json: dict) -> None:
     # Extract tool info
     tool_name = input_json.get("tool_name", "unknown")
     tool_id = input_json.get("tool_use_id", "")
-    tool_input_raw = json.dumps(input_json.get("tool_input", {}))
-    tool_input = tool_input_raw[:5000]
-    tool_response_raw = str(input_json.get("tool_response", ""))
-    tool_response = tool_response_raw[:5000]
-
-    truncated = str(len(tool_input_raw) > 5000 or len(tool_response_raw) > 5000).lower()
+    tool_input = json.dumps(input_json.get("tool_input", {}))
+    tool_response = str(input_json.get("tool_response", ""))
 
     # Tool-specific metadata
     tool_command = ""
@@ -114,7 +110,6 @@ def _handle_post_tool_use(input_json: dict) -> None:
         "input.value": tool_input,
         "output.value": tool_response,
         "tool.description": tool_description,
-        "tool.truncated": truncated,
     }
     if user_id:
         attrs["user.id"] = user_id
@@ -175,7 +170,7 @@ def _handle_user_prompt_submit(input_json: dict) -> None:
     state.set("current_trace_id", generate_trace_id())
     state.set("current_trace_span_id", generate_span_id())
     state.set("current_trace_start_time", str(get_timestamp_ms()))
-    state.set("current_trace_prompt", (input_json.get("prompt", "") or "")[:1000])
+    state.set("current_trace_prompt", input_json.get("prompt", "") or "")
 
     # Track transcript position
     transcript = input_json.get("transcript_path", "")
@@ -251,7 +246,7 @@ def _handle_stop(input_json: dict) -> None:
                 if isinstance(val, int):
                     out_tokens += val
 
-    output = output[:5000] or "(No response)"
+    output = output or "(No response)"
     total_tokens = in_tokens + out_tokens
 
     # Build and send LLM span
@@ -365,7 +360,6 @@ def _handle_subagent_stop(input_json: dict) -> None:
                 if isinstance(val, int):
                     out_tokens += val
 
-    output = output[:5000]
     total_tokens = in_tokens + out_tokens
 
     # Build attributes
