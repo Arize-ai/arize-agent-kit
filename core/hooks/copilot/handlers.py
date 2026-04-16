@@ -173,9 +173,11 @@ def _handle_user_prompt_submitted(input_json: dict) -> None:
             prev_prompt = state.get("current_trace_prompt") or ""
             prev_count = state.get("trace_count") or "?"
             session_id = state.get("session_id") or ""
+            project_name = state.get("project_name") or ""
             failsafe_attrs = {
                 "session.id": session_id,
                 "openinference.span.kind": "LLM",
+                "project.name": project_name,
                 "input.value": prev_prompt,
                 "output.value": "(Turn closed by fail-safe: Stop hook did not fire)",
             }
@@ -299,9 +301,11 @@ def _handle_post_tool_use(input_json: dict) -> None:
 
     # Build attributes
     user_id = state.get("user_id") or ""
+    project_name = state.get("project_name") or ""
     attrs = {
         "session.id": session_id,
         "openinference.span.kind": "TOOL",
+        "project.name": project_name,
         "tool.name": tool_name,
         "input.value": tool_input,
         "output.value": tool_response,
@@ -471,9 +475,11 @@ def _handle_error_occurred(input_json: dict) -> None:
         error_stack = input_json.get("stack", "") or input_json.get("error_stack", "")
 
     user_id = state.get("user_id") or ""
+    project_name = state.get("project_name") or ""
     attrs = {
         "session.id": session_id,
         "openinference.span.kind": "CHAIN",
+        "project.name": project_name,
         "error.message": error_message,
         "error.name": error_name,
     }
@@ -604,9 +610,11 @@ def _handle_subagent_stop(input_json: dict) -> None:
 
     total_tokens = in_tokens + out_tokens
 
+    project_name = state.get("project_name") or ""
     attrs = {
         "session.id": session_id,
         "openinference.span.kind": "LLM",
+        "project.name": project_name,
         "copilot.agent.type": agent_type,
         "subagent.id": agent_id,
         "subagent.type": agent_type,
@@ -635,95 +643,103 @@ def _handle_subagent_stop(input_json: dict) -> None:
 
 def session_start():
     """Entry point for arize-hook-copilot-session-start."""
+    input_json = {}
     try:
-        if not check_requirements():
-            return
         input_json = _read_stdin()
-        _handle_session_start(input_json)
-        _print_response(input_json, "SessionStart")
+        if check_requirements():
+            _handle_session_start(input_json)
     except Exception as e:
         error(f"copilot session_start hook failed: {e}")
+    finally:
+        _print_response(input_json, "SessionStart")
 
 
 def user_prompt_submitted():
     """Entry point for arize-hook-copilot-user-prompt."""
+    input_json = {}
     try:
-        if not check_requirements():
-            return
         input_json = _read_stdin()
-        _handle_user_prompt_submitted(input_json)
-        _print_response(input_json, "UserPromptSubmit")
+        if check_requirements():
+            _handle_user_prompt_submitted(input_json)
     except Exception as e:
         error(f"copilot user_prompt_submitted hook failed: {e}")
+    finally:
+        _print_response(input_json, "UserPromptSubmit")
 
 
 def pre_tool_use():
     """Entry point for arize-hook-copilot-pre-tool."""
+    input_json = {}
     try:
-        if not check_requirements():
-            return
         input_json = _read_stdin()
-        _handle_pre_tool_use(input_json)
-        _print_response(input_json, "PreToolUse")
+        if check_requirements():
+            _handle_pre_tool_use(input_json)
     except Exception as e:
         error(f"copilot pre_tool_use hook failed: {e}")
+    finally:
+        _print_response(input_json, "PreToolUse")
 
 
 def post_tool_use():
     """Entry point for arize-hook-copilot-post-tool."""
+    input_json = {}
     try:
-        if not check_requirements():
-            return
         input_json = _read_stdin()
-        _handle_post_tool_use(input_json)
-        _print_response(input_json, "PostToolUse")
+        if check_requirements():
+            _handle_post_tool_use(input_json)
     except Exception as e:
         error(f"copilot post_tool_use hook failed: {e}")
+    finally:
+        _print_response(input_json, "PostToolUse")
 
 
 def stop():
     """Entry point for arize-hook-copilot-stop."""
+    input_json = {}
     try:
-        if not check_requirements():
-            return
         input_json = _read_stdin()
-        _handle_stop(input_json)
-        _print_response(input_json, "Stop")
+        if check_requirements():
+            _handle_stop(input_json)
     except Exception as e:
         error(f"copilot stop hook failed: {e}")
+    finally:
+        _print_response(input_json, "Stop")
 
 
 def error_occurred():
     """Entry point for arize-hook-copilot-error."""
+    input_json = {}
     try:
-        if not check_requirements():
-            return
         input_json = _read_stdin()
-        _handle_error_occurred(input_json)
-        _print_response(input_json, "ErrorOccurred")
+        if check_requirements():
+            _handle_error_occurred(input_json)
     except Exception as e:
         error(f"copilot error_occurred hook failed: {e}")
+    finally:
+        _print_response(input_json, "ErrorOccurred")
 
 
 def session_end():
     """Entry point for arize-hook-copilot-session-end."""
+    input_json = {}
     try:
-        if not check_requirements():
-            return
         input_json = _read_stdin()
-        _handle_session_end(input_json)
-        _print_response(input_json, "SessionEnd")
+        if check_requirements():
+            _handle_session_end(input_json)
     except Exception as e:
         error(f"copilot session_end hook failed: {e}")
+    finally:
+        _print_response(input_json, "SessionEnd")
 
 
 def subagent_stop():
     """Entry point for arize-hook-copilot-subagent-stop."""
+    input_json = {}
     try:
-        if not check_requirements():
-            return
         input_json = _read_stdin()
-        _handle_subagent_stop(input_json)
-        _print_response(input_json, "SubagentStop")
+        if check_requirements():
+            _handle_subagent_stop(input_json)
     except Exception as e:
         error(f"copilot subagent_stop hook failed: {e}")
+    finally:
+        _print_response(input_json, "SubagentStop")
