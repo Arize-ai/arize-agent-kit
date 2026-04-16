@@ -30,6 +30,7 @@ arize-hook-cursor = "core.hooks.cursor.handlers:main"
 # Setup wizards
 arize-setup-claude = "core.setup.claude:main"
 arize-setup-codex = "core.setup.codex:main"
+arize-setup-copilot = "core.setup.copilot:main"
 arize-setup-cursor = "core.setup.cursor:main"
 
 [tool.pytest.ini_options]
