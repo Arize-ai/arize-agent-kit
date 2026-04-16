@@ -9,26 +9,28 @@ Configure OpenInference tracing for OpenAI Codex CLI sessions to Arize AX (cloud
 
 ## Architecture Overview
 
-Codex tracing uses the shared collector at `127.0.0.1:4318` for both span export and event buffering:
+Codex tracing uses direct send for span export and a lightweight buffer service for event buffering:
 
-1. **Shared collector** (`core/collector.py`, port 4318) — background process shared by all harnesses. Accepts span exports (`POST /v1/spans`), buffers Codex OTLP log events (`POST /v1/logs`), and serves buffered events (`GET /drain/{id}`, `GET /flush/{id}`). Exports to Phoenix (REST) or Arize AX (gRPC). Managed via `arize-collector-ctl`.
+1. **Direct send** (`core/common.py`) — spans are sent directly to Phoenix (REST) or Arize AX (gRPC) from the notify handler via `send_span()`. Per-harness backend credentials are resolved from `harnesses.codex.backend` in config, falling back to the global `backend` section.
 
-2. **Notify hook** (`arize-hook-codex-notify`) — Fires on `agent-turn-complete` events. Drains buffered events from the collector, transforms them into OpenInference child spans (TOOL spans for tool calls, LLM spans for API requests), enriches the parent Turn span with model name and token counts, and sends the complete span tree back to the collector for export.
+2. **Codex Buffer Service** (`core/codex_buffer.py`, default port 4318) — a lightweight HTTP server that only buffers Codex OTLP log events between hook invocations. No export logic. Managed via `arize-codex-buffer`.
+
+3. **Notify hook** (`arize-hook-codex-notify`) — Fires on `agent-turn-complete` events. Drains buffered events from the buffer service, transforms them into OpenInference child spans (TOOL spans for tool calls, LLM spans for API requests), enriches the parent Turn span with model name and token counts, and sends the complete span tree directly to the backend.
 
 ```
 Codex CLI
   |
-  |-- [otel] otlp-http --> POST /v1/logs --> collector (port 4318, buffers by thread-id)
+  |-- [otel] otlp-http --> POST /v1/logs --> buffer service (port 4318, buffers by thread-id)
   |
   |-- notify hook (agent-turn-complete) --> arize-hook-codex-notify
         |
         |--> GET /drain/{thread_id} (port 4318) --> get buffered events
         |--> Transform events into child spans
         |--> Build multi-span OTLP payload (Turn parent + children)
-        |--> POST /v1/spans (port 4318) --> collector --> Phoenix/Arize AX
+        |--> send_span() --> Phoenix/Arize AX
 ```
 
-**Graceful degradation**: If the collector isn't running or returns no buffered events, the notify hook falls back to a single flat Turn span.  If `ARIZE_DIRECT_SEND=true`, spans are sent directly to the backend instead.
+**Graceful degradation**: If the buffer service isn't running or returns no buffered events, the notify hook falls back to a single flat Turn span.
 
 ## How to Use This Skill
 
@@ -49,7 +51,7 @@ Codex CLI
 
 ## Set Up Phoenix
 
-Phoenix is self-hosted and requires no Python dependencies for tracing (the shared collector handles export using stdlib for Phoenix).
+Phoenix is self-hosted and requires no Python dependencies for tracing (spans are sent directly via `send_span()` using stdlib `urllib`).
 
 ### Install Phoenix
 
@@ -99,18 +101,18 @@ Both `ARIZE_API_KEY` and `ARIZE_SPACE_ID` are required.
 
 ### 3. Python dependencies (handled by the shared collector)
 
-Arize AX uses gRPC for export, but the gRPC dependencies are bundled with the shared collector — they are **not** required in the user's Python environment.  No `pip install` step is needed for basic tracing.
+Arize AX uses gRPC for export, but the gRPC dependencies are bundled with the package — they are **not** required in the user's Python environment.  No `pip install` step is needed for basic tracing.
 
 Then proceed to [Configure Codex](#configure-codex).
 
 ## Configure Codex
 
 This section configures:
-1. **Shared collector config** at `~/.arize/harness/config.yaml`
+1. **Backend config** at `~/.arize/harness/config.yaml`
 2. **Environment variables** in `~/.codex/arize-env.sh`
 3. **Notify hook** in `~/.codex/config.toml`
-4. **Event buffer** (auto-configured) — captures Codex events for rich span trees
-5. **Native OTLP export** in `~/.codex/config.toml` — routes to shared collector
+4. **Codex Buffer Service** — buffers native OTLP events for rich span trees
+5. **Native OTLP export** in `~/.codex/config.toml` — routes to the buffer service
 
 ### Determine the integration path
 
@@ -122,9 +124,9 @@ Common locations:
 
 Store this as `INTEGRATION_PATH` for the notify hook config.
 
-### Step 1: Write the shared collector config
+### Step 1: Write the backend config
 
-Write `~/.arize/harness/config.yaml` with the backend credentials. The config file is the single source of truth for collector and backend settings.
+Write `~/.arize/harness/config.yaml` with the backend credentials. The config file is the single source of truth for backend and harness settings.
 
 **Important: read-merge-write.** If `~/.arize/harness/config.yaml` already exists, read it first, add or update the `harnesses.codex` entry, and preserve existing backend credentials. Only prompt the user for backend credentials if there is no existing config.
 
@@ -137,9 +139,6 @@ arize-config set harnesses.codex.project_name codex
 
 If no config exists yet, create it:
 ```yaml
-collector:
-  host: "127.0.0.1"
-  port: 4318
 backend:
   target: "phoenix"
   phoenix:
@@ -158,9 +157,6 @@ arize-config set harnesses.codex.project_name codex
 
 If no config exists yet, create it:
 ```yaml
-collector:
-  host: "127.0.0.1"
-  port: 4318
 backend:
   target: "arize"
   arize:
@@ -180,7 +176,7 @@ Environment variables are optional overrides — all backend credentials are in 
 ```bash
 cat > ~/.codex/arize-env.sh << 'EOF'
 export ARIZE_TRACE_ENABLED=true
-export ARIZE_COLLECTOR_PORT=4318
+export ARIZE_CODEX_BUFFER_PORT=4318
 EOF
 chmod 600 ~/.codex/arize-env.sh
 ```
@@ -191,7 +187,7 @@ If the user wants to associate spans with a user ID, add `export ARIZE_USER_ID="
 ```bash
 cat > ~/.codex/arize-env.sh << 'EOF'
 export ARIZE_TRACE_ENABLED=true
-export ARIZE_COLLECTOR_PORT=4318
+export ARIZE_CODEX_BUFFER_PORT=4318
 EOF
 chmod 600 ~/.codex/arize-env.sh
 ```
@@ -208,9 +204,9 @@ notify = ["~/.arize/harness/venv/bin/arize-hook-codex-notify"]
 
 **Important:** If `notify` already exists in the config, update the existing line.
 
-### Step 4: Configure OTLP export to shared collector
+### Step 4: Configure OTLP export to buffer service
 
-Add an `[otel]` section that routes Codex's native events to the shared collector (port 4318):
+Add an `[otel]` section that routes Codex's native events to the buffer service (port 4318):
 
 ```toml
 [otel]
@@ -219,21 +215,21 @@ endpoint = "http://127.0.0.1:4318/v1/logs"
 protocol = "json"
 ```
 
-This routes Codex native telemetry to the shared collector, which buffers events until the notify hook drains them for child-span assembly.
+This routes Codex native telemetry to the buffer service, which buffers events until the notify hook drains them for child-span assembly.
 
-### Step 5: Start the shared collector
+### Step 5: Start the buffer service
 
-Start the shared collector:
+Start the Codex buffer service:
 ```bash
-arize-collector-ctl start
+arize-codex-buffer start
 ```
 
 Or ensure it is running (starts only if not already up):
 ```bash
-arize-collector-ctl ensure
+arize-codex-buffer ensure
 ```
 
-The collector is a single lightweight process (~5MB RSS, stdlib Python, zero CPU when idle).
+The buffer service is a single lightweight process (~5MB RSS, stdlib Python, zero CPU when idle). It only buffers events — span export is handled directly by the notify hook.
 
 **Note:** The installer handles Steps 1-5 automatically.  The manual steps above are for users who prefer to configure things themselves or need to troubleshoot.
 
@@ -252,14 +248,9 @@ Visually confirm the `notify` line is at the top level and the `[otel]` section 
 source ~/.codex/arize-env.sh && echo "ARIZE_TRACE_ENABLED=$ARIZE_TRACE_ENABLED"
 ```
 
-3. **Check shared collector is running:**
+3. **Check buffer service is running:**
 ```bash
-curl -sf http://127.0.0.1:4318/health
-```
-
-4. **Check collector is running:**
-```bash
-curl -sf http://127.0.0.1:4318/health
+arize-codex-buffer status
 ```
 
 5. **Phoenix connectivity** (if using Phoenix):
@@ -277,14 +268,14 @@ Should print: `[arize] DRY RUN:` followed by the span name.
 
 Tell the user:
 - Configuration saved to `~/.codex/config.toml`, `~/.codex/arize-env.sh`, and `~/.arize/harness/config.yaml`
-- The shared collector (port 4318) exports spans to the configured backend
-- The shared collector (port 4318) captures Codex native events for child-span assembly
+- Spans are sent directly to the backend from the notify hook
+- The buffer service (port 4318) captures Codex native events for child-span assembly
 - Traces will appear as rich span trees with child spans for tool calls and API requests
 - Token totals live on the parent Turn LLM span, not on request child spans
-- If the collector has no buffered events, tracing still works with flat Turn spans (graceful degradation)
+- If the buffer service has no buffered events, tracing still works with flat Turn spans (graceful degradation)
 - Mention `ARIZE_DRY_RUN=true` to test without sending data
 - Mention `ARIZE_VERBOSE=true` and `ARIZE_TRACE_DEBUG=true` for debug output
-- Logs: shared collector at `~/.arize/harness/logs/collector.log`, harness at `/tmp/arize-codex.log`
+- Logs: buffer service at `~/.arize/harness/logs/codex-buffer.log`, harness at `/tmp/arize-codex.log`
 
 ### Environment Variables Reference
 
@@ -302,7 +293,7 @@ Tell the user:
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
 | `ARIZE_TRACE_DEBUG` | No | `false` | Write debug JSON to `~/.arize/harness/state/codex/debug/` |
 | `ARIZE_LOG_FILE` | No | `/tmp/arize-codex.log` | Log file path |
-| `ARIZE_COLLECTOR_PORT` | No | `4318` | Port for the shared collector |
+| `ARIZE_CODEX_BUFFER_PORT` | No | `4318` | Port for the Codex buffer service |
 
 ## Troubleshoot
 
@@ -313,13 +304,13 @@ Common issues and fixes:
 | Traces not appearing | Check `ARIZE_TRACE_ENABLED` is `true` in `~/.codex/arize-env.sh` |
 | Notify hook not firing | Verify `notify` line in `~/.codex/config.toml` points to correct path |
 | Phoenix unreachable | Verify Phoenix is running: `curl -sf <endpoint>/v1/traces` |
-| Shared collector not running | Check config: `cat ~/.arize/harness/config.yaml`. Start: `arize-collector-ctl start` |
-| No output in terminal | Notify runs in background; check `/tmp/arize-codex.log` and `~/.arize/harness/logs/collector.log` |
+| Buffer service not running | Check config: `cat ~/.arize/harness/config.yaml`. Start: `arize-codex-buffer start` |
+| No output in terminal | Notify runs in background; check `/tmp/arize-codex.log` and `~/.arize/harness/logs/codex-buffer.log` |
 | Want to test without sending | Set `ARIZE_DRY_RUN=true` in env or `export ARIZE_DRY_RUN=true` |
 | Want verbose logging | Set `ARIZE_VERBOSE=true` in env or `export ARIZE_VERBOSE=true` |
 | Wrong project name | Set `ARIZE_PROJECT_NAME` in `~/.codex/arize-env.sh` (default: `codex`) |
 | Existing notify hook | Codex supports only one `notify` — create a wrapper script that calls both |
 | Stale state files | Run: `rm -rf ~/.arize/harness/state/codex/state_*.yaml` |
-| Flat spans only (no children) | Check collector health: `curl http://127.0.0.1:4318/health`. Verify `[otel]` in config.toml points to `127.0.0.1:4318` |
-| Collector not starting | Check Python 3.9+ is available. Check port 4318 isn't in use. See `~/.arize/harness/logs/collector.log` |
+| Flat spans only (no children) | Check buffer service: `arize-codex-buffer status`. Verify `[otel]` in config.toml points to `127.0.0.1:4318` |
+| Buffer service not starting | Check Python 3.9+ is available. Check port 4318 isn't in use. See `~/.arize/harness/logs/codex-buffer.log` |
 | User ID not appearing on spans | Set `ARIZE_USER_ID` in `~/.codex/arize-env.sh` or export before running Codex |

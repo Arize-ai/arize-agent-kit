@@ -5,7 +5,7 @@ description: Set up and configure Arize tracing for Cursor IDE sessions. Use whe
 
 # Setup Cursor Tracing
 
-Configure OpenInference tracing for Cursor IDE sessions to Arize AX (cloud) or Phoenix (self-hosted). Spans are exported through a shared background collector -- no backend-specific dependencies are needed in the user's environment.
+Configure OpenInference tracing for Cursor IDE sessions to Arize AX (cloud) or Phoenix (self-hosted). Spans are sent directly to the backend from hooks -- no background process or backend-specific dependencies are needed in the user's environment.
 
 ## How to Use This Skill
 
@@ -26,7 +26,7 @@ Configure OpenInference tracing for Cursor IDE sessions to Arize AX (cloud) or P
 
 ## Set Up Phoenix
 
-Phoenix is self-hosted. No Python dependencies are needed for tracing -- the shared collector handles export.
+Phoenix is self-hosted. No Python dependencies are needed for tracing -- spans are sent directly via `send_span()` using stdlib `urllib`.
 
 ### Install Phoenix
 
@@ -74,13 +74,13 @@ Walk the user through finding their credentials:
 
 Both `api_key` and `space_id` are required for the shared config.
 
-**No Python dependencies are needed.** The shared background collector bundles its own gRPC dependencies for Arize AX export. Users do not need to install `opentelemetry-proto` or `grpcio`.
+**No Python dependencies are needed.** The gRPC dependencies for Arize AX export are bundled with the package. Users do not need to install `opentelemetry-proto` or `grpcio`.
 
 Then proceed to [Configure Settings](#configure-settings). If the user is on an on-prem instance, remind them to provide their custom endpoint.
 
 ## Configure Settings
 
-**Important:** Users must run this setup before tracing will work. The shared collector requires `~/.arize/harness/config.yaml` to exist -- it will not start without it.
+**Important:** Users must run this setup before tracing will work. The `send_span()` function requires `~/.arize/harness/config.yaml` to exist for backend credential resolution.
 
 ### Ask the user for:
 
@@ -92,17 +92,14 @@ Then proceed to [Configure Settings](#configure-settings). If the user is on an 
 4. **Project name** (optional): defaults to `"cursor"`, stored under `harnesses.cursor.project_name`
 5. **User ID** (optional): Set `ARIZE_USER_ID` env var to identify spans by user (useful for teams)
 
-### Write the shared collector config
+### Write the config
 
-The config file at `~/.arize/harness/config.yaml` is the single source of truth for backend credentials and per-harness project naming. Create the directory structure if needed: `mkdir -p ~/.arize/harness/{bin,run,logs,state/cursor}`
+The config file at `~/.arize/harness/config.yaml` is the single source of truth for backend credentials and per-harness settings. Create the directory structure if needed: `mkdir -p ~/.arize/harness/{bin,run,logs,state/cursor}`
 
 **Important: read-merge-write.** If `~/.arize/harness/config.yaml` already exists, read it first, then merge in the new or updated fields (e.g., add/update the `harnesses.cursor` entry) while preserving existing backend credentials. Only prompt for backend credentials if no existing config is found.
 
 **Phoenix:**
 ```yaml
-collector:
-  host: "127.0.0.1"
-  port: 4318
 backend:
   target: "phoenix"
   phoenix:
@@ -115,9 +112,6 @@ harnesses:
 
 **Arize AX:**
 ```yaml
-collector:
-  host: "127.0.0.1"
-  port: 4318
 backend:
   target: "arize"
   arize:
@@ -161,24 +155,20 @@ If the user already has a `.cursor/hooks.json` with other hooks, merge the Arize
 
 ### Validate
 
-1. **Collector running**: Run `curl -sf http://127.0.0.1:4318/health` to check the shared collector. If not running, start it:
-   ```bash
-   arize-collector-ctl start
-   ```
+1. **Config exists**: Run `cat ~/.arize/harness/config.yaml` to verify the config file exists and has correct backend credentials.
 2. **Phoenix** (if applicable): Run `curl -sf <endpoint>/v1/traces >/dev/null` to check connectivity.
 3. **Hooks active**: Verify `.cursor/hooks.json` exists in the project root and contains the Arize hook entries.
 
 ### Confirm
 
 Tell the user:
-- Shared collector config saved to `~/.arize/harness/config.yaml`
+- Config saved to `~/.arize/harness/config.yaml`
 - Cursor hooks activated via `.cursor/hooks.json`
-- The shared collector must be running for spans to be exported (check with `curl -sf http://127.0.0.1:4318/health`)
+- Spans are sent directly to the backend from hooks — no background process needed
 - After saving, open a new Cursor session and traces will appear in their Phoenix UI or Arize AX dashboard under the project name
 - Mention `ARIZE_DRY_RUN=true` to test without sending data (set as env var before launching Cursor)
 - Mention `ARIZE_VERBOSE=true` for debug output
 - Hook logs are written to `/tmp/arize-cursor.log`
-- Collector logs are written to `~/.arize/harness/logs/collector.log`
 
 ## Hook Events
 
@@ -207,9 +197,8 @@ Common issues and fixes:
 
 | Problem | Fix |
 |---------|-----|
-| Traces not appearing | Verify collector is running: `curl -sf http://127.0.0.1:4318/health`. Check hook log: `tail -20 /tmp/arize-cursor.log` |
-| Collector not running | Start it: `arize-collector-ctl start`. Check logs: `~/.arize/harness/logs/collector.log` |
-| Collector config missing | Run the installer or create `~/.arize/harness/config.yaml` manually (include `harnesses.cursor` section) |
+| Traces not appearing | Verify config exists: `cat ~/.arize/harness/config.yaml`. Check hook log: `tail -20 /tmp/arize-cursor.log` |
+| Config missing | Run the installer or create `~/.arize/harness/config.yaml` manually (include `harnesses.cursor` section) |
 | Phoenix unreachable | Verify Phoenix is running: `curl -sf <endpoint>/v1/traces` |
 | Hooks not firing | Verify `.cursor/hooks.json` exists in the project root and paths are correct (use absolute paths) |
 | Shell/MCP spans missing input | State push failed -- check that `~/.arize/harness/state/cursor/` is writable |

@@ -42,9 +42,11 @@ curl -sSL "$INSTALL_URL" | bash -s -- cursor   # Cursor IDE
 The installer:
 
 1. **Asks for your backend** — Phoenix endpoint or Arize AX credentials
-2. **Writes config** — saves backend credentials and harness settings to `~/.arize/harness/config.yaml`
-3. **Starts a background collector** — a lightweight local process at `127.0.0.1:4318` that handles all backend export (HTTP for Phoenix, gRPC for Arize AX)
+2. **Asks for a project name** — defaults to the harness name (e.g. `claude-code`, `codex`, `cursor`)
+3. **Writes config** — saves backend credentials and harness settings to `~/.arize/harness/config.yaml`
 4. **Configures your harness** — sets up hooks so spans flow automatically
+
+Spans are sent directly to the backend from hooks — no background process is needed. (Codex additionally starts a lightweight buffer service for native OTLP event buffering.)
 
 ### Uninstall
 
@@ -52,20 +54,13 @@ The installer:
 ./install.sh uninstall
 ```
 
-This stops the background collector, removes the collector runtime, and cleans up harness-specific configuration. You will be prompted before any user-owned config (credentials, state files) is deleted.
+This removes the harness configuration and cleans up runtime files. For Codex, the buffer service is stopped. You will be prompted before any user-owned config (credentials, state files) is deleted.
 
 ## Configuration
 
-All configuration lives in `~/.arize/harness/config.yaml`, written by the installer. This file is the single source of truth for backend credentials, collector settings, and per-harness project names.
+All configuration lives in `~/.arize/harness/config.yaml`, written by the installer. This file is the single source of truth for backend credentials and per-harness settings.
 
 ### config.yaml Fields
-
-**Collector**
-
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `collector.host` | No | `127.0.0.1` | Collector listen address |
-| `collector.port` | No | `4318` | Collector listen port |
 
 **Backend**
 
@@ -94,7 +89,7 @@ All configuration lives in `~/.arize/harness/config.yaml`, written by the instal
 |-------|----------|---------|-------------|
 | `user_id` | No | — | User identifier added to all spans as `user.id` |
 
-**Per-harness project names** (under `harnesses.<name>`) — sets the project name in Arize/Phoenix
+**Per-harness settings** (under `harnesses.<name>`)
 
 | Name | Field | Default |
 |------|-------|---------|
@@ -102,9 +97,23 @@ All configuration lives in `~/.arize/harness/config.yaml`, written by the instal
 | `codex` | `project_name` | `codex` |
 | `cursor` | `project_name` | `cursor` |
 
-The collector handles all backend-specific transport (HTTP for Phoenix, gRPC for Arize AX). Harnesses use Python CLI entry points — no external dependencies (`curl`, `jq`, `bash`) are required.
+Each harness can optionally override backend credentials under `harnesses.<name>.backend`. When present, these override the global `backend` section for that harness only. This allows different harnesses to use different backends or credentials:
 
-See [COLLECTOR_ARCHITECTURE.md](docs/COLLECTOR_ARCHITECTURE.md) for the full collector contract.
+```yaml
+harnesses:
+  claude-code:
+    project_name: "my-project"
+    backend:                      # optional per-harness override
+      target: "arize"
+      arize:
+        api_key: "different-key"
+        space_id: "different-space"
+        endpoint: "otlp.arize.com:443"
+```
+
+Harnesses send spans directly to the backend via `send_span()` in `core/common.py`. Python CLI entry points handle all hook events — no external dependencies (`curl`, `jq`, `bash`) are required.
+
+See [TRACING_ARCHITECTURE.md](docs/TRACING_ARCHITECTURE.md) for the full architecture.
 
 ## Contributing
 

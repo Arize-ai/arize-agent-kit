@@ -1,12 +1,13 @@
 # Cursor IDE Tracing
 
-Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for **Cursor IDE** sessions. Every prompt, agent response, thinking step, shell execution, MCP tool use, file operation, and stop event is captured as a span and exported to [Arize AX](https://arize.com) or [Phoenix](https://github.com/Arize-ai/phoenix) via a shared background collector.
+Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for **Cursor IDE** sessions. Every prompt, agent response, thinking step, shell execution, MCP tool use, file operation, and stop event is captured as a span and exported to [Arize AX](https://arize.com) or [Phoenix](https://github.com/Arize-ai/phoenix).
 
 ## Features
 
 - 12 hook-based span types covering the full Cursor session lifecycle
 - Before/after event merging for shell execution and MCP tool use via disk-backed state stack
-- Exports to Phoenix or Arize AX through the shared background collector
+- Sends spans directly to Phoenix (REST) or Arize AX (gRPC) — no background process needed
+- Per-harness backend credential overrides via `harnesses.cursor.backend` in config
 - Deterministic trace IDs derived from Cursor's `generation_id`
 - Single Python CLI entry point dispatches all hook events via `hook_event_name`
 - Cross-platform: works on macOS, Linux, and Windows (Python 3.9+)
@@ -17,7 +18,7 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 
 - **Python 3.9+**
 
-No additional dependencies are required. The shared collector (installed automatically) handles all backend export.
+No additional dependencies are required. Spans are sent directly to the backend from hooks.
 
 ## Installation
 
@@ -31,8 +32,7 @@ python -m core.install cursor
 The installer will:
 1. Install the package and CLI entry points into the venv
 2. Run the Cursor setup script
-3. Start the shared background collector
-4. Guide you through backend configuration
+3. Guide you through backend configuration
 
 ### Manual
 
@@ -43,14 +43,11 @@ arize-setup-cursor
 
 ## Configuration
 
-The single source of truth for backend credentials, collector settings, and per-harness configuration is `~/.arize/harness/config.yaml`. Each harness gets its own entry under `harnesses` with a dedicated `project_name`.
+The single source of truth for backend credentials and per-harness configuration is `~/.arize/harness/config.yaml`. Each harness gets its own entry under `harnesses` with a dedicated `project_name` and optional backend override.
 
 ### Phoenix (self-hosted)
 
 ```yaml
-collector:
-  host: "127.0.0.1"
-  port: 4318
 backend:
   target: "phoenix"
   phoenix:
@@ -64,9 +61,6 @@ harnesses:
 ### Arize AX (cloud)
 
 ```yaml
-collector:
-  host: "127.0.0.1"
-  port: 4318
 backend:
   target: "arize"
   arize:
@@ -76,6 +70,8 @@ harnesses:
   cursor:
     project_name: "cursor"
 ```
+
+Each harness can optionally override backend credentials under `harnesses.cursor.backend`. See [TRACING_ARCHITECTURE.md](../docs/TRACING_ARCHITECTURE.md) for the per-harness override schema.
 
 ## Activating Hooks
 
@@ -119,7 +115,7 @@ All spans include `session.id` (from `conversation_id`), `project.name`, and `op
 
 ## Architecture
 
-Hooks build OTLP spans and POST them to the shared background collector at `http://127.0.0.1:4318/v1/spans`. The collector handles all backend export (Phoenix REST or Arize AX gRPC), retries, and credential management.
+Hooks build OTLP spans and send them directly to the configured backend via `send_span()` in `core/common.py`. Per-harness backend credentials are resolved from `harnesses.cursor.backend` in config, falling back to the global `backend` section.
 
 ```text
 Cursor IDE
@@ -127,13 +123,11 @@ Cursor IDE
   └─ hooks.json ──► arize-hook-cursor ──► dispatch by hook_event_name
                           │
                           ├─ build span (OTLP format via core.common)
-                          └─ send span  ──► POST http://127.0.0.1:4318/v1/spans
-                                                  (shared collector)
-                                                        ├──► Phoenix (REST)
-                                                        └──► Arize AX (gRPC)
+                          └─ send_span() ──► Phoenix (REST)
+                                         \─► Arize AX (gRPC)
 ```
 
-The collector is installed and started automatically by the installer. See [COLLECTOR_ARCHITECTURE.md](../docs/COLLECTOR_ARCHITECTURE.md) for the full design.
+See [TRACING_ARCHITECTURE.md](../docs/TRACING_ARCHITECTURE.md) for the full design.
 
 ## Shell/MCP State Merging
 
@@ -148,12 +142,11 @@ State files are keyed by `conversation_id` to isolate concurrent sessions. Stale
 
 | Problem | Solution |
 |---------|----------|
-| **Spans not appearing** | 1. Verify collector is running: `curl -sf http://127.0.0.1:4318/health` 2. Check hook log: `tail -20 /tmp/arize-cursor.log` 3. Check collector log: `tail -20 ~/.arize/harness/logs/collector.log` |
-| **Collector not running** | Verify config exists: `cat ~/.arize/harness/config.yaml`. Start it: `arize-collector-ctl start`. Check log: `tail -20 ~/.arize/harness/logs/collector.log` |
+| **Spans not appearing** | 1. Check hook log: `tail -20 /tmp/arize-cursor.log` 2. Verify backend is reachable (Phoenix: `curl -s http://localhost:6006/healthz`) 3. Test with dry run: `ARIZE_DRY_RUN=true ARIZE_VERBOSE=true` |
+| **Spans not appearing in Arize AX** | Verify `api_key` and `space_id` in `~/.arize/harness/config.yaml`. Check hook log: `grep ERROR /tmp/arize-cursor.log` |
 | **Shell/MCP spans missing input** | State push failed — check that `~/.arize/harness/state/cursor/` is writable. Enable verbose logging: `ARIZE_VERBOSE=true` |
 | **Hooks not firing** | Verify `.cursor/hooks.json` exists in your project root and the handler path is correct (absolute path) |
 | **Duplicate or stale state files** | Reset state: `rm -rf ~/.arize/harness/state/cursor/state_*.yaml`. Stale files are normally garbage-collected automatically |
-| **Spans not appearing in Arize AX** | Verify `api_key` and `space_id` in `~/.arize/harness/config.yaml`. Check collector log: `grep ERROR ~/.arize/harness/logs/collector.log` |
 
 For more verbose output, enable debug logging:
 
@@ -174,10 +167,8 @@ The config file `~/.arize/harness/config.yaml` is the primary and recommended wa
 | `ARIZE_DRY_RUN` | No | `false` | Print spans to log instead of sending |
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
 | `ARIZE_LOG_FILE` | No | `/tmp/arize-cursor.log` | Log file path (empty to disable) |
-| `ARIZE_COLLECTOR_HOST` | No | `127.0.0.1` | Shared collector listen address |
-| `ARIZE_COLLECTOR_PORT` | No | `4318` | Shared collector listen port |
 
-Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.) are configured in `~/.arize/harness/config.yaml` and read by the collector. They do not need to be set as environment variables.
+Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.) can also be set as environment variables and will be used as fallbacks if not configured in `config.yaml`.
 
 ## Directory Structure
 
@@ -196,11 +187,10 @@ core/
   hooks/cursor/
     adapter.py       Cursor-specific state stack, ID generation, sanitize
     handlers.py      12-event dispatcher entry point
-  common.py          Shared: span building, sending, state, logging, IDs
-  collector.py       Shared background collector/exporter
-  collector_ctl.py   Collector lifecycle management (start/stop/status/ensure)
+  common.py          Shared: span building, direct send, state, logging, IDs
   config.py          YAML config helper
   constants.py       Single source of truth for all paths
+  send_arize.py      Arize AX gRPC sender (used by send_span)
 ```
 
 ## Links
@@ -208,6 +198,6 @@ core/
 - [Arize AX](https://arize.com)
 - [Phoenix](https://github.com/Arize-ai/phoenix)
 - [OpenInference](https://github.com/Arize-ai/openinference)
-- [Collector Architecture](../docs/COLLECTOR_ARCHITECTURE.md)
+- [Tracing Architecture](../docs/TRACING_ARCHITECTURE.md)
 - [Root README](../README.md)
 - [Development Guide](../DEVELOPMENT.md)

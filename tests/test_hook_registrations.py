@@ -347,7 +347,7 @@ class TestDocumentationConsistency:
         """Claude Code README should reference CLI entry points."""
         readme = (REPO_ROOT / "claude-code-tracing" / "README.md").read_text()
         assert "arize-hook-session-start" in readme
-        assert "arize-codex-buffer start" in readme
+        assert "send_span()" in readme
         assert "Python 3.9+" in readme
 
     def test_codex_readme_references_cli_entry_points(self):
@@ -360,14 +360,14 @@ class TestDocumentationConsistency:
         """Cursor README should reference CLI entry points."""
         readme = (REPO_ROOT / "cursor-tracing" / "README.md").read_text()
         assert "arize-hook-cursor" in readme
-        assert "arize-codex-buffer start" in readme
+        assert "send_span()" in readme
         assert "Python 3.9+" in readme
 
     def test_cursor_skill_references_cli_entry_points(self):
         """Cursor SKILL.md should use CLI entry points for hooks."""
         skill = (REPO_ROOT / "cursor-tracing" / "skills" / "setup-cursor-tracing" / "SKILL.md").read_text()
         assert "arize-hook-cursor" in skill
-        assert "arize-codex-buffer start" in skill
+        assert "send_span()" in skill
         assert "hook-handler.sh" not in skill
 
     def test_codex_skill_references_cli_entry_points(self):
@@ -380,7 +380,7 @@ class TestDocumentationConsistency:
     def test_claude_skill_references_cli_entry_points(self):
         """Claude SKILL.md should use CLI entry points."""
         skill = (REPO_ROOT / "claude-code-tracing" / "skills" / "setup-claude-code-tracing" / "SKILL.md").read_text()
-        assert "arize-codex-buffer start" in skill
+        assert "send_span()" in skill
         assert "collector_ctl.sh" not in skill
 
 
