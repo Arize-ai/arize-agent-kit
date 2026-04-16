@@ -210,6 +210,18 @@ class TestGcStaleStateFiles:
         assert not state_file.exists()
         assert not lock_dir.exists()
 
+    def test_lock_file_removed(self, copilot_state_dir, disable_env_vars, monkeypatch):
+        """Lock file (fcntl-style) is removed when state file is removed."""
+        dead_pid = 99997
+        state_file = copilot_state_dir / f"state_{dead_pid}.yaml"
+        state_file.write_text("{}")
+        lock_file = copilot_state_dir / f".lock_{dead_pid}"
+        lock_file.write_text("")  # fcntl creates lock as a regular file
+        monkeypatch.setattr(adapter, "_is_pid_alive", lambda pid: False)
+        adapter.gc_stale_state_files()
+        assert not state_file.exists()
+        assert not lock_file.exists()
+
     def test_empty_dir_no_error(self, copilot_state_dir, disable_env_vars):
         """Empty STATE_DIR causes no errors."""
         for f in copilot_state_dir.glob("state_*.yaml"):

@@ -212,3 +212,8 @@ def gc_stale_state_files() -> None:
                     lock_path.rmdir()
                 except OSError:
                     pass
+            elif lock_path.is_file():
+                try:
+                    lock_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
