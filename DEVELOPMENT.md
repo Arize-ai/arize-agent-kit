@@ -7,7 +7,7 @@ Contributor guide for adding new harness adapters and working with the shared co
 The system has two layers:
 
 1. **Harness adapters** — build OpenInference spans from harness-specific events (hook payloads, session lifecycle, tool calls) and send them directly to the backend.
-2. **Direct send** — `send_span()` in `core/common.py` sends spans directly to Phoenix (REST) or Arize AX (gRPC). Per-harness credential overrides are resolved automatically.
+2. **Direct send** — `send_span()` in `core/common.py` sends spans directly to Phoenix (REST) or Arize AX (HTTP). Per-harness credential overrides are resolved automatically.
 
 Harnesses are responsible for span construction and session state. The `send_span()` function handles backend export, credential resolution (per-harness overrides → global config → env vars), retries, and logging. Codex additionally uses a lightweight buffer service (`core/codex_buffer.py`) for native OTLP event buffering. See [TRACING_ARCHITECTURE.md](docs/TRACING_ARCHITECTURE.md) for the full architecture.
 
@@ -46,7 +46,6 @@ core/
   codex_buffer.py    # Codex-only: OTLP event buffer service (no export logic)
   codex_buffer_ctl.py # Codex buffer lifecycle (CLI: arize-codex-buffer)
   common.py          # Shared: span building, direct send, state, logging, IDs
-  send_arize.py      # Arize AX gRPC sender (used by send_span)
   hooks/
     __init__.py
     claude/
@@ -88,7 +87,7 @@ pyproject.toml       # Package definition, CLI entry points, pytest config
 - State primitives (`init_state`, `get_state`, `set_state`, `del_state`, `inc_state`, file locking)
 - Target detection (`get_target`)
 - Span building (`build_span`, `build_multi_span`)
-- Span sending (`send_span`, `send_to_collector`)
+- Span sending (`send_span`)
 
 Each adapter module (`core/hooks/<harness>/adapter.py`) provides:
 
@@ -194,7 +193,7 @@ def my_hook():
     # No stdout output unless the harness expects a response
 ```
 
-Hook handlers call `send_span()` which sends the span payload directly to the configured backend (Phoenix REST or Arize AX gRPC). New harnesses should use `send_span()` from `core.common` rather than implementing their own export logic.
+Hook handlers call `send_span()` which sends the span payload directly to the configured backend (Phoenix REST or Arize AX HTTP). New harnesses should use `send_span()` from `core.common` rather than implementing their own export logic.
 
 ### Step 4: Register CLI entry points
 
@@ -228,7 +227,7 @@ All functions below are Python functions in the `core.common` module. Import the
 
 | Function | Description |
 |----------|-------------|
-| `send_span(span_json)` | Send span directly to the configured backend (Phoenix REST or Arize AX gRPC) |
+| `send_span(span_json)` | Send span directly to the configured backend (Phoenix REST or Arize AX HTTP) |
 
 ### State Management
 

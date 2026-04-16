@@ -4,6 +4,7 @@ import json
 import os
 import threading
 import time
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -730,8 +731,9 @@ class TestSendSpan:
         assert send_span(self._SAMPLE_SPAN) is False
 
     @mock.patch("core.common.resolve_backend")
-    def test_arize_direct_send(self, mock_resolve, monkeypatch):
-        """send_span calls send_to_arize with resolved credentials."""
+    @mock.patch("core.common.urllib.request.urlopen")
+    def test_arize_direct_send(self, mock_urlopen, mock_resolve, monkeypatch):
+        """send_span sends directly to Arize HTTP/JSON endpoint."""
         monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
         monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
 
@@ -742,23 +744,29 @@ class TestSendSpan:
             "endpoint": "otlp.arize.com:443",
             "project_name": "proj",
         }
+        mock_resp = mock.MagicMock()
+        mock_resp.status = 200
+        mock_resp.__enter__ = mock.Mock(return_value=mock_resp)
+        mock_resp.__exit__ = mock.Mock(return_value=False)
+        mock_urlopen.return_value = mock_resp
 
-        fake_mod = mock.MagicMock()
-        fake_mod.send_to_arize.return_value = True
-        with mock.patch.dict("sys.modules", {"core.send_arize": fake_mod}):
-            result = send_span(self._SAMPLE_SPAN)
+        assert send_span(self._SAMPLE_SPAN) is True
 
-        assert result is True
-        fake_mod.send_to_arize.assert_called_once_with(
-            self._SAMPLE_SPAN,
-            api_key="my-key",
-            space_id="my-space",
-            endpoint="otlp.arize.com:443",
-        )
+        req = mock_urlopen.call_args[0][0]
+        assert req.full_url == "https://otlp.arize.com:443/v1/traces"
+        assert req.get_header("Content-type") == "application/json"
+        assert req.get_header("Authorization") == "Bearer my-key"
+        assert req.get_header("Space_id") == "my-space"
+        body = json.loads(req.data)
+        # Verify arize.project.name injected into span attributes
+        span_attrs = body["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+        project_names = [a["value"]["stringValue"] for a in span_attrs if a["key"] == "arize.project.name"]
+        assert "proj" in project_names
 
     @mock.patch("core.common.resolve_backend")
-    def test_arize_import_error(self, mock_resolve, monkeypatch):
-        """Arize send returns False when send_arize module is not importable."""
+    @mock.patch("core.common.urllib.request.urlopen")
+    def test_arize_send_failure(self, mock_urlopen, mock_resolve, monkeypatch):
+        """Arize send returns False on network error."""
         monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
         monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
 
@@ -769,30 +777,9 @@ class TestSendSpan:
             "endpoint": "otlp.arize.com:443",
             "project_name": "proj",
         }
+        mock_urlopen.side_effect = urllib.error.URLError("connection refused")
 
-        with mock.patch.dict("sys.modules", {"core.send_arize": None}):
-            result = send_span(self._SAMPLE_SPAN)
-        assert result is False
-
-    @mock.patch("core.common.resolve_backend")
-    def test_arize_send_exception(self, mock_resolve, monkeypatch):
-        """Arize send returns False when send_to_arize raises."""
-        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
-        monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
-
-        mock_resolve.return_value = {
-            "target": "arize",
-            "api_key": "key",
-            "space_id": "space",
-            "endpoint": "otlp.arize.com:443",
-            "project_name": "proj",
-        }
-
-        fake_mod = mock.MagicMock()
-        fake_mod.send_to_arize.side_effect = RuntimeError("boom")
-        with mock.patch.dict("sys.modules", {"core.send_arize": fake_mod}):
-            result = send_span(self._SAMPLE_SPAN)
-        assert result is False
+        assert send_span(self._SAMPLE_SPAN) is False
 
     @mock.patch("core.common.resolve_backend")
     def test_no_backend_returns_false(self, mock_resolve, monkeypatch):
@@ -970,10 +957,11 @@ class TestResolveBackend:
 
         monkeypatch.setattr("core.config.load_config", mock.Mock(side_effect=Exception("no config")))
 
-        result = resolve_backend(self._make_span())
+        result = resolve_backend(self._make_span("test-svc"))
         assert result["target"] == "phoenix"
         assert result["endpoint"] == "http://env-phoenix:6006"
         assert result["api_key"] == "env-key"
+        assert result["project_name"] == "test-svc"
 
     def test_env_var_fallback_arize(self, monkeypatch):
         """Falls back to env vars for Arize when no config is available."""
@@ -984,7 +972,7 @@ class TestResolveBackend:
 
         monkeypatch.setattr("core.config.load_config", mock.Mock(side_effect=Exception("no config")))
 
-        result = resolve_backend(self._make_span())
+        result = resolve_backend(self._make_span("test-svc"))
         assert result["target"] == "arize"
         assert result["api_key"] == "env-arize-key"
         assert result["space_id"] == "env-space"
@@ -1032,8 +1020,8 @@ class TestResolveBackend:
         result = resolve_backend(self._make_span("my-service"))
         assert result["project_name"] == "my-service"
 
-    def test_project_name_defaults_to_default(self, monkeypatch):
-        """Project name defaults to 'default' when no service.name, config, or env var."""
+    def test_project_name_errors_when_unresolvable(self, monkeypatch):
+        """Returns target=none when project name cannot be resolved."""
         monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
         monkeypatch.delenv("ARIZE_API_KEY", raising=False)
         monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
@@ -1043,7 +1031,8 @@ class TestResolveBackend:
         monkeypatch.setattr("core.config.load_config", lambda: cfg)
 
         result = resolve_backend(self._make_span(""))
-        assert result["project_name"] == "default"
+        assert result["target"] == "none"
+        assert result["project_name"] == ""
 
     def test_global_arize_config(self, monkeypatch):
         """Global arize config returns arize credentials."""
@@ -1115,7 +1104,7 @@ class TestResolveBackend:
         }
         monkeypatch.setattr("core.config.load_config", lambda: cfg)
 
-        result = resolve_backend(self._make_span())
+        result = resolve_backend(self._make_span("test-svc"))
         assert result["endpoint"] == "otlp.arize.com:443"
 
 

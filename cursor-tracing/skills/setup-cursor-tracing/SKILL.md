@@ -74,7 +74,7 @@ Walk the user through finding their credentials:
 
 Both `api_key` and `space_id` are required for the shared config.
 
-**No Python dependencies are needed.** The gRPC dependencies for Arize AX export are bundled with the package. Users do not need to install `opentelemetry-proto` or `grpcio`.
+**No Python dependencies are needed.** Both Phoenix and Arize AX use HTTP/JSON — no additional Python dependencies are needed.
 
 Then proceed to [Configure Settings](#configure-settings). If the user is on an on-prem instance, remind them to provide their custom endpoint.
 

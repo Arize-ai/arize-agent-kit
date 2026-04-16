@@ -404,8 +404,8 @@ class TestClaudeSetup:
         # Patch path resolution in _run: choice "1" → local settings
         monkeypatch.setattr("core.setup.claude.Path", _patched_path_class(tmp_path))
 
-        # Inputs: scope=1, backend=1 (Phoenix), endpoint=default, user_id=""
-        inputs = iter(["1", "1", "", ""])
+        # Inputs: scope=1, backend=1 (Phoenix), endpoint=default, project_name=default, user_id=""
+        inputs = iter(["1", "1", "", "", ""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
         monkeypatch.setattr("sys.stdout", type("FakeOut", (), {
             "isatty": lambda self: False,
@@ -435,8 +435,8 @@ class TestClaudeSetup:
         monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
         monkeypatch.setattr("core.setup.claude.Path", _patched_path_class(tmp_path))
 
-        # Inputs: scope=1, backend=2, api_key, space_id, otlp_endpoint=default, user_id="alice"
-        inputs = iter(["1", "2", "my-key", "my-space", "", "alice"])
+        # Inputs: scope=1, backend=2, api_key, space_id, otlp_endpoint=default, project_name=default, user_id="alice"
+        inputs = iter(["1", "2", "my-key", "my-space", "", "", "alice"])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
         monkeypatch.setattr("sys.stdout", type("FakeOut", (), {
             "isatty": lambda self: False,
@@ -631,8 +631,8 @@ class TestCodexRunFlow:
         # Patch Path.home() to use tmp_path
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
-        # Inputs: backend=1 (Phoenix), endpoint=default, user_id=""
-        inputs = iter(["1", "", ""])
+        # Inputs: project_name=default, backend=1 (Phoenix), endpoint=default, user_id=""
+        inputs = iter(["", "1", "", ""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
         monkeypatch.setattr("sys.stdout", type("FakeOut", (), {
             "isatty": lambda self: False,
@@ -683,8 +683,8 @@ class TestCodexRunFlow:
         monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
-        # Only input needed: user_id (no backend prompts)
-        inputs = iter([""])
+        # Inputs: project_name=default, user_id="" (no backend prompts)
+        inputs = iter(["", ""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
         monkeypatch.setattr("sys.stdout", type("FakeOut", (), {
             "isatty": lambda self: False,
@@ -771,8 +771,8 @@ class TestCursorSetup:
         import core.config
         monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
 
-        # Inputs: backend=1, endpoint=default, user_id=""
-        inputs = iter(["1", "", ""])
+        # Inputs: project_name=default, backend=1, endpoint=default, user_id=""
+        inputs = iter(["", "1", "", ""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
         monkeypatch.setattr("sys.stdout", type("FakeOut", (), {
             "isatty": lambda self: False,
@@ -806,8 +806,8 @@ class TestCursorSetup:
         import core.config
         monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
 
-        # Only user_id prompt (no backend prompts)
-        inputs = iter(["testuser"])
+        # Inputs: project_name=default, user_id="testuser" (no backend prompts)
+        inputs = iter(["", "testuser"])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
         monkeypatch.setattr("sys.stdout", type("FakeOut", (), {
             "isatty": lambda self: False,

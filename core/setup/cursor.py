@@ -13,6 +13,7 @@ from core.setup import (
     info,
     print_color,
     prompt_backend,
+    prompt_project_name,
     prompt_user_id,
     write_config,
 )
@@ -36,6 +37,9 @@ def _run() -> None:
     config = load_config()
     existing_backend = get_value(config, "backend.target")
 
+    # Project name
+    project_name = prompt_project_name("cursor")
+
     if existing_backend:
         print_color(
             f"Existing config found: backend={existing_backend} in ~/.arize/harness/config.yaml",
@@ -45,7 +49,7 @@ def _run() -> None:
         print("")
 
         # Add cursor harness entry
-        set_value(config, "harnesses.cursor.project_name", "cursor")
+        set_value(config, "harnesses.cursor.project_name", project_name)
         save_config(config)
         info("Added cursor harness to existing config")
     else:
@@ -54,13 +58,8 @@ def _run() -> None:
         info(f"Target: {'Phoenix at ' + credentials['endpoint'] if target == 'phoenix' else 'Arize AX (endpoint: ' + credentials['endpoint'] + ')'}")
 
         # Write config.yaml
-        write_config(target, credentials, "cursor", "cursor")
-        info("Wrote shared collector config to ~/.arize/harness/config.yaml")
-
-        if target == "arize":
-            print("")
-            print_color("Note: Arize AX backend requires Python dependencies for the collector:", "yellow")
-            print("  pip install opentelemetry-proto grpcio")
+        write_config(target, credentials, "cursor", project_name)
+        info("Wrote config to ~/.arize/harness/config.yaml")
 
     # Optional: User ID
     user_id = prompt_user_id()

@@ -345,13 +345,6 @@ setup_venv() {
         return 1
     fi
 
-    # Install Arize AX extras if needed
-    if [[ "$backend_target" == "arize" ]]; then
-        info "Installing Arize AX dependencies (opentelemetry-proto, grpcio)..."
-        "$pip" install --quiet opentelemetry-proto grpcio 2>/dev/null || \
-            warn "Failed to install Arize AX dependencies — gRPC export may not work"
-    fi
-
     info "Venv ready at ${VENV_DIR}"
 }
 
@@ -373,40 +366,50 @@ write_config() {
     local vp
     vp=$(venv_python 2>/dev/null) || true
     if [[ -f "$CONFIG_FILE" && -n "$vp" && -n "$harness_name" ]]; then
-        if "$vp" -c "
-import yaml, os, sys
+        if _CFG_FILE="$CONFIG_FILE" \
+           _HARNESS="$harness_name" \
+           _PROJECT="$project_name" \
+           _PER_HARNESS="$per_harness" \
+           _BACKEND="$backend_target" \
+           _PHOENIX_EP="$phoenix_endpoint" \
+           _PHOENIX_KEY="$phoenix_api_key" \
+           _ARIZE_EP="$arize_endpoint" \
+           _ARIZE_KEY="$arize_api_key" \
+           _ARIZE_SPACE="$arize_space_id" \
+           "$vp" -c '
+import yaml, os
 
-config_file = '${CONFIG_FILE}'
-harness_name = '${harness_name}'
-project_name = '${project_name}'
-per_harness = '${per_harness}' == 'true'
+config_file = os.environ["_CFG_FILE"]
+harness_name = os.environ["_HARNESS"]
+project_name = os.environ["_PROJECT"]
+per_harness = os.environ.get("_PER_HARNESS") == "true"
 
 with open(config_file) as f:
     config = yaml.safe_load(f) or {}
 
-harness_entry = config.setdefault('harnesses', {}).setdefault(harness_name, {})
-harness_entry['project_name'] = project_name
+harness_entry = config.setdefault("harnesses", {}).setdefault(harness_name, {})
+harness_entry["project_name"] = project_name
 
 if per_harness:
-    backend_target = '${backend_target}'
-    harness_backend = harness_entry.setdefault('backend', {})
-    harness_backend['target'] = backend_target
-    if backend_target == 'phoenix':
-        harness_backend['phoenix'] = {
-            'endpoint': '${phoenix_endpoint}',
-            'api_key': '${phoenix_api_key}',
+    backend_target = os.environ["_BACKEND"]
+    harness_backend = harness_entry.setdefault("backend", {})
+    harness_backend["target"] = backend_target
+    if backend_target == "phoenix":
+        harness_backend["phoenix"] = {
+            "endpoint": os.environ["_PHOENIX_EP"],
+            "api_key": os.environ["_PHOENIX_KEY"],
         }
-    elif backend_target == 'arize':
-        harness_backend['arize'] = {
-            'endpoint': '${arize_endpoint}',
-            'api_key': '${arize_api_key}',
-            'space_id': '${arize_space_id}',
+    elif backend_target == "arize":
+        harness_backend["arize"] = {
+            "endpoint": os.environ["_ARIZE_EP"],
+            "api_key": os.environ["_ARIZE_KEY"],
+            "space_id": os.environ["_ARIZE_SPACE"],
         }
 
 fd = os.open(config_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-with os.fdopen(fd, 'w') as f:
+with os.fdopen(fd, "w") as f:
     yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False)
-" 2>/dev/null; then
+' 2>/dev/null; then
             info "Added harness '${harness_name}' to ${CONFIG_FILE}"
             return 0
         fi
@@ -716,7 +719,7 @@ collect_project_name() {
     if [[ -n "$_tty_in" ]]; then
         local name
         read -rp "  Set project name (default: ${default_name}): " name < "$_tty_in"
-        [[ -n "$name" ]] && CRED_PROJECT_NAME="$name"
+        if [[ -n "$name" ]]; then CRED_PROJECT_NAME="$name"; fi
     fi
 }
 
@@ -872,23 +875,28 @@ setup_claude() {
         exit 1
     fi
 
-    "$vp" -c "
-import json, os, sys
+    _PLUGIN_DIR="$plugin_dir" \
+    _SETTINGS_FILE="$settings_file" \
+    _VENV_BIN_DIR="$venv_bin_dir" \
+    _PROJECT_NAME="$CRED_PROJECT_NAME" \
+    "$vp" -c '
+import json, os
 
-plugin_dir = '${plugin_dir}'
-settings_file = '${settings_file}'
-venv_bin_dir = '${venv_bin_dir}'
+plugin_dir = os.environ["_PLUGIN_DIR"]
+settings_file = os.environ["_SETTINGS_FILE"]
+venv_bin_dir = os.environ["_VENV_BIN_DIR"]
+project_name = os.environ["_PROJECT_NAME"]
 
 CLAUDE_HOOK_EVENTS = {
-    'SessionStart': 'arize-hook-session-start',
-    'UserPromptSubmit': 'arize-hook-user-prompt-submit',
-    'PreToolUse': 'arize-hook-pre-tool-use',
-    'PostToolUse': 'arize-hook-post-tool-use',
-    'Stop': 'arize-hook-stop',
-    'SubagentStop': 'arize-hook-subagent-stop',
-    'Notification': 'arize-hook-notification',
-    'PermissionRequest': 'arize-hook-permission-request',
-    'SessionEnd': 'arize-hook-session-end',
+    "SessionStart": "arize-hook-session-start",
+    "UserPromptSubmit": "arize-hook-user-prompt-submit",
+    "PreToolUse": "arize-hook-pre-tool-use",
+    "PostToolUse": "arize-hook-post-tool-use",
+    "Stop": "arize-hook-stop",
+    "SubagentStop": "arize-hook-subagent-stop",
+    "Notification": "arize-hook-notification",
+    "PermissionRequest": "arize-hook-permission-request",
+    "SessionEnd": "arize-hook-session-end",
 }
 
 # Load existing settings
@@ -902,38 +910,38 @@ else:
     settings = {}
 
 # Add plugin reference
-plugins = settings.setdefault('plugins', [])
+plugins = settings.setdefault("plugins", [])
 has_plugin = any(
     (isinstance(p, str) and p == plugin_dir)
-    or (isinstance(p, dict) and p.get('path') == plugin_dir)
+    or (isinstance(p, dict) and p.get("path") == plugin_dir)
     for p in plugins
 )
 if not has_plugin:
-    plugins.append({'type': 'local', 'path': plugin_dir})
+    plugins.append({"type": "local", "path": plugin_dir})
 
 # Ensure ARIZE_PROJECT_NAME is set in env block so hooks always have a default
-env_block = settings.setdefault('env', {})
-if not env_block.get('ARIZE_PROJECT_NAME'):
-    env_block['ARIZE_PROJECT_NAME'] = '${CRED_PROJECT_NAME}'
-env_block.setdefault('ARIZE_TRACE_ENABLED', 'true')
+env_block = settings.setdefault("env", {})
+if not env_block.get("ARIZE_PROJECT_NAME"):
+    env_block["ARIZE_PROJECT_NAME"] = project_name
+env_block.setdefault("ARIZE_TRACE_ENABLED", "true")
 
 # Write hooks — use venv entry point paths
-hooks = settings.setdefault('hooks', {})
+hooks = settings.setdefault("hooks", {})
 for event, entry_point in CLAUDE_HOOK_EVENTS.items():
     hook_cmd = os.path.join(venv_bin_dir, entry_point)
     event_hooks = hooks.setdefault(event, [])
     already = any(
-        h.get('command', '') == hook_cmd
+        h.get("command", "") == hook_cmd
         for entry in event_hooks
-        for h in entry.get('hooks', [])
+        for h in entry.get("hooks", [])
     )
     if not already:
-        event_hooks.append({'hooks': [{'type': 'command', 'command': hook_cmd}]})
+        event_hooks.append({"hooks": [{"type": "command", "command": hook_cmd}]})
 
-with open(settings_file, 'w') as f:
+with open(settings_file, "w") as f:
     json.dump(settings, f, indent=2)
-    f.write('\n')
-"
+    f.write("\n")
+'
 
     info "Registered tracing hooks in ${settings_file}"
 

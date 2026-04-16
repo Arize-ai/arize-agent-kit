@@ -6,7 +6,7 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 
 - 12 hook-based span types covering the full Cursor session lifecycle
 - Before/after event merging for shell execution and MCP tool use via disk-backed state stack
-- Sends spans directly to Phoenix (REST) or Arize AX (gRPC) — no background process needed
+- Sends spans directly to Phoenix (REST) or Arize AX (HTTP) — no background process needed
 - Per-harness backend credential overrides via `harnesses.cursor.backend` in config
 - Deterministic trace IDs derived from Cursor's `generation_id`
 - Single Python CLI entry point dispatches all hook events via `hook_event_name`
@@ -124,7 +124,7 @@ Cursor IDE
                           │
                           ├─ build span (OTLP format via core.common)
                           └─ send_span() ──► Phoenix (REST)
-                                         \─► Arize AX (gRPC)
+                                         \─► Arize AX (HTTP)
 ```
 
 See [TRACING_ARCHITECTURE.md](../docs/TRACING_ARCHITECTURE.md) for the full design.
@@ -190,7 +190,6 @@ core/
   common.py          Shared: span building, direct send, state, logging, IDs
   config.py          YAML config helper
   constants.py       Single source of truth for all paths
-  send_arize.py      Arize AX gRPC sender (used by send_span)
 ```
 
 ## Links

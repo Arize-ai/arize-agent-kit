@@ -172,14 +172,19 @@ def resolve_backend(span_dict: dict) -> dict:
     harness_cfg = cfg.get("harnesses", {}).get(service_name, {})
     harness_backend = harness_cfg.get("backend", {})
 
-    # Resolve project name: harness config > env var > service.name > "default"
+    # Resolve project name: harness config > env var > service.name
     project_name = harness_cfg.get("project_name", "")
     if not project_name:
         project_name = env.project_name
     if not project_name:
         project_name = service_name
     if not project_name:
-        project_name = "default"
+        error(
+            "No project name found. Set ARIZE_PROJECT_NAME, configure "
+            "harnesses.<name>.project_name in config.yaml, or ensure spans "
+            "include a service.name resource attribute."
+        )
+        return {"target": "none", "project_name": ""}
 
     # Resolve target: harness > global config > env detection
     global_backend = cfg.get("backend", {})
@@ -232,6 +237,24 @@ def resolve_backend(span_dict: dict) -> dict:
         return {"target": "none", "project_name": project_name}
 
 
+def _inject_arize_project_name(span_dict: dict, project_name: str) -> dict:
+    """Return a copy of span_dict with arize.project.name on every span's attributes.
+
+    Arize requires this attribute on each span (not just the resource).
+    Modifies a shallow copy — does not mutate the original.
+    """
+    import copy
+    payload = copy.deepcopy(span_dict)
+    project_attr = {"key": "arize.project.name", "value": {"stringValue": project_name}}
+    for rs in payload.get("resourceSpans", []):
+        # Also add to resource attributes
+        rs.setdefault("resource", {}).setdefault("attributes", []).append(project_attr)
+        for ss in rs.get("scopeSpans", []):
+            for span in ss.get("spans", []):
+                span.setdefault("attributes", []).append(project_attr)
+    return payload
+
+
 def _extract_span_name(span_dict: dict) -> str:
     """Extract the first span name from an OTLP payload."""
     try:
@@ -276,17 +299,30 @@ def send_span(span_dict: dict) -> bool:
                 error(f"Phoenix send failed: {e}")
                 return False
         elif target == "arize":
+            project = backend["project_name"]
+            endpoint = backend.get("endpoint", "otlp.arize.com:443")
+            api_key = backend["api_key"]
+            space_id = backend.get("space_id", "")
+
+            # Inject arize.project.name into span attributes (required by Arize)
+            payload = _inject_arize_project_name(span_dict, project)
+
+            # Normalize endpoint to HTTPS URL for HTTP/JSON transport
+            if endpoint.startswith("http://") or endpoint.startswith("https://"):
+                url = f"{endpoint.rstrip('/')}/v1/traces"
+            else:
+                url = f"https://{endpoint}/v1/traces"
+
+            body = _json.dumps(payload).encode("utf-8")
+            headers = {
+                "Content-Type": "application/json",
+                "authorization": f"Bearer {api_key}",
+                "space_id": space_id,
+            }
+            req = urllib.request.Request(url, data=body, headers=headers, method="POST")
             try:
-                from core.send_arize import send_to_arize
-                return send_to_arize(
-                    span_dict,
-                    api_key=backend["api_key"],
-                    space_id=backend["space_id"],
-                    endpoint=backend.get("endpoint", "otlp.arize.com:443"),
-                )
-            except ImportError:
-                error("send_arize not available (missing opentelemetry-proto/grpcio)")
-                return False
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    return 200 <= resp.status < 300
             except Exception as e:
                 error(f"Arize send failed: {e}")
                 return False

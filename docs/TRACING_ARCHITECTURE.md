@@ -27,7 +27,6 @@ Harness hooks build OTLP JSON span payloads using `core.common.build_span()` and
 | `core/common.py` | Direct send (`send_span()`), per-harness credential resolution, span building |
 | `core/codex_buffer.py` | Codex-only HTTP buffer service for OTLP log events |
 | `core/codex_buffer_ctl.py` | Codex buffer lifecycle management: start, stop, status, ensure |
-| `core/send_arize.py` | Arize AX gRPC sender (used by `send_span()`) |
 
 ## Configuration
 
@@ -109,11 +108,9 @@ Codex hooks call `buffer_ensure()` which silently starts the buffer if it's not 
 
 ## Backend Export
 
-**Phoenix:** Transforms OTLP spans into Phoenix's `/v1/projects/<name>/spans` format and POSTs via `urllib`. Supports optional Bearer token auth.
+**Phoenix:** POSTs OTLP JSON to `/v1/projects/<name>/spans` via `urllib`. Supports optional Bearer token auth.
 
-**Arize AX:** Converts OTLP JSON to protobuf and sends via gRPC with `authorization` and `space_id` metadata. Requires `grpcio` and `opentelemetry-proto` (bundled with the package, not required in the user environment).
-
-Both paths retry up to 3 times with exponential backoff (1s, 2s, 4s). Failed exports are logged.
+**Arize AX:** POSTs OTLP JSON to `https://otlp.arize.com/v1/traces` via `urllib` with `authorization` and `space_id` headers. Injects `arize.project.name` into span attributes before sending. No gRPC or protobuf dependencies required.
 
 ## Shutdown (Codex Buffer)
 

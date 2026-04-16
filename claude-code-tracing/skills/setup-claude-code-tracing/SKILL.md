@@ -78,7 +78,7 @@ Walk the user through finding their credentials:
 
 Both `api_key` and `space_id` are required for the shared config.
 
-**No Python dependencies are needed.** The gRPC dependencies for Arize AX export are bundled with the package. Users do not need to install `opentelemetry-proto` or `grpcio`.
+**No Python dependencies are needed.** Both Phoenix and Arize AX use HTTP/JSON — no additional Python dependencies are needed.
 
 Then proceed to [Configure Settings](#configure-settings). If the user is on an on-prem instance, remind them to provide their custom endpoint.
 
@@ -213,7 +213,7 @@ git clone https://github.com/Arize-ai/arize-agent-kit.git
 ```
 The plugin path will be `./arize-agent-kit/claude-code-tracing`
 
-No Python dependencies are needed -- gRPC dependencies for Arize AX are bundled with the package.
+No Python dependencies are needed -- both Phoenix and Arize AX use HTTP/JSON.
 
 ### 3. Set up the backend config
 

@@ -13,7 +13,7 @@ Codex CLI
   │                          │
   │                          ├─ Drains buffered events from buffer service (GET /drain/{id})
   │                          └─ Sends built spans directly to backend via send_span()
-  │                                   └─► Phoenix (REST) or Arize AX (gRPC)
+  │                                   └─► Phoenix (REST) or Arize AX (HTTP)
   │
   └─ OTLP export ──► Codex Buffer Service (POST /v1/logs)
                       └─ Buffers native Codex events by thread-id
@@ -135,7 +135,7 @@ These env vars are **optional overrides**. Prefer setting values in `~/.arize/ha
 | `ARIZE_TRACE_ENABLED` | No | `true` | Enable or disable tracing |
 | `ARIZE_API_KEY` | No | config.yaml | Arize AX API key (override) |
 | `ARIZE_SPACE_ID` | No | config.yaml | Arize AX space ID (override) |
-| `ARIZE_OTLP_ENDPOINT` | No | `otlp.arize.com:443` | OTLP gRPC endpoint (on-prem Arize) |
+| `ARIZE_OTLP_ENDPOINT` | No | `otlp.arize.com:443` | OTLP endpoint (on-prem Arize) |
 | `PHOENIX_ENDPOINT` | No | config.yaml | Phoenix collector URL (override) |
 | `PHOENIX_API_KEY` | No | config.yaml | Phoenix API key (override) |
 | `ARIZE_PROJECT_NAME` | No | config.yaml | Project name (override; defaults to harness `project_name`) |
@@ -196,7 +196,6 @@ core/
   codex_buffer_ctl.py Buffer service lifecycle management
   config.py          YAML config helper
   constants.py       Single source of truth for all paths
-  send_arize.py      Arize AX gRPC sender (used by send_span)
 ```
 
 ## Troubleshooting

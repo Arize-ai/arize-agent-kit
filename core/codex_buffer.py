@@ -41,7 +41,6 @@ _log_lock = threading.Lock()
 _event_lock = threading.Lock()
 _event_buffers = {}   # conversation_id -> [event, ...]
 _event_timestamps = {}  # conversation_id -> last_update_time
-_logged_conv_debug = 0
 
 
 def _log(msg):
@@ -118,7 +117,6 @@ def _drain_events(conversation_id, since_ns=0, wait_ms=0, quiet_ms=0):
 
 def _extract_log_events(body):
     """Extract (conversation_id, normalized_event) pairs from OTLP logs JSON."""
-    global _logged_conv_debug
     results = []
     for rl in body.get("resourceLogs", []):
         for sl in rl.get("scopeLogs", []):
@@ -157,33 +155,6 @@ def _extract_log_events(body):
                     event_name = ""
                 if not event_name:
                     event_name = attrs.get("event.name", attrs.get("event", "unknown"))
-
-                if _logged_conv_debug < 20:
-                    interesting = {
-                        k: attrs.get(k)
-                        for k in (
-                            "thread_id",
-                            "codex.thread_id",
-                            "thread",
-                            "codex.thread",
-                            "threadId",
-                            "codex.threadId",
-                            "conversation.id",
-                            "codex.conversation.id",
-                            "conversation_id",
-                            "codex.conversation_id",
-                            "conversationId",
-                            "codex.conversationId",
-                        )
-                        if k in attrs
-                    }
-                    _log(
-                        "OTLP log identity debug: "
-                        f"event={event_name} conv_id={conv_id} "
-                        f"interesting={interesting} "
-                        f"attr_keys={sorted(attrs.keys())[:40]}"
-                    )
-                    _logged_conv_debug += 1
 
                 time_ns = record.get("timeUnixNano", 0)
                 try:
@@ -258,11 +229,11 @@ class CodexBufferHandler(BaseHTTPRequestHandler):
         from urllib.parse import urlparse
         path = urlparse(self.path).path.rstrip("/")
 
-        # POST /v1/logs or POST to any other path (Codex sends to root)
+        # POST /v1/logs or root (Codex sends to both)
         if path in ("/v1/logs", ""):
             self._handle_logs()
         else:
-            self._handle_logs()
+            self._send_json(404, {"status": "error", "message": f"unknown path: {path}"})
 
     def _handle_logs(self):
         """Accept OTLP log events and buffer by conversation ID."""

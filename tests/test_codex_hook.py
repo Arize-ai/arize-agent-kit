@@ -131,7 +131,7 @@ class TestEventFiltering:
 
         # Mock _send_span to capture what was sent
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify({
                 "type": "agent-turn-complete",
                 "thread-id": "t1",
@@ -291,7 +291,7 @@ class TestTruncationAndDefaults:
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
 
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify({
                 "type": "agent-turn-complete",
                 "thread-id": "t1",
@@ -316,7 +316,7 @@ class TestTruncationAndDefaults:
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
 
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify({
                 "type": "agent-turn-complete",
                 "thread-id": "t1",
@@ -413,7 +413,7 @@ class TestFindToolCalls:
 
         tools = [{"name": f"tool{i}"} for i in range(8)]
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify({
                 "type": "agent-turn-complete",
                 "thread-id": "t-tools",
@@ -441,7 +441,7 @@ class TestFindToolCalls:
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
 
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify({
                 "type": "agent-turn-complete",
                 "thread-id": "t-no-tools",
@@ -533,7 +533,7 @@ class TestDrainEvents:
         drain_server["set_drain"](events)
 
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify({
                 "type": "agent-turn-complete",
                 "thread-id": "t-drain",
@@ -738,7 +738,7 @@ class TestMultiSpanAssembly:
         ])
 
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify({
                 "type": "agent-turn-complete",
                 "thread-id": "t-multi",
@@ -764,7 +764,7 @@ class TestMultiSpanAssembly:
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
 
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify({
                 "type": "agent-turn-complete",
                 "thread-id": "t-single",
@@ -826,7 +826,7 @@ class TestIntegration:
         ])
 
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify(fixture)
 
         assert len(sent) == 1
@@ -860,7 +860,7 @@ class TestSendSpan:
         }
 
         with mock.patch("core.hooks.codex.handlers.send_span_to_backend", return_value=True) as mock_send:
-            _send_span(payload, 4318)
+            _send_span(payload)
 
         mock_send.assert_called_once_with(payload)
 
@@ -874,7 +874,7 @@ class TestSendSpan:
         }
 
         with mock.patch("core.hooks.codex.handlers.send_span_to_backend", return_value=False):
-            _send_span(payload, 4318)
+            _send_span(payload)
 
         assert "Failed to send span to backend" in capsys.readouterr().err
 

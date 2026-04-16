@@ -15,12 +15,14 @@ from core.setup import (
     info,
     print_color,
     prompt_backend,
+    prompt_project_name,
     prompt_user_id,
     write_config,
 )
 
 
-def _write_env_file(env_path: Path, target: str, credentials: dict) -> None:
+def _write_env_file(env_path: Path, target: str, credentials: dict,
+                    project_name: str = "codex") -> None:
     """Write ~/.codex/arize-env.sh with export statements."""
     env_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -37,7 +39,7 @@ def _write_env_file(env_path: Path, target: str, credentials: dict) -> None:
         lines.append(f'export ARIZE_SPACE_ID="{credentials.get("space_id", "")}"')
         lines.append(f'export ARIZE_OTLP_ENDPOINT="{credentials.get("endpoint", "otlp.arize.com:443")}"')
 
-    lines.append('export ARIZE_PROJECT_NAME="codex"')
+    lines.append(f'export ARIZE_PROJECT_NAME="{project_name}"')
 
     env_path.write_text("\n".join(lines) + "\n")
 
@@ -104,6 +106,9 @@ def _run() -> None:
     config = load_config()
     existing_backend = get_value(config, "backend.target")
 
+    # Project name
+    project_name = prompt_project_name("codex")
+
     if existing_backend:
         print_color(
             f"Existing config found: backend={existing_backend} in ~/.arize/harness/config.yaml",
@@ -113,7 +118,7 @@ def _run() -> None:
         print("")
 
         # Add codex harness entry
-        set_value(config, "harnesses.codex.project_name", "codex")
+        set_value(config, "harnesses.codex.project_name", project_name)
         save_config(config)
         info("Added codex harness to existing config")
 
@@ -131,7 +136,7 @@ def _run() -> None:
             err(f"Unknown backend in config: {existing_backend}")
             sys.exit(1)
 
-        _write_env_file(env_file, existing_backend, creds)
+        _write_env_file(env_file, existing_backend, creds, project_name)
         info(f"Wrote credentials to {env_file}")
     else:
         # No existing config — prompt for backend
@@ -139,17 +144,12 @@ def _run() -> None:
         info(f"Target: {'Phoenix at ' + credentials['endpoint'] if target == 'phoenix' else 'Arize AX (endpoint: ' + credentials['endpoint'] + ')'}")
 
         # Write config.yaml
-        write_config(target, credentials, "codex", "codex")
-        info("Wrote shared collector config to ~/.arize/harness/config.yaml")
+        write_config(target, credentials, "codex", project_name)
+        info("Wrote config to ~/.arize/harness/config.yaml")
 
         # Write env file
-        _write_env_file(env_file, target, credentials)
+        _write_env_file(env_file, target, credentials, project_name)
         info(f"Wrote credentials to {env_file}")
-
-        if target == "arize":
-            print("")
-            print_color("Note: Arize AX backend requires Python dependencies for the collector:", "yellow")
-            print("  pip install opentelemetry-proto grpcio")
 
     # Configure OTLP exporter in ~/.codex/config.toml
     config = load_config()

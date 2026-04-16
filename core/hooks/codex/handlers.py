@@ -264,13 +264,8 @@ def _drain_events(thread_id: str, state, collector_port: int) -> list:
 # Span sending
 # ---------------------------------------------------------------------------
 
-def _send_span(payload: dict, collector_port: int) -> None:
-    """Send the completed span payload directly to the configured backend.
-
-    ``collector_port`` is retained for API compatibility with existing tests and
-    callers; Codex still uses the local buffer service for event drain, but the
-    final span tree must go through ``core.common.send_span()``.
-    """
+def _send_span(payload: dict) -> None:
+    """Send the completed span payload directly to the configured backend."""
     if not send_span_to_backend(payload):
         error("Failed to send span to backend")
 
@@ -601,10 +596,10 @@ def _handle_notify(input_json: dict) -> None:
         all_spans = [parent_span] + child_spans
         multi_payload = build_multi_span(all_spans, SERVICE_NAME, SCOPE_NAME)
         debug_dump(f"{debug_prefix}_multi_span", multi_payload)
-        _send_span(multi_payload, collector_port)
+        _send_span(multi_payload)
     else:
         debug_dump(f"{debug_prefix}_span", parent_span)
-        _send_span(parent_span, collector_port)
+        _send_span(parent_span)
 
     log(f"Turn {trace_count} sent (thread={thread_id}, turn={turn_id}, children={len(child_spans)})")
 

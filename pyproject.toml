@@ -6,7 +6,6 @@ dependencies = ["pyyaml"]
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-timeout", "pytest-cov"]
-arize = ["opentelemetry-proto", "grpcio"]
 
 [project.scripts]
 # Core tools
@@ -42,7 +41,6 @@ markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 source = ["core"]
 omit = [
     "core/codex_buffer.py",
-    "core/send_arize.py",
 ]
 
 [tool.coverage.report]

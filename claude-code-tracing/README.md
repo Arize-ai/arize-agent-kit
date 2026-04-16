@@ -6,7 +6,7 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 
 - 9 hook-based span types covering the full session lifecycle
 - Works with both Claude Code CLI and the Claude Agent SDK — same install, same hooks, same config
-- Sends spans directly to Phoenix (REST) or Arize AX (gRPC) — no background process needed
+- Sends spans directly to Phoenix (REST) or Arize AX (HTTP) — no background process needed
 - Per-harness backend credential overrides via `harnesses.claude-code.backend` in config
 - PID-based session isolation with automatic garbage collection
 - Lazy session initialization for Agent SDK environments (no `SessionStart` event)
@@ -18,12 +18,11 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 Claude hooks build OpenInference spans locally and send them directly to the configured backend via `send_span()` in `core/common.py`. Backend credentials are resolved per-harness from `config.yaml`, with optional overrides under `harnesses.claude-code.backend`.
 
 - No background process or collector needed
-- No additional Python packages (`grpcio`, `opentelemetry-proto`) are needed in the user environment
 - Cross-platform: works on macOS, Linux, and Windows (Python 3.9+)
 
 ```text
 Claude hooks (Python CLI) --> send_span() --> Phoenix (REST)
-                                          \-> Arize AX (gRPC)
+                                          \-> Arize AX (HTTP)
 ```
 
 See [TRACING_ARCHITECTURE.md](../docs/TRACING_ARCHITECTURE.md) for the full design.
@@ -204,7 +203,6 @@ core/
   common.py          Shared: span building, direct send, state, logging, IDs
   config.py          YAML config helper
   constants.py       Single source of truth for all paths
-  send_arize.py      Arize AX gRPC sender (used by send_span)
 ```
 
 ## Troubleshooting
