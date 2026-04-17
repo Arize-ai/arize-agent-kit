@@ -36,6 +36,35 @@ claude plugin marketplace add Arize-ai/arize-agent-kit
 claude plugin install claude-code-tracing@arize-agent-kit
 ```
 
+After installing, configure your backend credentials in `~/.claude/settings.json` (global) or `.claude/settings.local.json` (per-project) under the `env` key:
+
+**For Arize AX:**
+
+```json
+{
+  "env": {
+    "ARIZE_TRACE_ENABLED": "true",
+    "ARIZE_API_KEY": "<your-arize-api-key>",
+    "ARIZE_SPACE_ID": "<your-arize-space-id>",
+    "ARIZE_PROJECT_NAME": "claude-code"
+  }
+}
+```
+
+**For Phoenix:**
+
+```json
+{
+  "env": {
+    "ARIZE_TRACE_ENABLED": "true",
+    "PHOENIX_ENDPOINT": "http://localhost:6006",
+    "ARIZE_PROJECT_NAME": "claude-code"
+  }
+}
+```
+
+Without these env vars, hooks will run but traces will be silently dropped. Claude Code injects these into every hook process automatically.
+
 ### Pip installer
 
 ```bash
