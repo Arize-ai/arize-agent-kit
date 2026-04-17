@@ -4,6 +4,7 @@
 # Usage:
 #   curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- claude
 #   curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- codex
+#   curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- copilot
 #   curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- cursor
 #   curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- update
 #   curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- uninstall
@@ -1278,6 +1279,159 @@ PROXYEOF
 }
 
 # ---------------------------------------------------------------------------
+# Copilot harness setup
+# ---------------------------------------------------------------------------
+setup_copilot() {
+    header "Setting up Arize tracing for GitHub Copilot"
+
+    local plugin_dir="${INSTALL_DIR}/copilot-tracing"
+    [[ -d "$plugin_dir" ]] || plugin_dir="${INSTALL_DIR}/plugins/copilot-tracing"
+    if [[ ! -d "$plugin_dir" ]]; then
+        err "Copilot tracing plugin not found in ${INSTALL_DIR}"
+        exit 1
+    fi
+    info "Plugin installed at: ${plugin_dir}"
+
+    local state_dir="${STATE_BASE_DIR}/copilot"
+    mkdir -p "$state_dir"
+
+    local venv_bin_dir="${VENV_DIR}/bin"
+    local hook_smoke="${venv_bin_dir}/arize-hook-copilot-session-start"
+    if [[ ! -x "$hook_smoke" ]]; then
+        err "Cannot register Copilot hooks — missing ${hook_smoke}"
+        err "Install the package into the harness venv, then re-run: ./install.sh copilot"
+        exit 1
+    fi
+
+    # Use Python for reliable JSON manipulation
+    local vp
+    vp=$(venv_python 2>/dev/null) || vp=$(find_python 2>/dev/null) || true
+    if [[ -z "$vp" ]]; then
+        err "Python is required for JSON manipulation but was not found"
+        exit 1
+    fi
+
+    local hooks_dir=".github/hooks"
+    mkdir -p "$hooks_dir"
+
+    # --- 1. Write VS Code format hooks (PascalCase, "command" field) ---
+    local vscode_hooks_file="${hooks_dir}/copilot-tracing.json"
+
+    _VSCODE_HOOKS_FILE="$vscode_hooks_file" \
+    _VENV_BIN_DIR="$venv_bin_dir" \
+    "$vp" -c '
+import json, os
+
+hooks_file = os.environ["_VSCODE_HOOKS_FILE"]
+venv_bin_dir = os.environ["_VENV_BIN_DIR"]
+
+VSCODE_HOOK_EVENTS = {
+    "SessionStart": "arize-hook-copilot-session-start",
+    "UserPromptSubmit": "arize-hook-copilot-user-prompt",
+    "PreToolUse": "arize-hook-copilot-pre-tool",
+    "PostToolUse": "arize-hook-copilot-post-tool",
+    "Stop": "arize-hook-copilot-stop",
+    "SubagentStop": "arize-hook-copilot-subagent-stop",
+}
+
+# Load existing or create new
+if os.path.isfile(hooks_file):
+    try:
+        with open(hooks_file) as f:
+            hooks_data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        hooks_data = {}
+else:
+    hooks_data = {}
+
+hooks = hooks_data.setdefault("hooks", {})
+
+for event, entry_point in VSCODE_HOOK_EVENTS.items():
+    hook_cmd = os.path.join(venv_bin_dir, entry_point)
+    event_hooks = hooks.setdefault(event, [])
+    already = any(
+        h.get("command", "") == hook_cmd
+        for entry in event_hooks
+        for h in entry.get("hooks", [])
+    )
+    if not already:
+        event_hooks.append({"hooks": [{"type": "command", "command": hook_cmd}]})
+
+with open(hooks_file, "w") as f:
+    json.dump(hooks_data, f, indent=2)
+    f.write("\n")
+'
+    info "Wrote VS Code hooks to ${vscode_hooks_file}"
+
+    # --- 2. Write CLI format hooks (camelCase, "bash" field, version: 1) ---
+    local cli_hooks_file="${hooks_dir}/hooks.json"
+
+    _CLI_HOOKS_FILE="$cli_hooks_file" \
+    _VENV_BIN_DIR="$venv_bin_dir" \
+    "$vp" -c '
+import json, os
+
+hooks_file = os.environ["_CLI_HOOKS_FILE"]
+venv_bin_dir = os.environ["_VENV_BIN_DIR"]
+
+CLI_HOOK_EVENTS = {
+    "sessionStart": "arize-hook-copilot-session-start",
+    "userPromptSubmitted": "arize-hook-copilot-user-prompt",
+    "preToolUse": "arize-hook-copilot-pre-tool",
+    "postToolUse": "arize-hook-copilot-post-tool",
+    "errorOccurred": "arize-hook-copilot-error",
+    "sessionEnd": "arize-hook-copilot-session-end",
+}
+
+# Load existing or create new (preserve existing hooks)
+if os.path.isfile(hooks_file):
+    try:
+        with open(hooks_file) as f:
+            hooks_data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        hooks_data = {"version": 1}
+else:
+    hooks_data = {"version": 1}
+
+hooks_data.setdefault("version", 1)
+hooks = hooks_data.setdefault("hooks", {})
+
+for event, entry_point in CLI_HOOK_EVENTS.items():
+    hook_cmd = os.path.join(venv_bin_dir, entry_point)
+    event_hooks = hooks.setdefault(event, [])
+    already = any(h.get("bash", "") == hook_cmd for h in event_hooks)
+    if not already:
+        event_hooks.append({"type": "command", "bash": hook_cmd})
+
+with open(hooks_file, "w") as f:
+    json.dump(hooks_data, f, indent=2)
+    f.write("\n")
+'
+    info "Wrote CLI hooks to ${cli_hooks_file}"
+
+    # Summary
+    echo ""
+    echo -e "  ${BOLD}Copilot tracing setup complete!${NC}"
+    echo ""
+    echo -e "  ${BOLD}What was configured:${NC}"
+    echo ""
+    echo "    - VS Code hooks at ${vscode_hooks_file}"
+    echo "      (6 hook events using PascalCase + command field)"
+    echo "    - CLI hooks at ${cli_hooks_file}"
+    echo "      (6 hook events using camelCase + bash field)"
+    echo "    - State directory at ${state_dir}"
+    echo "    - Spans are sent directly to your configured backend"
+    echo ""
+    echo -e "  ${BOLD}Next steps:${NC}"
+    echo ""
+    echo "    1. Commit the .github/hooks/ files to your repository"
+    echo "    2. Open the project in VS Code with Copilot or use Copilot CLI"
+    echo "    3. Spans will appear in your configured backend"
+    echo ""
+    info "Setup complete!"
+}
+
+# ---------------------------------------------------------------------------
 # Skills installation
 # ---------------------------------------------------------------------------
 install_skills() {
@@ -1367,7 +1521,7 @@ update_install() {
     # Clean up legacy collector artifacts
     rm -f "$COLLECTOR_BIN" "$PID_FILE" "$COLLECTOR_LOG_FILE"
 
-    info "Update complete! Re-run 'install.sh claude', 'install.sh codex', or 'install.sh cursor' to reconfigure harness settings."
+    info "Update complete! Re-run 'install.sh claude', 'install.sh codex', 'install.sh copilot', or 'install.sh cursor' to reconfigure harness settings."
 }
 
 # ---------------------------------------------------------------------------
@@ -1682,6 +1836,7 @@ usage() {
     echo "  Commands:"
     echo "    claude      Install and configure tracing for Claude Code / Agent SDK"
     echo "    codex       Install and configure tracing for OpenAI Codex CLI"
+    echo "    copilot     Install and configure tracing for GitHub Copilot (VS Code + CLI)"
     echo "    cursor      Install and configure tracing for Cursor IDE"
     echo "    update      Update the installed arize-agent-kit to latest"
     echo "    uninstall   Remove arize-agent-kit and print cleanup reminders"
@@ -1734,6 +1889,12 @@ main() {
             setup_shared_runtime "codex"
             setup_codex
             [[ "$with_skills" == true ]] && install_skills "codex"
+            ;;
+        copilot)
+            install_repo
+            setup_shared_runtime "copilot"
+            setup_copilot
+            [[ "$with_skills" == true ]] && install_skills "copilot"
             ;;
         cursor)
             install_repo
