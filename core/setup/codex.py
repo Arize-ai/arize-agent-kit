@@ -9,20 +9,11 @@ import os
 import sys
 from pathlib import Path
 
-from core.config import load_config, get_value, set_value, save_config
-from core.setup import (
-    err,
-    info,
-    print_color,
-    prompt_backend,
-    prompt_project_name,
-    prompt_user_id,
-    write_config,
-)
+from core.config import get_value, load_config, save_config, set_value
+from core.setup import err, info, print_color, prompt_backend, prompt_project_name, prompt_user_id, write_config
 
 
-def _write_env_file(env_path: Path, target: str, credentials: dict,
-                    project_name: str = "codex") -> None:
+def _write_env_file(env_path: Path, target: str, credentials: dict, project_name: str = "codex") -> None:
     """Write ~/.codex/arize-env.sh with export statements."""
     env_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -141,7 +132,9 @@ def _run() -> None:
     else:
         # No existing config — prompt for backend
         target, credentials = prompt_backend()
-        info(f"Target: {'Phoenix at ' + credentials['endpoint'] if target == 'phoenix' else 'Arize AX (endpoint: ' + credentials['endpoint'] + ')'}")
+        info(
+            f"Target: {'Phoenix at ' + credentials['endpoint'] if target == 'phoenix' else 'Arize AX (endpoint: ' + credentials['endpoint'] + ')'}"
+        )
 
         # Write config.yaml
         write_config(target, credentials, "codex", project_name)

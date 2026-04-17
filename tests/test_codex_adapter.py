@@ -2,14 +2,12 @@
 """Tests for core.hooks.codex.adapter — session resolution, init, GC, requirements."""
 import os
 import time
-from pathlib import Path
 
 import pytest
 import yaml
 
-from core.hooks.codex import adapter
 from core.common import StateManager
-
+from core.hooks.codex import adapter
 
 # ── Autouse fixture to prevent real sleeps ───────────────────────────────────
 
@@ -71,7 +69,7 @@ class TestLoadEnvFile:
         monkeypatch.delenv("TEST_CODEX_DQ", raising=False)
         monkeypatch.delenv("TEST_CODEX_SQ", raising=False)
         env_file = tmp_path / ".env"
-        env_file.write_text('TEST_CODEX_DQ="quoted"\nTEST_CODEX_SQ=\'single\'\n')
+        env_file.write_text("TEST_CODEX_DQ=\"quoted\"\nTEST_CODEX_SQ='single'\n")
         adapter.load_env_file(env_file)
         assert os.environ["TEST_CODEX_DQ"] == "quoted"
         assert os.environ["TEST_CODEX_SQ"] == "single"

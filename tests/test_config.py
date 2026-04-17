@@ -8,16 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from core.config import (
-    _format_output,
-    _parse_value,
-    delete_value,
-    get_value,
-    load_config,
-    main,
-    save_config,
-    set_value,
-)
+from core.config import _format_output, _parse_value, delete_value, get_value, load_config, main, save_config, set_value
 
 
 @pytest.fixture(autouse=True)

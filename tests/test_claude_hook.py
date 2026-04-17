@@ -2,41 +2,39 @@
 """Tests for core.hooks.claude.handlers — the 9 Claude Code hook handlers."""
 
 import json
-import os
 import sys
-import tempfile
 from pathlib import Path
 from unittest import mock
 
 import pytest
 
+from core.common import StateManager
 from core.hooks.claude.handlers import (
-    _read_stdin,
-    _handle_session_start,
-    _handle_pre_tool_use,
-    _handle_post_tool_use,
-    _handle_user_prompt_submit,
-    _handle_stop,
-    _handle_subagent_stop,
     _handle_notification,
     _handle_permission_request,
+    _handle_post_tool_use,
+    _handle_pre_tool_use,
     _handle_session_end,
-    session_start,
-    pre_tool_use,
-    post_tool_use,
-    user_prompt_submit,
-    stop,
-    subagent_stop,
+    _handle_session_start,
+    _handle_stop,
+    _handle_subagent_stop,
+    _handle_user_prompt_submit,
+    _read_stdin,
     notification,
     permission_request,
+    post_tool_use,
+    pre_tool_use,
     session_end,
+    session_start,
+    stop,
+    subagent_stop,
+    user_prompt_submit,
 )
-from core.common import StateManager
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def state(tmp_path):
@@ -75,6 +73,7 @@ def captured_spans():
 # _read_stdin tests
 # ---------------------------------------------------------------------------
 
+
 class TestReadStdin:
 
     def test_empty_stdin(self):
@@ -97,12 +96,15 @@ class TestReadStdin:
 # session_start tests
 # ---------------------------------------------------------------------------
 
+
 class TestSessionStart:
 
     def test_calls_resolve_and_init(self, state, captured_spans):
         """session_start calls resolve_session and ensure_session_initialized."""
-        with mock.patch("core.hooks.claude.handlers.resolve_session", return_value=state) as rs, \
-             mock.patch("core.hooks.claude.handlers.ensure_session_initialized") as esi:
+        with (
+            mock.patch("core.hooks.claude.handlers.resolve_session", return_value=state) as rs,
+            mock.patch("core.hooks.claude.handlers.ensure_session_initialized") as esi,
+        ):
             inp = {"session_id": "s1"}
             _handle_session_start(inp)
             rs.assert_called_once_with(inp)
@@ -112,6 +114,7 @@ class TestSessionStart:
 # ---------------------------------------------------------------------------
 # pre_tool_use tests
 # ---------------------------------------------------------------------------
+
 
 class TestPreToolUse:
 
@@ -135,22 +138,24 @@ class TestPreToolUse:
 # post_tool_use tests
 # ---------------------------------------------------------------------------
 
+
 class TestPostToolUse:
 
     def test_builds_tool_span(self, mock_resolve, state, captured_spans):
         """post_tool_use builds a TOOL span with correct attributes."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        _handle_post_tool_use({
-            "tool_name": "Read",
-            "tool_use_id": "t1",
-            "tool_input": {"file_path": "/foo/bar.py"},
-            "tool_response": "file content",
-        })
+        _handle_post_tool_use(
+            {
+                "tool_name": "Read",
+                "tool_use_id": "t1",
+                "tool_input": {"file_path": "/foo/bar.py"},
+                "tool_response": "file content",
+            }
+        )
         assert len(captured_spans) == 1
         span = captured_spans[0]
-        attrs = {a["key"]: a["value"] for a in
-                 span["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
+        attrs = {a["key"]: a["value"] for a in span["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
         assert attrs["openinference.span.kind"]["stringValue"] == "TOOL"
         assert attrs["tool.name"]["stringValue"] == "Read"
         assert attrs["tool.file_path"]["stringValue"] == "/foo/bar.py"
@@ -159,12 +164,14 @@ class TestPostToolUse:
         """Bash tool sets tool.command attr and description is command[:200]."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        _handle_post_tool_use({
-            "tool_name": "Bash",
-            "tool_use_id": "t2",
-            "tool_input": {"command": "ls -la /tmp"},
-            "tool_response": "output",
-        })
+        _handle_post_tool_use(
+            {
+                "tool_name": "Bash",
+                "tool_use_id": "t2",
+                "tool_input": {"command": "ls -la /tmp"},
+                "tool_response": "output",
+            }
+        )
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
@@ -175,12 +182,14 @@ class TestPostToolUse:
         """Grep tool sets both tool.query and tool.file_path, description prefixed 'grep: '."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        _handle_post_tool_use({
-            "tool_name": "Grep",
-            "tool_use_id": "t3",
-            "tool_input": {"pattern": "TODO", "path": "/src"},
-            "tool_response": "matches",
-        })
+        _handle_post_tool_use(
+            {
+                "tool_name": "Grep",
+                "tool_use_id": "t3",
+                "tool_input": {"pattern": "TODO", "path": "/src"},
+                "tool_response": "matches",
+            }
+        )
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
         assert attrs["tool.query"]["stringValue"] == "TODO"
@@ -191,12 +200,14 @@ class TestPostToolUse:
         """WebFetch tool sets tool.url attr."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        _handle_post_tool_use({
-            "tool_name": "WebFetch",
-            "tool_use_id": "t4",
-            "tool_input": {"url": "https://example.com"},
-            "tool_response": "page",
-        })
+        _handle_post_tool_use(
+            {
+                "tool_name": "WebFetch",
+                "tool_use_id": "t4",
+                "tool_input": {"url": "https://example.com"},
+                "tool_response": "page",
+            }
+        )
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
         assert attrs["tool.url"]["stringValue"] == "https://example.com"
@@ -205,12 +216,14 @@ class TestPostToolUse:
         """Unknown tool_name → description is first 200 chars of input."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        _handle_post_tool_use({
-            "tool_name": "CustomTool",
-            "tool_use_id": "t5",
-            "tool_input": {"data": "hello"},
-            "tool_response": "result",
-        })
+        _handle_post_tool_use(
+            {
+                "tool_name": "CustomTool",
+                "tool_use_id": "t5",
+                "tool_input": {"data": "hello"},
+                "tool_response": "result",
+            }
+        )
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
         desc = attrs["tool.description"]["stringValue"]
@@ -223,12 +236,14 @@ class TestPostToolUse:
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
         state.set("tool_t7_start", "1000000")
-        _handle_post_tool_use({
-            "tool_name": "Read",
-            "tool_use_id": "t7",
-            "tool_input": {"file_path": "/a.py"},
-            "tool_response": "content",
-        })
+        _handle_post_tool_use(
+            {
+                "tool_name": "Read",
+                "tool_use_id": "t7",
+                "tool_input": {"file_path": "/a.py"},
+                "tool_response": "content",
+            }
+        )
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["startTimeUnixNano"] == "1000000000000"  # 1000000 ms -> ns
         # Verify cleanup
@@ -245,6 +260,7 @@ class TestPostToolUse:
 # ---------------------------------------------------------------------------
 # user_prompt_submit tests
 # ---------------------------------------------------------------------------
+
 
 class TestUserPromptSubmit:
 
@@ -268,10 +284,12 @@ class TestUserPromptSubmit:
     def test_records_trace_start_line(self, mock_resolve, state, captured_spans, transcript_file):
         """Records trace_start_line from transcript file line count."""
         with mock.patch("core.hooks.claude.handlers.ensure_session_initialized"):
-            _handle_user_prompt_submit({
-                "prompt": "test",
-                "transcript_path": transcript_file,
-            })
+            _handle_user_prompt_submit(
+                {
+                    "prompt": "test",
+                    "transcript_path": transcript_file,
+                }
+            )
         # sample_transcript.jsonl has 3 lines
         assert state.get("trace_start_line") == "3"
 
@@ -303,6 +321,7 @@ class TestUserPromptSubmit:
 # stop tests
 # ---------------------------------------------------------------------------
 
+
 class TestStop:
 
     def test_parses_transcript_array_content(self, mock_resolve, state, captured_spans, transcript_file):
@@ -321,12 +340,14 @@ class TestStop:
     def test_parses_transcript_string_content(self, mock_resolve, state, captured_spans, tmp_path):
         """Parses transcript with string content format."""
         tf = tmp_path / "transcript_str.jsonl"
-        entry = {"message": {
-            "role": "assistant",
-            "content": "Hello from string format",
-            "model": "claude-test",
-            "usage": {"input_tokens": 10, "output_tokens": 5}
-        }}
+        entry = {
+            "message": {
+                "role": "assistant",
+                "content": "Hello from string format",
+                "model": "claude-test",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            }
+        }
         tf.write_text(json.dumps(entry) + "\n")
 
         state.set("current_trace_id", "t" * 32)
@@ -450,6 +471,7 @@ class TestStop:
 # subagent_stop tests
 # ---------------------------------------------------------------------------
 
+
 class TestSubagentStop:
 
     def test_skips_empty_agent_type(self, mock_resolve, state, captured_spans):
@@ -468,11 +490,13 @@ class TestSubagentStop:
         """Parses subagent transcript same as stop."""
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
-        _handle_subagent_stop({
-            "agent_type": "code-review",
-            "agent_id": "agent-1",
-            "agent_transcript_path": transcript_file,
-        })
+        _handle_subagent_stop(
+            {
+                "agent_type": "code-review",
+                "agent_id": "agent-1",
+                "agent_transcript_path": transcript_file,
+            }
+        )
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
@@ -491,11 +515,13 @@ class TestSubagentStop:
         mock_stat.st_mode = real_stat.st_mode
 
         with mock.patch.object(Path, "stat", return_value=mock_stat):
-            _handle_subagent_stop({
-                "agent_type": "explorer",
-                "agent_id": "a2",
-                "agent_transcript_path": transcript_file,
-            })
+            _handle_subagent_stop(
+                {
+                    "agent_type": "explorer",
+                    "agent_id": "a2",
+                    "agent_transcript_path": transcript_file,
+                }
+            )
 
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["startTimeUnixNano"] == "1700000000000000"  # 1700000000 ms -> ns
@@ -509,16 +535,19 @@ class TestSubagentStop:
 
         class FakeStat:
             """Stat result without st_birthtime."""
+
             st_mode = real_stat.st_mode
             st_size = real_stat.st_size
             st_ctime = 1600000.0
 
         with mock.patch.object(Path, "stat", return_value=FakeStat()):
-            _handle_subagent_stop({
-                "agent_type": "explorer",
-                "agent_id": "a3",
-                "agent_transcript_path": transcript_file,
-            })
+            _handle_subagent_stop(
+                {
+                    "agent_type": "explorer",
+                    "agent_id": "a3",
+                    "agent_transcript_path": transcript_file,
+                }
+            )
 
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["startTimeUnixNano"] == "1600000000000000"
@@ -533,17 +562,20 @@ class TestSubagentStop:
 # notification tests
 # ---------------------------------------------------------------------------
 
+
 class TestNotification:
 
     def test_builds_chain_span(self, mock_resolve, state, captured_spans):
         """Builds CHAIN span with notification attributes."""
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
-        _handle_notification({
-            "message": "Build succeeded",
-            "title": "CI",
-            "type": "success",
-        })
+        _handle_notification(
+            {
+                "message": "Build succeeded",
+                "title": "CI",
+                "type": "success",
+            }
+        )
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
@@ -570,17 +602,20 @@ class TestNotification:
 # permission_request tests
 # ---------------------------------------------------------------------------
 
+
 class TestPermissionRequest:
 
     def test_builds_chain_span(self, mock_resolve, state, captured_spans):
         """Builds CHAIN span with permission attributes."""
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
-        _handle_permission_request({
-            "permission": "allow",
-            "tool_name": "Bash",
-            "tool_input": {"command": "rm -rf /"},
-        })
+        _handle_permission_request(
+            {
+                "permission": "allow",
+                "tool_name": "Bash",
+                "tool_input": {"command": "rm -rf /"},
+            }
+        )
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
@@ -607,14 +642,17 @@ class TestPermissionRequest:
 # session_end tests
 # ---------------------------------------------------------------------------
 
+
 class TestSessionEnd:
 
     def test_logs_session_summary(self, mock_resolve, state):
         """Logs session summary via error()."""
         state.set("trace_count", "10")
         state.set("tool_count", "25")
-        with mock.patch("core.hooks.claude.handlers.error") as err_mock, \
-             mock.patch("core.hooks.claude.handlers.gc_stale_state_files"):
+        with (
+            mock.patch("core.hooks.claude.handlers.error") as err_mock,
+            mock.patch("core.hooks.claude.handlers.gc_stale_state_files"),
+        ):
             _handle_session_end({})
         calls = [c[0][0] for c in err_mock.call_args_list]
         assert any("10 traces" in c for c in calls)
@@ -623,24 +661,30 @@ class TestSessionEnd:
     def test_removes_state_file(self, mock_resolve, state, tmp_path):
         """Removes state file and lock dir."""
         assert state.state_file.exists()
-        with mock.patch("core.hooks.claude.handlers.error"), \
-             mock.patch("core.hooks.claude.handlers.gc_stale_state_files"):
+        with (
+            mock.patch("core.hooks.claude.handlers.error"),
+            mock.patch("core.hooks.claude.handlers.gc_stale_state_files"),
+        ):
             _handle_session_end({})
         assert not state.state_file.exists()
 
     def test_calls_gc(self, mock_resolve, state):
         """Calls gc_stale_state_files."""
-        with mock.patch("core.hooks.claude.handlers.error"), \
-             mock.patch("core.hooks.claude.handlers.gc_stale_state_files") as gc_mock:
+        with (
+            mock.patch("core.hooks.claude.handlers.error"),
+            mock.patch("core.hooks.claude.handlers.gc_stale_state_files") as gc_mock,
+        ):
             _handle_session_end({})
         gc_mock.assert_called_once()
 
     def test_graceful_when_session_id_none(self, state):
         """Returns early when session_id is None."""
         state.delete("session_id")
-        with mock.patch("core.hooks.claude.handlers.resolve_session", return_value=state), \
-             mock.patch("core.hooks.claude.handlers.error") as err_mock, \
-             mock.patch("core.hooks.claude.handlers.gc_stale_state_files") as gc_mock:
+        with (
+            mock.patch("core.hooks.claude.handlers.resolve_session", return_value=state),
+            mock.patch("core.hooks.claude.handlers.error") as err_mock,
+            mock.patch("core.hooks.claude.handlers.gc_stale_state_files") as gc_mock,
+        ):
             _handle_session_end({})
         err_mock.assert_not_called()
         gc_mock.assert_not_called()
@@ -650,15 +694,17 @@ class TestSessionEnd:
 # Error handling tests
 # ---------------------------------------------------------------------------
 
+
 class TestErrorHandling:
 
     def test_exception_caught_by_entry_point(self, monkeypatch, capsys):
         """Exception in _handle_session_start → entry point catches, calls error()."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.claude.handlers._read_stdin", return_value={}), \
-             mock.patch("core.hooks.claude.handlers.check_requirements", return_value=True), \
-             mock.patch("core.hooks.claude.handlers._handle_session_start",
-                        side_effect=RuntimeError("boom")):
+        with (
+            mock.patch("core.hooks.claude.handlers._read_stdin", return_value={}),
+            mock.patch("core.hooks.claude.handlers.check_requirements", return_value=True),
+            mock.patch("core.hooks.claude.handlers._handle_session_start", side_effect=RuntimeError("boom")),
+        ):
             session_start()
         captured = capsys.readouterr()
         assert "boom" in captured.err
@@ -666,11 +712,12 @@ class TestErrorHandling:
     def test_malformed_stdin_no_crash(self, monkeypatch, capsys):
         """Malformed stdin JSON in entry point doesn't crash."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.claude.handlers.check_requirements", return_value=True), \
-             mock.patch.object(sys, "stdin",
-                               new=__import__("io").StringIO("not valid json")), \
-             mock.patch("core.hooks.claude.handlers.resolve_session") as rs, \
-             mock.patch("core.hooks.claude.handlers.ensure_session_initialized"):
+        with (
+            mock.patch("core.hooks.claude.handlers.check_requirements", return_value=True),
+            mock.patch.object(sys, "stdin", new=__import__("io").StringIO("not valid json")),
+            mock.patch("core.hooks.claude.handlers.resolve_session") as rs,
+            mock.patch("core.hooks.claude.handlers.ensure_session_initialized"),
+        ):
             session_start()
         # _read_stdin returns {} on invalid JSON, so resolve_session is called with {}
         rs.assert_called_once_with({})
@@ -699,27 +746,32 @@ class TestEntryPoints:
     def test_happy_path_calls_handler(self, name, entry_fn, handler_name):
         """Entry point calls the corresponding _handle_* with parsed stdin JSON."""
         input_data = {"session_id": "s1"}
-        with mock.patch("core.hooks.claude.handlers.check_requirements", return_value=True), \
-             mock.patch("core.hooks.claude.handlers._read_stdin", return_value=input_data), \
-             mock.patch(f"core.hooks.claude.handlers.{handler_name}") as handler_mock:
+        with (
+            mock.patch("core.hooks.claude.handlers.check_requirements", return_value=True),
+            mock.patch("core.hooks.claude.handlers._read_stdin", return_value=input_data),
+            mock.patch(f"core.hooks.claude.handlers.{handler_name}") as handler_mock,
+        ):
             entry_fn()
         handler_mock.assert_called_once_with(input_data)
 
     @pytest.mark.parametrize("name,entry_fn,handler_name", ENTRY_POINTS)
     def test_requirements_not_met_skips_handler(self, name, entry_fn, handler_name):
         """When check_requirements returns False, handler is NOT called."""
-        with mock.patch("core.hooks.claude.handlers.check_requirements", return_value=False), \
-             mock.patch(f"core.hooks.claude.handlers.{handler_name}") as handler_mock:
+        with (
+            mock.patch("core.hooks.claude.handlers.check_requirements", return_value=False),
+            mock.patch(f"core.hooks.claude.handlers.{handler_name}") as handler_mock,
+        ):
             entry_fn()
         handler_mock.assert_not_called()
 
     @pytest.mark.parametrize("name,entry_fn,handler_name", ENTRY_POINTS)
     def test_exception_caught_and_logged(self, name, entry_fn, handler_name, capsys):
         """Handler exception is caught; error is logged to stderr, no raise."""
-        with mock.patch("core.hooks.claude.handlers.check_requirements", return_value=True), \
-             mock.patch("core.hooks.claude.handlers._read_stdin", return_value={}), \
-             mock.patch(f"core.hooks.claude.handlers.{handler_name}",
-                        side_effect=RuntimeError("test-boom")):
+        with (
+            mock.patch("core.hooks.claude.handlers.check_requirements", return_value=True),
+            mock.patch("core.hooks.claude.handlers._read_stdin", return_value={}),
+            mock.patch(f"core.hooks.claude.handlers.{handler_name}", side_effect=RuntimeError("test-boom")),
+        ):
             entry_fn()  # should not raise
         captured = capsys.readouterr()
         assert "test-boom" in captured.err

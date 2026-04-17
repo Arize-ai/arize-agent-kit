@@ -2,15 +2,14 @@
 """Tests for core.hooks.codex.handlers — the Codex notify hook handler."""
 
 import json
-import os
 import sys
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from pathlib import Path
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest import mock
 
 import pytest
 
+from core.common import StateManager
 from core.hooks.codex.handlers import (
     _as_text,
     _build_child_spans,
@@ -24,7 +23,6 @@ from core.hooks.codex.handlers import (
     _send_span,
     notify,
 )
-from core.common import StateManager
 
 
 @pytest.fixture(autouse=True)
@@ -35,10 +33,10 @@ def _mock_sleep(monkeypatch):
     return sleep_calls
 
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 class _DrainHandler(BaseHTTPRequestHandler):
     """Mock collector that responds to /drain/ requests."""
@@ -93,11 +91,13 @@ def drain_server():
 def codex_state(tmp_harness_dir):
     """Create a Codex StateManager pointed at the temp harness dir."""
     import core.constants as c
+
     state_dir = c.STATE_BASE_DIR / "codex"
     state_dir.mkdir(parents=True, exist_ok=True)
 
     # Also patch the adapter's STATE_DIR
     import core.hooks.codex.adapter as adapter
+
     original_state_dir = adapter.STATE_DIR
     adapter.STATE_DIR = state_dir
 
@@ -116,6 +116,7 @@ def codex_state(tmp_harness_dir):
 # Event filtering tests
 # ---------------------------------------------------------------------------
 
+
 class TestEventFiltering:
 
     def test_agent_turn_complete_processed(self, tmp_harness_dir, monkeypatch):
@@ -123,8 +124,9 @@ class TestEventFiltering:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")  # unreachable port
 
-        import core.hooks.codex.adapter as adapter
         import core.constants as c
+        import core.hooks.codex.adapter as adapter
+
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
@@ -132,13 +134,15 @@ class TestEventFiltering:
         # Mock _send_span to capture what was sent
         sent = []
         with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
-            _handle_notify({
-                "type": "agent-turn-complete",
-                "thread-id": "t1",
-                "turn-id": "turn1",
-                "input-messages": [{"role": "user", "content": "hello"}],
-                "last-assistant-message": "world",
-            })
+            _handle_notify(
+                {
+                    "type": "agent-turn-complete",
+                    "thread-id": "t1",
+                    "turn-id": "turn1",
+                    "input-messages": [{"role": "user", "content": "hello"}],
+                    "last-assistant-message": "world",
+                }
+            )
 
         assert len(sent) == 1
         # Verify it's an OTLP payload
@@ -159,6 +163,7 @@ class TestEventFiltering:
 # ---------------------------------------------------------------------------
 # _flex_get tests
 # ---------------------------------------------------------------------------
+
 
 class TestFlexGet:
 
@@ -193,6 +198,7 @@ class TestFlexGet:
 # ---------------------------------------------------------------------------
 # _as_text tests
 # ---------------------------------------------------------------------------
+
 
 class TestAsText:
 
@@ -241,6 +247,7 @@ class TestAsText:
 # _extract_user_prompt tests
 # ---------------------------------------------------------------------------
 
+
 class TestExtractUserPrompt:
 
     def test_list_of_messages_last_user(self):
@@ -277,6 +284,7 @@ class TestExtractUserPrompt:
 # Truncation and empty assistant tests
 # ---------------------------------------------------------------------------
 
+
 class TestTruncationAndDefaults:
 
     def test_empty_assistant_becomes_no_response(self, tmp_harness_dir, monkeypatch):
@@ -284,20 +292,23 @@ class TestTruncationAndDefaults:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
 
-        import core.hooks.codex.adapter as adapter
         import core.constants as c
+        import core.hooks.codex.adapter as adapter
+
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
 
         sent = []
         with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
-            _handle_notify({
-                "type": "agent-turn-complete",
-                "thread-id": "t1",
-                "input-messages": "hello",
-                "last-assistant-message": "",
-            })
+            _handle_notify(
+                {
+                    "type": "agent-turn-complete",
+                    "thread-id": "t1",
+                    "input-messages": "hello",
+                    "last-assistant-message": "",
+                }
+            )
 
         span = sent[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
@@ -307,6 +318,7 @@ class TestTruncationAndDefaults:
 # ---------------------------------------------------------------------------
 # Token enrichment tests (from payload)
 # ---------------------------------------------------------------------------
+
 
 class TestFindTokenUsage:
 
@@ -360,6 +372,7 @@ class TestExtractTokenCounts:
 # Tool call extraction tests
 # ---------------------------------------------------------------------------
 
+
 class TestFindToolCalls:
 
     def test_finds_at_root(self):
@@ -380,8 +393,9 @@ class TestFindToolCalls:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
 
-        import core.hooks.codex.adapter as adapter
         import core.constants as c
+        import core.hooks.codex.adapter as adapter
+
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
@@ -389,13 +403,15 @@ class TestFindToolCalls:
         tools = [{"name": f"tool{i}"} for i in range(8)]
         sent = []
         with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
-            _handle_notify({
-                "type": "agent-turn-complete",
-                "thread-id": "t-tools",
-                "input-messages": "test",
-                "last-assistant-message": "done",
-                "tool_calls": tools,
-            })
+            _handle_notify(
+                {
+                    "type": "agent-turn-complete",
+                    "thread-id": "t-tools",
+                    "input-messages": "test",
+                    "last-assistant-message": "done",
+                    "tool_calls": tools,
+                }
+            )
 
         span = sent[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
@@ -409,20 +425,23 @@ class TestFindToolCalls:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
 
-        import core.hooks.codex.adapter as adapter
         import core.constants as c
+        import core.hooks.codex.adapter as adapter
+
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
 
         sent = []
         with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
-            _handle_notify({
-                "type": "agent-turn-complete",
-                "thread-id": "t-no-tools",
-                "input-messages": "test",
-                "last-assistant-message": "done",
-            })
+            _handle_notify(
+                {
+                    "type": "agent-turn-complete",
+                    "thread-id": "t-no-tools",
+                    "input-messages": "test",
+                    "last-assistant-message": "done",
+                }
+            )
 
         span = sent[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attr_keys = {a["key"] for a in span["attributes"]}
@@ -433,6 +452,7 @@ class TestFindToolCalls:
 # ---------------------------------------------------------------------------
 # Event drain tests
 # ---------------------------------------------------------------------------
+
 
 class TestDrainEvents:
 
@@ -495,6 +515,7 @@ class TestDrainEvents:
         """last_collector_time_ns saved in state after successful drain."""
         import core.constants as c
         import core.hooks.codex.adapter as adapter
+
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
@@ -509,12 +530,14 @@ class TestDrainEvents:
 
         sent = []
         with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
-            _handle_notify({
-                "type": "agent-turn-complete",
-                "thread-id": "t-drain",
-                "input-messages": "test",
-                "last-assistant-message": "done",
-            })
+            _handle_notify(
+                {
+                    "type": "agent-turn-complete",
+                    "thread-id": "t-drain",
+                    "input-messages": "test",
+                    "last-assistant-message": "done",
+                }
+            )
 
         # Verify state was updated
         sm = StateManager(
@@ -527,6 +550,7 @@ class TestDrainEvents:
 # ---------------------------------------------------------------------------
 # Child span building tests
 # ---------------------------------------------------------------------------
+
 
 class TestBuildChildSpans:
 
@@ -546,7 +570,12 @@ class TestBuildChildSpans:
         ]
         attrs = {}
         children, start, end = _build_child_spans(
-            events, "trace123", "parent456", "sess1", 1000, attrs,
+            events,
+            "trace123",
+            "parent456",
+            "sess1",
+            1000,
+            attrs,
         )
         assert len(children) == 1
         span = children[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
@@ -567,7 +596,12 @@ class TestBuildChildSpans:
         ]
         attrs = {}
         children, _, _ = _build_child_spans(
-            events, "trace123", "parent456", "sess1", 1000, attrs,
+            events,
+            "trace123",
+            "parent456",
+            "sess1",
+            1000,
+            attrs,
         )
         assert len(children) == 1
         span = children[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
@@ -577,6 +611,7 @@ class TestBuildChildSpans:
 # ---------------------------------------------------------------------------
 # Event enrichment tests
 # ---------------------------------------------------------------------------
+
 
 class TestEventEnrichment:
 
@@ -631,7 +666,7 @@ class TestEventEnrichment:
         attrs = {}
         children, start, end = _build_child_spans(events, "t", "p", "s", 1000, attrs)
         assert start == 2000  # 2000000000 / 1_000_000
-        assert end == 5000    # 5000000000 / 1_000_000
+        assert end == 5000  # 5000000000 / 1_000_000
         assert attrs["codex.trace.duration_ms"] == 3000
 
 
@@ -639,31 +674,37 @@ class TestEventEnrichment:
 # Multi-span assembly tests
 # ---------------------------------------------------------------------------
 
+
 class TestMultiSpanAssembly:
 
     def test_with_children_sends_multi_span(self, tmp_harness_dir, monkeypatch, drain_server):
         """With child spans, multi-span payload sent (parent + children)."""
-        import core.hooks.codex.adapter as adapter
         import core.constants as c
+        import core.hooks.codex.adapter as adapter
+
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", str(drain_server["port"]))
 
-        drain_server["set_drain"]([
-            {"event": "codex.tool_decision", "time_ns": "1000000000", "attrs": {"tool_name": "edit"}},
-            {"event": "codex.tool_result", "time_ns": "2000000000", "attrs": {"tool_name": "edit", "output": "ok"}},
-        ])
+        drain_server["set_drain"](
+            [
+                {"event": "codex.tool_decision", "time_ns": "1000000000", "attrs": {"tool_name": "edit"}},
+                {"event": "codex.tool_result", "time_ns": "2000000000", "attrs": {"tool_name": "edit", "output": "ok"}},
+            ]
+        )
 
         sent = []
         with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
-            _handle_notify({
-                "type": "agent-turn-complete",
-                "thread-id": "t-multi",
-                "input-messages": "test",
-                "last-assistant-message": "done",
-            })
+            _handle_notify(
+                {
+                    "type": "agent-turn-complete",
+                    "thread-id": "t-multi",
+                    "input-messages": "test",
+                    "last-assistant-message": "done",
+                }
+            )
 
         assert len(sent) == 1
         spans = sent[0]["resourceSpans"][0]["scopeSpans"][0]["spans"]
@@ -674,8 +715,9 @@ class TestMultiSpanAssembly:
 
     def test_without_children_sends_single_span(self, tmp_harness_dir, monkeypatch):
         """Without child spans, single parent span sent."""
-        import core.hooks.codex.adapter as adapter
         import core.constants as c
+        import core.hooks.codex.adapter as adapter
+
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
@@ -684,12 +726,14 @@ class TestMultiSpanAssembly:
 
         sent = []
         with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
-            _handle_notify({
-                "type": "agent-turn-complete",
-                "thread-id": "t-single",
-                "input-messages": "test",
-                "last-assistant-message": "done",
-            })
+            _handle_notify(
+                {
+                    "type": "agent-turn-complete",
+                    "thread-id": "t-single",
+                    "input-messages": "test",
+                    "last-assistant-message": "done",
+                }
+            )
 
         assert len(sent) == 1
         spans = sent[0]["resourceSpans"][0]["scopeSpans"][0]["spans"]
@@ -697,8 +741,9 @@ class TestMultiSpanAssembly:
 
     def test_debug_dumps_when_enabled(self, tmp_harness_dir, monkeypatch):
         """Debug dumps written at each stage when trace_debug enabled."""
-        import core.hooks.codex.adapter as adapter
         import core.constants as c
+        import core.hooks.codex.adapter as adapter
+
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
@@ -707,12 +752,14 @@ class TestMultiSpanAssembly:
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
 
         with mock.patch("core.hooks.codex.handlers._send_span"):
-            _handle_notify({
-                "type": "agent-turn-complete",
-                "thread-id": "t-debug",
-                "input-messages": "test",
-                "last-assistant-message": "done",
-            })
+            _handle_notify(
+                {
+                    "type": "agent-turn-complete",
+                    "thread-id": "t-debug",
+                    "input-messages": "test",
+                    "last-assistant-message": "done",
+                }
+            )
 
         debug_dir = c.STATE_BASE_DIR / "debug"
         assert debug_dir.is_dir()
@@ -724,12 +771,14 @@ class TestMultiSpanAssembly:
 # Integration test with fixture
 # ---------------------------------------------------------------------------
 
+
 class TestIntegration:
 
     def test_full_handle_notify_with_fixture(self, tmp_harness_dir, monkeypatch, drain_server, codex_notify_input):
         """Full _handle_notify with codex_notify fixture + mock drain."""
-        import core.hooks.codex.adapter as adapter
         import core.constants as c
+        import core.hooks.codex.adapter as adapter
+
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
@@ -739,10 +788,12 @@ class TestIntegration:
         fixture = codex_notify_input
 
         # Set up drain with some events
-        drain_server["set_drain"]([
-            {"event": "codex.conversation_starts", "time_ns": "1000000000", "attrs": {"model": "gpt-4o"}},
-            {"event": "codex.api_request", "time_ns": "1500000000", "attrs": {"model": "gpt-4o", "status": "200"}},
-        ])
+        drain_server["set_drain"](
+            [
+                {"event": "codex.conversation_starts", "time_ns": "1000000000", "attrs": {"model": "gpt-4o"}},
+                {"event": "codex.api_request", "time_ns": "1500000000", "attrs": {"model": "gpt-4o", "status": "200"}},
+            ]
+        )
 
         sent = []
         with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
@@ -767,15 +818,18 @@ class TestIntegration:
 # Span sending tests
 # ---------------------------------------------------------------------------
 
+
 class TestSendSpan:
 
     def test_send_span_delegates_to_backend_sender(self):
         """Codex hook sends completed spans via core.common.send_span()."""
         payload = {
-            "resourceSpans": [{
-                "resource": {"attributes": []},
-                "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
-            }]
+            "resourceSpans": [
+                {
+                    "resource": {"attributes": []},
+                    "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
+                }
+            ]
         }
 
         with mock.patch("core.hooks.codex.handlers.send_span_to_backend", return_value=True) as mock_send:
@@ -786,10 +840,12 @@ class TestSendSpan:
     def test_send_span_logs_error_when_backend_send_fails(self, capsys):
         """Backend send failures are surfaced as Codex hook errors."""
         payload = {
-            "resourceSpans": [{
-                "resource": {"attributes": []},
-                "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
-            }]
+            "resourceSpans": [
+                {
+                    "resource": {"attributes": []},
+                    "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
+                }
+            ]
         }
 
         with mock.patch("core.hooks.codex.handlers.send_span_to_backend", return_value=False):
@@ -802,14 +858,17 @@ class TestSendSpan:
 # Error handling tests
 # ---------------------------------------------------------------------------
 
+
 class TestErrorHandling:
 
     def test_exception_in_handle_notify_caught(self, monkeypatch, capsys):
         """Exception in _handle_notify is caught by notify()."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
 
-        with mock.patch("core.hooks.codex.handlers._handle_notify", side_effect=RuntimeError("boom")), \
-             mock.patch.object(sys, "argv", ["hook", '{"type":"agent-turn-complete"}']):
+        with (
+            mock.patch("core.hooks.codex.handlers._handle_notify", side_effect=RuntimeError("boom")),
+            mock.patch.object(sys, "argv", ["hook", '{"type":"agent-turn-complete"}']),
+        ):
             # Should not raise
             notify()
 

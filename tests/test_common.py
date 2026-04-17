@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """Tests for core.common — FileLock, StateManager, and span building."""
 import json
-import os
 import threading
 import time
 import urllib.error
-from pathlib import Path
 from unittest import mock
 
 import pytest
 import yaml
 
 from core.common import (
-    SPAN_KIND_MAP,
     FileLock,
     StateManager,
     _attrs_to_otlp,
@@ -28,7 +25,6 @@ from core.common import (
     resolve_backend,
     send_span,
 )
-
 
 # ── Logging tests ──────────────────────────────────────────────────────────
 
@@ -374,22 +370,37 @@ class TestAttrsToOtlp:
 
 
 class TestResolveKind:
-    @pytest.mark.parametrize("kind,expected", [
-        ("LLM", 1), ("llm", 1), ("Llm", 1),
-        ("TOOL", 1), ("tool", 1),
-        ("CHAIN", 1), ("chain", 1),
-        ("INTERNAL", 1), ("internal", 1),
-        ("", 1),
-    ])
+    @pytest.mark.parametrize(
+        "kind,expected",
+        [
+            ("LLM", 1),
+            ("llm", 1),
+            ("Llm", 1),
+            ("TOOL", 1),
+            ("tool", 1),
+            ("CHAIN", 1),
+            ("chain", 1),
+            ("INTERNAL", 1),
+            ("internal", 1),
+            ("", 1),
+        ],
+    )
     def test_internal_kinds(self, kind, expected):
         assert _resolve_kind(kind) == expected
 
-    @pytest.mark.parametrize("kind,expected", [
-        ("SERVER", 2), ("server", 2),
-        ("CLIENT", 3), ("client", 3),
-        ("PRODUCER", 4), ("producer", 4),
-        ("CONSUMER", 5), ("consumer", 5),
-    ])
+    @pytest.mark.parametrize(
+        "kind,expected",
+        [
+            ("SERVER", 2),
+            ("server", 2),
+            ("CLIENT", 3),
+            ("client", 3),
+            ("PRODUCER", 4),
+            ("producer", 4),
+            ("CONSUMER", 5),
+            ("consumer", 5),
+        ],
+    )
     def test_other_kinds(self, kind, expected):
         assert _resolve_kind(kind) == expected
 
@@ -410,9 +421,12 @@ class TestResolveKind:
 class TestBuildSpan:
     def test_basic_structure(self):
         result = build_span(
-            name="Turn 1", kind="LLM",
-            span_id="aabb", trace_id="ccdd",
-            start_ms=1000, end_ms=2000,
+            name="Turn 1",
+            kind="LLM",
+            span_id="aabb",
+            trace_id="ccdd",
+            start_ms=1000,
+            end_ms=2000,
         )
         rs = result["resourceSpans"]
         assert len(rs) == 1
@@ -422,39 +436,51 @@ class TestBuildSpan:
 
     def test_parent_absent_when_empty(self):
         result = build_span(
-            name="root", kind="LLM",
-            span_id="aa", trace_id="bb",
+            name="root",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
             parent_span_id="",
-            start_ms=1000, end_ms=2000,
+            start_ms=1000,
+            end_ms=2000,
         )
         span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert "parentSpanId" not in span
 
     def test_parent_absent_when_none(self):
         result = build_span(
-            name="root", kind="LLM",
-            span_id="aa", trace_id="bb",
+            name="root",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
             parent_span_id=None,
-            start_ms=1000, end_ms=2000,
+            start_ms=1000,
+            end_ms=2000,
         )
         span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert "parentSpanId" not in span
 
     def test_parent_present(self):
         result = build_span(
-            name="child", kind="LLM",
-            span_id="aa", trace_id="bb",
+            name="child",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
             parent_span_id="abc123",
-            start_ms=1000, end_ms=2000,
+            start_ms=1000,
+            end_ms=2000,
         )
         span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["parentSpanId"] == "abc123"
 
     def test_timestamp_formatting(self):
         result = build_span(
-            name="t", kind="LLM",
-            span_id="aa", trace_id="bb",
-            start_ms=1711987200000, end_ms=1711987201000,
+            name="t",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
+            start_ms=1711987200000,
+            end_ms=1711987201000,
         )
         span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["startTimeUnixNano"] == "1711987200000000000"
@@ -462,37 +488,49 @@ class TestBuildSpan:
 
     def test_end_defaults_to_start_when_empty(self):
         result = build_span(
-            name="t", kind="LLM",
-            span_id="aa", trace_id="bb",
-            start_ms=5000, end_ms="",
+            name="t",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
+            start_ms=5000,
+            end_ms="",
         )
         span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["endTimeUnixNano"] == "5000000000"
 
     def test_end_defaults_to_start_when_none(self):
         result = build_span(
-            name="t", kind="LLM",
-            span_id="aa", trace_id="bb",
-            start_ms=5000, end_ms=None,
+            name="t",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
+            start_ms=5000,
+            end_ms=None,
         )
         span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["endTimeUnixNano"] == "5000000000"
 
     def test_end_defaults_to_start_when_zero(self):
         result = build_span(
-            name="t", kind="LLM",
-            span_id="aa", trace_id="bb",
-            start_ms=5000, end_ms=0,
+            name="t",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
+            start_ms=5000,
+            end_ms=0,
         )
         span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["endTimeUnixNano"] == "5000000000"
 
     def test_service_and_scope_names(self):
         result = build_span(
-            name="t", kind="LLM",
-            span_id="aa", trace_id="bb",
+            name="t",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
             start_ms=1000,
-            service_name="my-svc", scope_name="my-scope",
+            service_name="my-svc",
+            scope_name="my-scope",
         )
         resource = result["resourceSpans"][0]["resource"]
         assert resource["attributes"][0]["value"]["stringValue"] == "my-svc"
@@ -501,8 +539,10 @@ class TestBuildSpan:
 
     def test_attributes_converted(self):
         result = build_span(
-            name="t", kind="LLM",
-            span_id="aa", trace_id="bb",
+            name="t",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
             start_ms=1000,
             attrs={"key": "val", "count": 5},
         )
@@ -534,9 +574,12 @@ class TestBuildSpan:
 class TestBuildMultiSpan:
     def _make_payload(self, name: str, span_id: str) -> dict:
         return build_span(
-            name=name, kind="LLM",
-            span_id=span_id, trace_id="trace1",
-            start_ms=1000, end_ms=2000,
+            name=name,
+            kind="LLM",
+            span_id=span_id,
+            trace_id="trace1",
+            start_ms=1000,
+            end_ms=2000,
         )
 
     def test_merge_three(self):
@@ -607,23 +650,23 @@ class TestSendSpan:
     """Tests for send_span() using resolve_backend() for direct send."""
 
     _SAMPLE_SPAN = {
-        "resourceSpans": [{
-            "resource": {"attributes": []},
-            "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
-        }]
+        "resourceSpans": [
+            {
+                "resource": {"attributes": []},
+                "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
+            }
+        ]
     }
 
     def _make_span_with_service(self, service_name):
         """Build a sample span with a specific service.name resource attribute."""
         return {
-            "resourceSpans": [{
-                "resource": {
-                    "attributes": [
-                        {"key": "service.name", "value": {"stringValue": service_name}}
-                    ]
-                },
-                "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
-            }]
+            "resourceSpans": [
+                {
+                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": service_name}}]},
+                    "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
+                }
+            ]
         }
 
     @pytest.fixture(autouse=True)
@@ -867,10 +910,12 @@ class TestResolveBackend:
         if service_name:
             attrs = [{"key": "service.name", "value": {"stringValue": service_name}}]
         return {
-            "resourceSpans": [{
-                "resource": {"attributes": attrs},
-                "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "s"}]}],
-            }]
+            "resourceSpans": [
+                {
+                    "resource": {"attributes": attrs},
+                    "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "s"}]}],
+                }
+            ]
         }
 
     def test_global_only_phoenix(self, monkeypatch):
@@ -1115,10 +1160,12 @@ class TestSendSpanEdgeCases:
     """Additional edge case tests for send_span()."""
 
     _SAMPLE_SPAN = {
-        "resourceSpans": [{
-            "resource": {"attributes": []},
-            "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
-        }]
+        "resourceSpans": [
+            {
+                "resource": {"attributes": []},
+                "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
+            }
+        ]
     }
 
     @pytest.fixture(autouse=True)
@@ -1162,10 +1209,12 @@ class TestSendSpanEdgeCases:
         monkeypatch.setenv("ARIZE_VERBOSE", "true")
 
         span = {
-            "resourceSpans": [{
-                "resource": {"attributes": []},
-                "scopeSpans": [{"scope": {"name": "t"}, "spans": [{"name": "my-operation"}]}],
-            }]
+            "resourceSpans": [
+                {
+                    "resource": {"attributes": []},
+                    "scopeSpans": [{"scope": {"name": "t"}, "spans": [{"name": "my-operation"}]}],
+                }
+            ]
         }
         result = send_span(span)
         assert result is True
@@ -1175,6 +1224,7 @@ class TestSendSpanEdgeCases:
         """Verify _send_to_collector, collector_host, collector_port, collector_url
         and direct_send are not present in core.common module."""
         import core.common as mod
+
         assert not hasattr(mod, "_send_to_collector")
         assert not hasattr(mod.env, "collector_host")
         assert not hasattr(mod.env, "collector_port")

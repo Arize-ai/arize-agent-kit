@@ -53,8 +53,9 @@ class TestTracingArchitectureExists:
 
     def test_covers_start_stop(self):
         content = TRACING_ARCH_PATH.read_text()
-        assert "codex_buffer_ctl" in content or "codex-buffer" in content, \
-            "Should reference codex_buffer_ctl for lifecycle management"
+        assert (
+            "codex_buffer_ctl" in content or "codex-buffer" in content
+        ), "Should reference codex_buffer_ctl for lifecycle management"
 
     def test_covers_config_path(self):
         content = TRACING_ARCH_PATH.read_text()
@@ -90,8 +91,7 @@ class TestTracingArchitectureLinksResolve:
         if not path.exists():
             pytest.skip(f"{referrer} does not exist")
         content = path.read_text()
-        assert "TRACING_ARCHITECTURE.md" in content, \
-            f"{referrer} should reference TRACING_ARCHITECTURE.md"
+        assert "TRACING_ARCHITECTURE.md" in content, f"{referrer} should reference TRACING_ARCHITECTURE.md"
 
     @pytest.mark.parametrize("referrer", TRACING_ARCH_REFERRERS)
     def test_tracing_arch_link_resolves(self, referrer):
@@ -102,13 +102,12 @@ class TestTracingArchitectureLinksResolve:
         content = path.read_text()
         # Extract markdown links: [text](path/to/TRACING_ARCHITECTURE.md)
         # Use [^)]+ to avoid matching across nested parentheses
-        link_pattern = re.compile(r'\[[^\]]*\]\(([^)]*TRACING_ARCHITECTURE\.md)\)')
+        link_pattern = re.compile(r"\[[^\]]*\]\(([^)]*TRACING_ARCHITECTURE\.md)\)")
         matches = link_pattern.findall(content)
         assert matches, f"{referrer} has no markdown link to TRACING_ARCHITECTURE.md"
         for link in matches:
             resolved = (path.parent / link).resolve()
-            assert resolved.exists(), \
-                f"{referrer}: link '{link}' does not resolve (expected {resolved})"
+            assert resolved.exists(), f"{referrer}: link '{link}' does not resolve (expected {resolved})"
 
 
 class TestNoScriptsSetupReferences:
@@ -123,8 +122,7 @@ class TestNoScriptsSetupReferences:
     @pytest.mark.parametrize("readme", HARNESS_READMES)
     def test_no_scripts_setup_py(self, readme):
         content = (REPO_ROOT / readme).read_text()
-        assert "scripts/setup.py" not in content, \
-            f"{readme} still references scripts/setup.py"
+        assert "scripts/setup.py" not in content, f"{readme} still references scripts/setup.py"
 
     @pytest.mark.parametrize("readme", HARNESS_READMES)
     def test_no_scripts_directory_in_listing(self, readme):
@@ -136,8 +134,7 @@ class TestNoScriptsSetupReferences:
             stripped = line.strip()
             if stripped.startswith("scripts/"):
                 # Make sure it's in a directory listing (preceded by indented lines)
-                assert False, \
-                    f"{readme}:{i+1}: still lists scripts/ in directory structure"
+                assert False, f"{readme}:{i+1}: still lists scripts/ in directory structure"
 
 
 class TestHarnessReadmesUseCliEntryPoints:
@@ -145,34 +142,28 @@ class TestHarnessReadmesUseCliEntryPoints:
 
     def test_claude_readme_uses_arize_setup_claude(self):
         content = (REPO_ROOT / "claude-code-tracing" / "README.md").read_text()
-        assert "arize-setup-claude" in content, \
-            "Claude README should reference arize-setup-claude"
+        assert "arize-setup-claude" in content, "Claude README should reference arize-setup-claude"
 
     def test_codex_readme_uses_arize_setup_codex(self):
         content = (REPO_ROOT / "codex-tracing" / "README.md").read_text()
-        assert "arize-setup-codex" in content, \
-            "Codex README should reference arize-setup-codex"
+        assert "arize-setup-codex" in content, "Codex README should reference arize-setup-codex"
 
     def test_cursor_readme_uses_arize_setup_cursor(self):
         content = (REPO_ROOT / "cursor-tracing" / "README.md").read_text()
-        assert "arize-setup-cursor" in content, \
-            "Cursor README should reference arize-setup-cursor"
+        assert "arize-setup-cursor" in content, "Cursor README should reference arize-setup-cursor"
 
     def test_claude_readme_mentions_setup_module(self):
         """Claude README should note that setup lives in core/setup/claude.py."""
         content = (REPO_ROOT / "claude-code-tracing" / "README.md").read_text()
-        assert "core/setup/claude.py" in content, \
-            "Claude README should reference core/setup/claude.py"
+        assert "core/setup/claude.py" in content, "Claude README should reference core/setup/claude.py"
 
     def test_codex_readme_mentions_setup_module(self):
         content = (REPO_ROOT / "codex-tracing" / "README.md").read_text()
-        assert "core/setup/codex.py" in content, \
-            "Codex README should reference core/setup/codex.py"
+        assert "core/setup/codex.py" in content, "Codex README should reference core/setup/codex.py"
 
     def test_cursor_readme_mentions_setup_module(self):
         content = (REPO_ROOT / "cursor-tracing" / "README.md").read_text()
-        assert "core/setup/cursor.py" in content, \
-            "Cursor README should reference core/setup/cursor.py"
+        assert "core/setup/cursor.py" in content, "Cursor README should reference core/setup/cursor.py"
 
 
 class TestNoDeletedBashScriptReferences:
@@ -194,7 +185,7 @@ class TestNoDeletedBashScriptReferences:
         if not path.exists():
             pytest.skip(f"{doc} does not exist")
         content = path.read_text()
-        pattern = re.compile(r'hooks/\w+\.sh')
+        pattern = re.compile(r"hooks/\w+\.sh")
         matches = pattern.findall(content)
         assert not matches, f"{doc} still references bash hook scripts: {matches}"
 
@@ -205,8 +196,9 @@ class TestNoDeletedBashScriptReferences:
         if not path.exists():
             pytest.skip(f"{doc} does not exist")
         content = path.read_text()
-        assert "python" not in content or "scripts/setup.py" not in content, \
-            f"{doc} still has 'python scripts/setup.py' invocation"
+        assert (
+            "python" not in content or "scripts/setup.py" not in content
+        ), f"{doc} still has 'python scripts/setup.py' invocation"
 
 
 class TestTracingArchitectureSourceFiles:

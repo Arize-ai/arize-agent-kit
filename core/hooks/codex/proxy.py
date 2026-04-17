@@ -64,7 +64,7 @@ def _load_env_file(path: str) -> None:
         if not line or line.startswith("#"):
             continue
         if line.startswith("export "):
-            line = line[len("export "):]
+            line = line[len("export ") :]
         if "=" not in line:
             continue
         key, _, value = line.partition("=")
@@ -77,6 +77,7 @@ def _load_env_file(path: str) -> None:
 def _quick_health_check(host: str = "127.0.0.1", port: int = 4318) -> bool:
     """Fast HTTP health check with hard timeout. No heavy imports."""
     import urllib.request
+
     try:
         urllib.request.urlopen(f"http://{host}:{port}/health", timeout=1)
         return True
@@ -95,6 +96,7 @@ def main() -> None:
         # Fast path: if buffer service is already healthy, skip heavy imports
         if not _quick_health_check():
             from core.codex_buffer_ctl import buffer_ensure  # noqa: E402
+
             buffer_ensure()
     except Exception:
         pass  # Never prevent codex from starting
@@ -105,10 +107,23 @@ def main() -> None:
         print("[arize] Could not find real codex binary on PATH", file=sys.stderr)
         sys.exit(1)
 
-    # 3. exec replaces this process (matches bash ``exec "$REAL_CODEX" "$@"``)
-    if os.name == "nt":
-        # Windows: no exec, use subprocess with exit code passthrough
+    # 3. For exec mode: wrap so we can drain the buffer after codex exits.
+    #    For interactive mode: exec replaces this process.
+    is_exec = "exec" in sys.argv[1:]
+
+    if is_exec or os.name == "nt":
         result = subprocess.run([real_codex] + sys.argv[1:])
+        if is_exec:
+            # Import scoped here: drain_idle pulls in core.common + OTLP span
+            # building (~34 modules). Interactive codex doesn't need it, so we
+            # defer the cost to exec-mode only. Same fast-path pattern as line 96.
+            try:
+                from core.hooks.codex.handlers import drain_idle
+
+                drain_idle()
+            except Exception as e:
+                # Never fail the proxy, but surface the failure for debugging.
+                print(f"[arize] drain_idle failed: {e}", file=sys.stderr)
         sys.exit(result.returncode)
     else:
         os.execvp(real_codex, [real_codex] + sys.argv[1:])

@@ -36,6 +36,6 @@ Thumbs.db
 .workbench/
 .agents/
 .claude/
-uv.lock
 mempalace.yaml
 entities.json
+*.code-workspace

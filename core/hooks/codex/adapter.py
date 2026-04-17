@@ -11,20 +11,13 @@ import os
 import time
 from pathlib import Path
 
+from core.common import StateManager, env, generate_trace_id, get_timestamp_ms, log
 from core.constants import HARNESSES, STATE_BASE_DIR
-from core.common import (
-    StateManager,
-    env,
-    log,
-    error,
-    generate_trace_id,
-    get_timestamp_ms,
-)
 
 # --- Module-level constants derived from HARNESSES ---
 _HARNESS = HARNESSES["codex"]
-SERVICE_NAME = _HARNESS["service_name"]       # "codex"
-SCOPE_NAME = _HARNESS["scope_name"]           # "arize-codex-plugin"
+SERVICE_NAME = _HARNESS["service_name"]  # "codex"
+SCOPE_NAME = _HARNESS["scope_name"]  # "arize-codex-plugin"
 STATE_DIR = STATE_BASE_DIR / _HARNESS["state_subdir"]  # ~/.arize/harness/state/codex
 
 
@@ -43,7 +36,7 @@ def load_env_file(path: Path) -> None:
         if not line or line.startswith("#"):
             continue
         if line.startswith("export "):
-            line = line[len("export "):]
+            line = line[len("export ") :]
         if "=" not in line:
             continue
         key, _, value = line.partition("=")

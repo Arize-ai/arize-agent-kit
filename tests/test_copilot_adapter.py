@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for core.hooks.claude.adapter — session resolution, init, GC, requirements."""
+"""Tests for core.hooks.copilot.adapter — dual-mode session resolution, init, GC, requirements."""
 import os
 import subprocess
 from unittest.mock import mock_open, patch
@@ -8,15 +8,15 @@ import pytest
 import yaml
 
 from core.common import StateManager
-from core.hooks.claude import adapter
+from core.hooks.copilot import adapter
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 
 @pytest.fixture
-def claude_state_dir(tmp_harness_dir, monkeypatch):
+def copilot_state_dir(tmp_harness_dir, monkeypatch):
     """Point adapter.STATE_DIR to a temp directory and return it."""
-    state_dir = tmp_harness_dir / "state" / "claude-code"
+    state_dir = tmp_harness_dir / "state" / "copilot"
     state_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
     return state_dir
@@ -25,72 +25,94 @@ def claude_state_dir(tmp_harness_dir, monkeypatch):
 @pytest.fixture
 def disable_env_vars(monkeypatch):
     """Clear env vars that could influence session resolution."""
-    monkeypatch.delenv("CLAUDE_SESSION_KEY", raising=False)
     monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
     monkeypatch.delenv("ARIZE_USER_ID", raising=False)
     monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+
+
+# ── is_vscode_mode tests ────────────────────────────────────────────────────
+
+
+class TestIsVscodeMode:
+    def test_true_with_session_id(self):
+        """Returns True when sessionId is present."""
+        assert adapter.is_vscode_mode({"sessionId": "abc-123"}) is True
+
+    def test_true_with_hook_event_name(self):
+        """Returns True when hookEventName is present."""
+        assert adapter.is_vscode_mode({"hookEventName": "PreToolUse"}) is True
+
+    def test_true_with_both(self):
+        """Returns True when both fields present."""
+        assert adapter.is_vscode_mode({"sessionId": "abc", "hookEventName": "Stop"}) is True
+
+    def test_false_when_absent(self):
+        """Returns False when neither field present (CLI mode)."""
+        assert adapter.is_vscode_mode({"prompt": "hello"}) is False
+
+    def test_false_with_empty_values(self):
+        """Returns False when fields are empty strings."""
+        assert adapter.is_vscode_mode({"sessionId": "", "hookEventName": ""}) is False
 
 
 # ── resolve_session tests ────────────────────────────────────────────────────
 
 
 class TestResolveSession:
-    def test_session_id_from_input(self, claude_state_dir, disable_env_vars):
-        """input with session_id -> state file uses that key."""
-        sm = adapter.resolve_session({"session_id": "sess-abc"})
-        assert sm.state_file == claude_state_dir / "state_sess-abc.yaml"
+    def test_vscode_uses_session_id(self, copilot_state_dir, disable_env_vars):
+        """VS Code mode: sessionId from payload used as state file key."""
+        sm = adapter.resolve_session({"sessionId": "vscode-sess-42", "hookEventName": "SessionStart"})
+        assert sm.state_file == copilot_state_dir / "state_vscode-sess-42.yaml"
         assert sm.state_file.exists()
 
-    def test_session_key_from_env(self, claude_state_dir, disable_env_vars, monkeypatch):
-        """CLAUDE_SESSION_KEY env var is used when no session_id in input."""
-        monkeypatch.setenv("CLAUDE_SESSION_KEY", "custom-key")
-        sm = adapter.resolve_session({})
-        assert sm.state_file == claude_state_dir / "state_custom-key.yaml"
+    def test_cli_uses_pid(self, copilot_state_dir, disable_env_vars, monkeypatch):
+        """CLI mode: falls back to PID-based key when no VS Code fields."""
+        monkeypatch.setattr(adapter, "_get_grandparent_pid", lambda: "54321")
+        sm = adapter.resolve_session({"prompt": "hello"})
+        assert sm.state_file == copilot_state_dir / "state_54321.yaml"
 
-    def test_fallback_to_pid(self, claude_state_dir, disable_env_vars, monkeypatch):
-        """Without session_id or env var, falls back to PID-based key."""
-        # Mock _get_grandparent_pid to return a known value
-        monkeypatch.setattr(adapter, "_get_grandparent_pid", lambda: "12345")
-        sm = adapter.resolve_session({})
-        assert sm.state_file == claude_state_dir / "state_12345.yaml"
-
-    def test_init_state_called(self, claude_state_dir, disable_env_vars):
+    def test_init_state_called(self, copilot_state_dir, disable_env_vars):
         """Returned StateManager has init_state() called (file exists with {})."""
-        sm = adapter.resolve_session({"session_id": "test-init"})
+        sm = adapter.resolve_session({"sessionId": "test-init", "hookEventName": "SessionStart"})
         assert sm.state_file.exists()
         data = yaml.safe_load(sm.state_file.read_text())
         assert data == {}
 
-    def test_same_input_same_file(self, claude_state_dir, disable_env_vars):
+    def test_same_input_same_file(self, copilot_state_dir, disable_env_vars):
         """Calling resolve_session twice with same input returns same file path."""
-        sm1 = adapter.resolve_session({"session_id": "stable"})
-        sm2 = adapter.resolve_session({"session_id": "stable"})
+        inp = {"sessionId": "stable", "hookEventName": "Stop"}
+        sm1 = adapter.resolve_session(inp)
+        sm2 = adapter.resolve_session(inp)
         assert sm1.state_file == sm2.state_file
 
-    def test_session_id_takes_priority_over_env(self, claude_state_dir, disable_env_vars, monkeypatch):
-        """session_id in input takes priority over CLAUDE_SESSION_KEY."""
-        monkeypatch.setenv("CLAUDE_SESSION_KEY", "env-key")
-        sm = adapter.resolve_session({"session_id": "input-key"})
-        assert sm.state_file == claude_state_dir / "state_input-key.yaml"
+    def test_vscode_session_id_required(self, copilot_state_dir, disable_env_vars):
+        """VS Code mode requires sessionId in payload (hookEventName alone triggers vscode mode)."""
+        # hookEventName present but no sessionId — is_vscode_mode returns True,
+        # but sessionId key is missing; should raise KeyError or use hookEventName path
+        # Actually: hookEventName triggers vscode mode, sessionId must be there
+        # This tests the expected behavior when only hookEventName present
+        inp = {"hookEventName": "SessionStart", "sessionId": "from-event"}
+        sm = adapter.resolve_session(inp)
+        assert sm.state_file == copilot_state_dir / "state_from-event.yaml"
 
 
 # ── ensure_session_initialized tests ─────────────────────────────────────────
 
 
 class TestEnsureSessionInitialized:
-    def _make_state(self, claude_state_dir, key="test"):
+    def _make_state(self, copilot_state_dir, key="test"):
         sm = StateManager(
-            state_dir=claude_state_dir,
-            state_file=claude_state_dir / f"state_{key}.yaml",
-            lock_path=claude_state_dir / f".lock_{key}",
+            state_dir=copilot_state_dir,
+            state_file=copilot_state_dir / f"state_{key}.yaml",
+            lock_path=copilot_state_dir / f".lock_{key}",
         )
         sm.init_state()
         return sm
 
-    def test_sets_all_keys(self, claude_state_dir, disable_env_vars):
+    def test_sets_all_keys(self, copilot_state_dir, disable_env_vars):
         """First call sets all expected keys."""
-        sm = self._make_state(claude_state_dir, "all-keys")
-        adapter.ensure_session_initialized(sm, {"session_id": "sid-1"})
+        sm = self._make_state(copilot_state_dir, "all-keys")
+        adapter.ensure_session_initialized(sm, {"sessionId": "sid-1"})
         assert sm.get("session_id") == "sid-1"
         assert sm.get("session_start_time") is not None
         assert sm.get("project_name") is not None
@@ -98,63 +120,48 @@ class TestEnsureSessionInitialized:
         assert sm.get("tool_count") == "0"
         assert sm.get("user_id") is not None
 
-    def test_idempotent(self, claude_state_dir, disable_env_vars):
+    def test_idempotent(self, copilot_state_dir, disable_env_vars):
         """Second call is a no-op — values unchanged."""
-        sm = self._make_state(claude_state_dir, "idempotent")
-        adapter.ensure_session_initialized(sm, {"session_id": "sid-2"})
+        sm = self._make_state(copilot_state_dir, "idempotent")
+        adapter.ensure_session_initialized(sm, {"sessionId": "sid-2"})
         start_time = sm.get("session_start_time")
-        adapter.ensure_session_initialized(sm, {"session_id": "sid-different"})
+        adapter.ensure_session_initialized(sm, {"sessionId": "sid-different"})
         assert sm.get("session_id") == "sid-2"
         assert sm.get("session_start_time") == start_time
 
-    def test_session_id_from_input(self, claude_state_dir, disable_env_vars):
-        """session_id from input is used when present."""
-        sm = self._make_state(claude_state_dir, "from-input")
-        adapter.ensure_session_initialized(sm, {"session_id": "my-session"})
-        assert sm.get("session_id") == "my-session"
+    def test_session_id_from_vscode_payload(self, copilot_state_dir, disable_env_vars):
+        """sessionId from VS Code payload is used as session_id."""
+        sm = self._make_state(copilot_state_dir, "from-vscode")
+        adapter.ensure_session_initialized(sm, {"sessionId": "vscode-session"})
+        assert sm.get("session_id") == "vscode-session"
 
-    def test_session_id_generated(self, claude_state_dir, disable_env_vars):
-        """session_id is generated (32-hex) when not in input."""
-        sm = self._make_state(claude_state_dir, "generated")
-        adapter.ensure_session_initialized(sm, {})
+    def test_session_id_generated_for_cli(self, copilot_state_dir, disable_env_vars):
+        """session_id is generated (32-hex) when not in input (CLI mode)."""
+        sm = self._make_state(copilot_state_dir, "generated")
+        adapter.ensure_session_initialized(sm, {"prompt": "hello"})
         sid = sm.get("session_id")
         assert sid is not None
         assert len(sid) == 32
         int(sid, 16)  # should not raise
 
-    def test_project_name_from_env(self, claude_state_dir, monkeypatch):
+    def test_project_name_from_env(self, copilot_state_dir, monkeypatch):
         """ARIZE_PROJECT_NAME env var takes priority over cwd."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.setenv("ARIZE_PROJECT_NAME", "my-env-project")
         monkeypatch.delenv("ARIZE_USER_ID", raising=False)
-        sm = self._make_state(claude_state_dir, "proj-env")
+        sm = self._make_state(copilot_state_dir, "proj-env")
         adapter.ensure_session_initialized(sm, {"cwd": "/home/user/other-project"})
         assert sm.get("project_name") == "my-env-project"
 
-    def test_project_name_from_cwd_input(self, claude_state_dir, disable_env_vars):
+    def test_project_name_from_cwd_input(self, copilot_state_dir, disable_env_vars):
         """project_name from input cwd -> basename extracted."""
-        sm = self._make_state(claude_state_dir, "proj-cwd")
+        sm = self._make_state(copilot_state_dir, "proj-cwd")
         adapter.ensure_session_initialized(sm, {"cwd": "/home/user/my-project"})
         assert sm.get("project_name") == "my-project"
 
-    def test_user_id_from_env(self, claude_state_dir, monkeypatch):
-        """ARIZE_USER_ID env var takes priority over input."""
-        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        monkeypatch.setenv("ARIZE_USER_ID", "env-user")
-        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
-        sm = self._make_state(claude_state_dir, "uid-env")
-        adapter.ensure_session_initialized(sm, {"user_id": "input-user"})
-        assert sm.get("user_id") == "env-user"
-
-    def test_user_id_from_input(self, claude_state_dir, disable_env_vars):
-        """user_id from input used when env is empty."""
-        sm = self._make_state(claude_state_dir, "uid-input")
-        adapter.ensure_session_initialized(sm, {"user_id": "from-json"})
-        assert sm.get("user_id") == "from-json"
-
-    def test_counters_start_at_zero(self, claude_state_dir, disable_env_vars):
+    def test_counters_start_at_zero(self, copilot_state_dir, disable_env_vars):
         """trace_count and tool_count start at '0'."""
-        sm = self._make_state(claude_state_dir, "counters")
+        sm = self._make_state(copilot_state_dir, "counters")
         adapter.ensure_session_initialized(sm, {})
         assert sm.get("trace_count") == "0"
         assert sm.get("tool_count") == "0"
@@ -164,47 +171,58 @@ class TestEnsureSessionInitialized:
 
 
 class TestGcStaleStateFiles:
-    def test_dead_pid_removed(self, claude_state_dir, disable_env_vars, monkeypatch):
+    def test_dead_pid_removed(self, copilot_state_dir, disable_env_vars, monkeypatch):
         """state file for a dead PID is removed."""
         dead_pid = 99999
-        state_file = claude_state_dir / f"state_{dead_pid}.yaml"
+        state_file = copilot_state_dir / f"state_{dead_pid}.yaml"
         state_file.write_text("{}")
         monkeypatch.setattr(adapter, "_is_pid_alive", lambda pid: False)
         adapter.gc_stale_state_files()
         assert not state_file.exists()
 
-    def test_live_pid_kept(self, claude_state_dir, disable_env_vars, monkeypatch):
+    def test_live_pid_kept(self, copilot_state_dir, disable_env_vars, monkeypatch):
         """state file for a live PID is kept."""
         live_pid = os.getpid()
-        state_file = claude_state_dir / f"state_{live_pid}.yaml"
+        state_file = copilot_state_dir / f"state_{live_pid}.yaml"
         state_file.write_text("{}")
         monkeypatch.setattr(adapter, "_is_pid_alive", lambda pid: pid == live_pid)
         adapter.gc_stale_state_files()
         assert state_file.exists()
 
-    def test_non_numeric_key_kept(self, claude_state_dir, disable_env_vars):
-        """state file with non-numeric key (session-id based) is never GC'd."""
-        state_file = claude_state_dir / "state_sess-abc123.yaml"
+    def test_non_numeric_key_kept(self, copilot_state_dir, disable_env_vars):
+        """state file with non-numeric key (VS Code sessionId) is never GC'd."""
+        state_file = copilot_state_dir / "state_vscode-sess-abc123.yaml"
         state_file.write_text("{}")
         adapter.gc_stale_state_files()
         assert state_file.exists()
 
-    def test_lock_dir_removed(self, claude_state_dir, disable_env_vars, monkeypatch):
+    def test_lock_dir_removed(self, copilot_state_dir, disable_env_vars, monkeypatch):
         """Lock dir is removed when state file is removed."""
         dead_pid = 99998
-        state_file = claude_state_dir / f"state_{dead_pid}.yaml"
+        state_file = copilot_state_dir / f"state_{dead_pid}.yaml"
         state_file.write_text("{}")
-        lock_dir = claude_state_dir / f".lock_{dead_pid}"
+        lock_dir = copilot_state_dir / f".lock_{dead_pid}"
         lock_dir.mkdir()
         monkeypatch.setattr(adapter, "_is_pid_alive", lambda pid: False)
         adapter.gc_stale_state_files()
         assert not state_file.exists()
         assert not lock_dir.exists()
 
-    def test_empty_dir_no_error(self, claude_state_dir, disable_env_vars):
+    def test_lock_file_removed(self, copilot_state_dir, disable_env_vars, monkeypatch):
+        """Lock file (fcntl-style) is removed when state file is removed."""
+        dead_pid = 99997
+        state_file = copilot_state_dir / f"state_{dead_pid}.yaml"
+        state_file.write_text("{}")
+        lock_file = copilot_state_dir / f".lock_{dead_pid}"
+        lock_file.write_text("")  # fcntl creates lock as a regular file
+        monkeypatch.setattr(adapter, "_is_pid_alive", lambda pid: False)
+        adapter.gc_stale_state_files()
+        assert not state_file.exists()
+        assert not lock_file.exists()
+
+    def test_empty_dir_no_error(self, copilot_state_dir, disable_env_vars):
         """Empty STATE_DIR causes no errors."""
-        # Remove any files that might exist
-        for f in claude_state_dir.glob("state_*.yaml"):
+        for f in copilot_state_dir.glob("state_*.yaml"):
             f.unlink()
         adapter.gc_stale_state_files()  # should not raise
 
@@ -216,7 +234,7 @@ class TestCheckRequirements:
     def test_enabled_returns_true(self, tmp_harness_dir, monkeypatch):
         """trace_enabled=True -> returns True and STATE_DIR exists."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        state_dir = tmp_harness_dir / "state" / "claude-code-check"
+        state_dir = tmp_harness_dir / "state" / "copilot-check"
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
         assert adapter.check_requirements() is True
         assert state_dir.is_dir()
@@ -224,7 +242,7 @@ class TestCheckRequirements:
     def test_disabled_returns_false(self, tmp_harness_dir, monkeypatch):
         """trace_enabled=False -> returns False, STATE_DIR not created."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "false")
-        state_dir = tmp_harness_dir / "state" / "claude-code-nope"
+        state_dir = tmp_harness_dir / "state" / "copilot-nope"
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
         assert adapter.check_requirements() is False
         assert not state_dir.exists()

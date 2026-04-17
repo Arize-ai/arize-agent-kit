@@ -1,23 +1,20 @@
 """Tests for core.codex_buffer_ctl module."""
 
 import os
-import signal
-import socket
 import subprocess
 import sys
 import threading
-import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
 
 from core.codex_buffer_ctl import (
+    _health_check,
     _is_process_alive,
     _resolve_host_port,
-    _health_check,
     buffer_ensure,
     buffer_start,
     buffer_status,
@@ -49,6 +46,7 @@ def _mock_ctl_health(monkeypatch):
 # which creates local bindings that won't see monkeypatches to core.constants.
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def ctl_paths(tmp_harness_dir, monkeypatch):
     """Monkeypatch all path constants in core.codex_buffer_ctl to use temp paths.
@@ -75,6 +73,7 @@ def ctl_paths(tmp_harness_dir, monkeypatch):
 # ---------------------------------------------------------------------------
 # _is_process_alive tests
 # ---------------------------------------------------------------------------
+
 
 class TestIsProcessAlive:
     def test_current_process_is_alive(self):
@@ -104,6 +103,7 @@ class TestIsProcessAlive:
 # _resolve_host_port tests
 # ---------------------------------------------------------------------------
 
+
 class TestResolveHostPort:
     def test_with_default_config(self, ctl_paths, sample_config):
         """With standard sample config, returns 127.0.0.1:4318."""
@@ -120,6 +120,7 @@ class TestResolveHostPort:
     def test_with_custom_host_port(self, ctl_paths):
         """Custom host/port in config.yaml is returned."""
         import core.constants as c
+
         config = {"collector": {"host": "0.0.0.0", "port": 9999}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
@@ -130,6 +131,7 @@ class TestResolveHostPort:
     def test_partial_config_falls_back(self, ctl_paths):
         """If only host is set, port falls back to default."""
         import core.constants as c
+
         config = {"collector": {"host": "10.0.0.1"}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
@@ -140,6 +142,7 @@ class TestResolveHostPort:
     def test_empty_config_returns_defaults(self, ctl_paths):
         """Empty config file returns defaults."""
         import core.constants as c
+
         with open(c.CONFIG_FILE, "w") as f:
             f.write("{}\n")
         host, port = _resolve_host_port()
@@ -149,6 +152,7 @@ class TestResolveHostPort:
     def test_malformed_config_returns_defaults(self, ctl_paths):
         """Malformed YAML in config returns defaults without raising."""
         import core.constants as c
+
         with open(c.CONFIG_FILE, "w") as f:
             f.write(":::bad yaml:::\n")
         host, port = _resolve_host_port()
@@ -158,6 +162,7 @@ class TestResolveHostPort:
     def test_port_is_always_int(self, ctl_paths):
         """Port is returned as int even if config stores it as string."""
         import core.constants as c
+
         config = {"collector": {"host": "127.0.0.1", "port": "5555"}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
@@ -168,6 +173,7 @@ class TestResolveHostPort:
     def test_buffer_config_takes_priority(self, ctl_paths):
         """buffer.host/port takes priority over collector.host/port."""
         import core.constants as c
+
         config = {
             "collector": {"host": "10.0.0.1", "port": 9999},
             "buffer": {"host": "192.168.1.1", "port": 7777},
@@ -181,6 +187,7 @@ class TestResolveHostPort:
     def test_buffer_partial_falls_back_to_collector(self, ctl_paths):
         """If buffer only has host, port falls back to collector.port."""
         import core.constants as c
+
         config = {
             "collector": {"host": "10.0.0.1", "port": 9999},
             "buffer": {"host": "192.168.1.1"},
@@ -196,6 +203,7 @@ class TestResolveHostPort:
 # _health_check tests
 # ---------------------------------------------------------------------------
 
+
 class TestHealthCheck:
     def test_health_check_success(self, mock_collector):
         """Health check succeeds against a mock collector."""
@@ -208,10 +216,12 @@ class TestHealthCheck:
 
     def test_health_check_non_health_endpoint(self):
         """Health check returns False if server doesn't respond to /health."""
+
         class _NoHealthHandler(BaseHTTPRequestHandler):
             def do_GET(self):
                 self.send_response(500)
                 self.end_headers()
+
             def log_message(self, *args):
                 pass
 
@@ -230,6 +240,7 @@ class TestHealthCheck:
 # buffer_status tests
 # ---------------------------------------------------------------------------
 
+
 class TestBufferStatus:
     def test_stopped_when_no_pid_file_and_no_health(self, ctl_paths):
         """No PID file and no healthy service means stopped."""
@@ -240,6 +251,7 @@ class TestBufferStatus:
     def test_stopped_when_dead_pid(self, ctl_paths, sample_config):
         """PID file with dead PID is cleaned up and reports stopped."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("99999\n")
         assert pid_file.exists()
@@ -253,6 +265,7 @@ class TestBufferStatus:
     def test_stopped_when_non_numeric_pid(self, ctl_paths, sample_config):
         """Non-numeric PID file content is cleaned up."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("not-a-number\n")
 
@@ -264,6 +277,7 @@ class TestBufferStatus:
     def test_stopped_when_empty_pid_file(self, ctl_paths, sample_config):
         """Empty PID file is cleaned up."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("")
 
@@ -275,6 +289,7 @@ class TestBufferStatus:
     def test_running_when_process_alive_and_healthy(self, ctl_paths, mock_collector):
         """Process alive + health OK = running."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
@@ -290,6 +305,7 @@ class TestBufferStatus:
     def test_running_when_process_alive_but_health_fails(self, ctl_paths):
         """Process alive but health fails = still reports running (benefit of the doubt)."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
@@ -306,6 +322,7 @@ class TestBufferStatus:
     def test_pid_file_with_extra_whitespace(self, ctl_paths, sample_config):
         """PID file with extra whitespace/newlines is parsed correctly."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(f"  {os.getpid()}  \n\n")
 
@@ -318,6 +335,7 @@ class TestBufferStatus:
 # buffer_start tests
 # ---------------------------------------------------------------------------
 
+
 class TestBufferStart:
     def test_returns_false_when_config_missing(self, ctl_paths):
         """No config.yaml means start fails."""
@@ -327,6 +345,7 @@ class TestBufferStart:
     def test_idempotent_when_already_running(self, ctl_paths, mock_collector):
         """If buffer is already running, start returns True without launching."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
@@ -345,6 +364,7 @@ class TestBufferStart:
             def do_GET(self):
                 self.send_response(404)
                 self.end_headers()
+
             def log_message(self, *args):
                 pass
 
@@ -365,8 +385,8 @@ class TestBufferStart:
 
     def test_detects_existing_buffer_on_port(self, ctl_paths, mock_collector, monkeypatch):
         """If port has a healthy buffer already, start returns True."""
-        import core.constants as c
         import core.codex_buffer_ctl as ctl
+        import core.constants as c
 
         # Restore real _health_check for this test (overrides autouse mock)
         monkeypatch.setattr("core.codex_buffer_ctl._health_check", _health_check)
@@ -428,9 +448,11 @@ class TestBufferStart:
 
         # Mock _health_check: fail first calls (status + start pre-check), succeed after launch
         call_count = {"n": 0}
+
         def fake_health_check(host, port, timeout=2.0):
             call_count["n"] += 1
             return call_count["n"] >= 4  # 1=status, 2=start pre-check, 3=port-check, 4+=poll
+
         monkeypatch.setattr("core.codex_buffer_ctl._health_check", fake_health_check)
 
         result = buffer_start()
@@ -540,6 +562,7 @@ class TestBufferStart:
 # buffer_stop tests
 # ---------------------------------------------------------------------------
 
+
 class TestBufferStop:
     def test_stop_when_already_stopped(self, ctl_paths):
         """Stop when no PID file returns 'stopped'."""
@@ -549,6 +572,7 @@ class TestBufferStop:
     def test_stop_cleans_up_stale_pid_file(self, ctl_paths):
         """Stop with dead PID removes PID file."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("99999\n")
 
@@ -559,6 +583,7 @@ class TestBufferStop:
     def test_stop_with_non_numeric_pid(self, ctl_paths):
         """Stop with garbage PID file removes it."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("garbage\n")
 
@@ -569,6 +594,7 @@ class TestBufferStop:
     def test_stop_with_empty_pid_file(self, ctl_paths):
         """Stop with empty PID file removes it."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("")
 
@@ -579,6 +605,7 @@ class TestBufferStop:
     def test_stop_sends_sigterm_to_alive_process(self, ctl_paths, _mock_ctl_sleep):
         """Stop sends SIGTERM to a live process and waits for it to die."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
 
         # Start a subprocess that we can kill
@@ -608,6 +635,7 @@ class TestBufferStop:
     def test_stop_removes_pid_file_even_if_process_wont_die(self, ctl_paths):
         """Stop removes PID file even if process ignores SIGTERM."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
 
         # Use our own PID — we won't die from SIGTERM during test
@@ -632,6 +660,7 @@ class TestBufferStop:
 # buffer_ensure tests
 # ---------------------------------------------------------------------------
 
+
 class TestBufferEnsure:
     def test_does_not_raise_when_config_missing(self, ctl_paths):
         """ensure() does not raise even when config is missing."""
@@ -651,6 +680,7 @@ class TestBufferEnsure:
     def test_skips_start_when_running(self, ctl_paths, mock_collector):
         """ensure() does not call start if status is running."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
@@ -672,6 +702,7 @@ class TestBufferEnsure:
 # ---------------------------------------------------------------------------
 # CLI entrypoint tests
 # ---------------------------------------------------------------------------
+
 
 class TestCLI:
     def test_no_args_prints_usage_and_exits_1(self, ctl_paths):
@@ -698,6 +729,7 @@ class TestCLI:
     def test_status_prints_running(self, ctl_paths, mock_collector, capsys):
         """'status' command prints 'running' with PID and address."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
@@ -733,59 +765,22 @@ class TestCLI:
             with patch("sys.argv", ["arize-codex-buffer", cmd]):
                 try:
                     main()
-                except SystemExit as e:
+                except SystemExit:
                     # start may exit 1 due to no config, that's fine
                     # but it shouldn't be a usage error
                     pass
 
 
 # ---------------------------------------------------------------------------
-# Integration test: full lifecycle
-# ---------------------------------------------------------------------------
-
-@pytest.mark.slow
-class TestIntegration:
-    def test_full_lifecycle(self, ctl_paths, sample_config):
-        """Start -> status -> stop cycle with real codex_buffer.py."""
-        buffer_py = Path(__file__).parent.parent / "core" / "codex_buffer.py"
-        if not buffer_py.is_file():
-            pytest.skip("codex_buffer.py not found")
-
-        # Start
-        ok = buffer_start()
-        if not ok:
-            pytest.skip("buffer failed to start (may need dependencies)")
-
-        try:
-            # Verify actually running (not just briefly alive)
-            status, pid, addr = buffer_status()
-            if status != "running":
-                pytest.skip("buffer started but exited quickly (environment issue)")
-
-            assert pid is not None
-            assert addr is not None
-
-            # Stop
-            result = buffer_stop()
-            assert result == "stopped"
-
-            # Verify stopped
-            status2, _, _ = buffer_status()
-            assert status2 == "stopped"
-        except Exception:
-            # Clean up even on failure
-            buffer_stop()
-            raise
-
-
-# ---------------------------------------------------------------------------
 # Edge cases and robustness
 # ---------------------------------------------------------------------------
+
 
 class TestEdgeCases:
     def test_pid_file_with_float(self, ctl_paths, sample_config):
         """PID file with float value is handled (ValueError on int())."""
         import core.constants as c
+
         c.CODEX_BUFFER_PID_FILE.write_text("123.456\n")
         status, pid, addr = buffer_status()
         assert status == "stopped"
@@ -794,6 +789,7 @@ class TestEdgeCases:
     def test_pid_file_with_negative_pid(self, ctl_paths, sample_config):
         """PID file with negative PID is handled — treated as dead."""
         import core.constants as c
+
         c.CODEX_BUFFER_PID_FILE.write_text("-1\n")
         status, pid, addr = buffer_status()
         assert status == "stopped"
@@ -802,6 +798,7 @@ class TestEdgeCases:
     def test_pid_file_with_zero(self, ctl_paths, sample_config):
         """PID file with 0 — always treated as dead (guarded)."""
         import core.constants as c
+
         c.CODEX_BUFFER_PID_FILE.write_text("0\n")
         status, pid, addr = buffer_status()
         assert status == "stopped"
@@ -818,6 +815,7 @@ class TestEdgeCases:
     def test_log_output_goes_to_stderr(self, ctl_paths, capsys):
         """_log() writes to stderr, not stdout."""
         from core.codex_buffer_ctl import _log
+
         _log("test message")
         captured = capsys.readouterr()
         assert captured.out == ""

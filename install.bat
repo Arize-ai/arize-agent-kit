@@ -5,6 +5,7 @@ REM
 REM Usage:
 REM   install.bat claude       Install Claude Code harness
 REM   install.bat codex        Install Codex CLI harness
+REM   install.bat copilot      Install GitHub Copilot harness
 REM   install.bat cursor       Install Cursor IDE harness
 REM   install.bat update       Update existing installation
 REM   install.bat uninstall    Uninstall
@@ -38,6 +39,7 @@ set "BRANCH="
 if "%~1"=="" goto :done_args
 if /i "%~1"=="claude"    ( set "COMMAND=claude"    & shift & goto :parse_args )
 if /i "%~1"=="codex"     ( set "COMMAND=codex"     & shift & goto :parse_args )
+if /i "%~1"=="copilot"   ( set "COMMAND=copilot"   & shift & goto :parse_args )
 if /i "%~1"=="cursor"    ( set "COMMAND=cursor"    & shift & goto :parse_args )
 if /i "%~1"=="update"    ( set "COMMAND=update"    & shift & goto :parse_args )
 if /i "%~1"=="uninstall" ( set "COMMAND=uninstall" & shift & goto :parse_args )
@@ -58,6 +60,7 @@ if "%COMMAND%"=="" (
 REM --- Dispatch ---
 if "%COMMAND%"=="claude"    goto :cmd_claude
 if "%COMMAND%"=="codex"     goto :cmd_codex
+if "%COMMAND%"=="copilot"   goto :cmd_copilot
 if "%COMMAND%"=="cursor"    goto :cmd_cursor
 if "%COMMAND%"=="update"    goto :cmd_update
 if "%COMMAND%"=="uninstall" goto :cmd_uninstall
@@ -81,6 +84,13 @@ call :install_repo
 call :setup_shared_collector "cursor"
 call :setup_cursor
 if "%WITH_SKILLS%"=="1" call :install_skills "cursor"
+goto :eof
+
+:cmd_copilot
+call :install_repo
+call :setup_shared_collector "copilot"
+call :setup_copilot
+if "%WITH_SKILLS%"=="1" call :install_skills "copilot"
 goto :eof
 
 :cmd_update
@@ -828,6 +838,73 @@ echo.
 echo [arize] Setup complete! Test with: set ARIZE_DRY_RUN=true ^& codex
 goto :eof
 
+REM --- setup_copilot ---
+:setup_copilot
+echo.
+echo [arize] Setting up Arize tracing for GitHub Copilot
+echo.
+
+set "_CP_PLUGIN_DIR=%INSTALL_DIR%\copilot-tracing"
+if not exist "%_CP_PLUGIN_DIR%" set "_CP_PLUGIN_DIR=%INSTALL_DIR%\plugins\copilot-tracing"
+if not exist "%_CP_PLUGIN_DIR%" (
+    echo [arize] Copilot tracing plugin not found in %INSTALL_DIR% >&2
+    exit /b 1
+)
+echo [arize] Plugin installed at: %_CP_PLUGIN_DIR%
+
+set "_CP_STATE_DIR=%STATE_BASE_DIR%\copilot"
+if not exist "%_CP_STATE_DIR%" mkdir "%_CP_STATE_DIR%"
+
+if not exist "%VENV_DIR%\Scripts\arize-hook-copilot-session-start.exe" (
+    echo [arize] Cannot register Copilot hooks — missing %VENV_DIR%\Scripts\arize-hook-copilot-session-start.exe >&2
+    echo [arize] Install the package into the harness venv, then re-run: install.bat copilot >&2
+    exit /b 1
+)
+
+REM Use Python for JSON manipulation
+call :venv_python
+set "_CP_PY=%VENV_PYTHON%"
+if "%_CP_PY%"=="" (
+    call :find_python
+    set "_CP_PY=%FOUND_PYTHON%"
+)
+if "%_CP_PY%"=="" (
+    echo [arize] Python is required for JSON manipulation but was not found >&2
+    exit /b 1
+)
+
+set "_CP_HOOKS_DIR=.github\hooks"
+if not exist "%_CP_HOOKS_DIR%" mkdir "%_CP_HOOKS_DIR%"
+
+set "_CP_VSCODE_FILE=%_CP_HOOKS_DIR%\copilot-tracing.json"
+set "_CP_CLI_FILE=%_CP_HOOKS_DIR%\hooks.json"
+
+REM --- 1. Write VS Code hooks (PascalCase, "command" field) ---
+"%_CP_PY%" -c "import json, os; hooks_file=r'%_CP_VSCODE_FILE%'; scripts=r'%VENV_DIR%\Scripts'; EVENTS={'SessionStart':'arize-hook-copilot-session-start','UserPromptSubmit':'arize-hook-copilot-user-prompt','PreToolUse':'arize-hook-copilot-pre-tool','PostToolUse':'arize-hook-copilot-post-tool','Stop':'arize-hook-copilot-stop','SubagentStop':'arize-hook-copilot-subagent-stop'}; data=json.loads(open(hooks_file).read()) if os.path.isfile(hooks_file) else {}; hooks=data.setdefault('hooks',{}); [hooks.setdefault(evt,[]).append({'hooks':[{'type':'command','command':os.path.join(scripts,ep+'.exe')}]}) for evt,ep in EVENTS.items() if not any(h.get('command','')==os.path.join(scripts,ep+'.exe') for entry in hooks.get(evt,[]) for h in entry.get('hooks',[]))]; f=open(hooks_file,'w'); json.dump(data,f,indent=2); f.write('\n'); f.close()"
+echo [arize] Wrote VS Code hooks to %_CP_VSCODE_FILE%
+
+REM --- 2. Write CLI hooks (camelCase, "bash" field, version: 1) ---
+"%_CP_PY%" -c "import json, os; hooks_file=r'%_CP_CLI_FILE%'; scripts=r'%VENV_DIR%\Scripts'; EVENTS={'sessionStart':'arize-hook-copilot-session-start','userPromptSubmitted':'arize-hook-copilot-user-prompt','preToolUse':'arize-hook-copilot-pre-tool','postToolUse':'arize-hook-copilot-post-tool','errorOccurred':'arize-hook-copilot-error','sessionEnd':'arize-hook-copilot-session-end'}; data=json.loads(open(hooks_file).read()) if os.path.isfile(hooks_file) else {'version':1}; data.setdefault('version',1); hooks=data.setdefault('hooks',{}); [hooks.setdefault(evt,[]).append({'type':'command','bash':os.path.join(scripts,ep+'.exe')}) for evt,ep in EVENTS.items() if not any(h.get('bash','')==os.path.join(scripts,ep+'.exe') for h in hooks.get(evt,[]))]; f=open(hooks_file,'w'); json.dump(data,f,indent=2); f.write('\n'); f.close()"
+echo [arize] Wrote CLI hooks to %_CP_CLI_FILE%
+
+echo.
+echo   Copilot tracing setup complete!
+echo.
+echo   What was configured:
+echo     - VS Code hooks at %_CP_VSCODE_FILE%
+echo       ^(6 hook events using PascalCase + command field^)
+echo     - CLI hooks at %_CP_CLI_FILE%
+echo       ^(6 hook events using camelCase + bash field^)
+echo     - State directory at %_CP_STATE_DIR%
+echo.
+echo   Next steps:
+echo     1. Commit the .github\hooks\ files to your repository
+echo     2. Open the project in VS Code with Copilot or use Copilot CLI
+echo     3. Spans will appear in your configured backend
+echo.
+echo [arize] Setup complete!
+goto :eof
+
 REM --- install_skills ---
 :install_skills
 set "_IS_HARNESS=%~1"
@@ -970,6 +1047,7 @@ echo.
 echo   Commands:
 echo     claude      Install and configure tracing for Claude Code / Agent SDK
 echo     codex       Install and configure tracing for OpenAI Codex CLI
+echo     copilot     Install and configure tracing for GitHub Copilot (VS Code + CLI)
 echo     cursor      Install and configure tracing for Cursor IDE
 echo     update      Update the installed arize-agent-kit to latest
 echo     uninstall   Remove arize-agent-kit and print cleanup reminders
@@ -981,6 +1059,7 @@ echo.
 echo   Examples:
 echo     install.bat claude
 echo     install.bat codex --with-skills
+echo     install.bat copilot
 echo     install.bat cursor --branch dev
 echo     install.bat update
 echo     install.bat uninstall

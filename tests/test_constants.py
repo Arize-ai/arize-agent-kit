@@ -1,4 +1,5 @@
 """Tests for core.constants module."""
+
 from pathlib import Path
 
 from core.constants import (
@@ -78,9 +79,7 @@ class TestHarnesses:
 
     def test_default_log_file_is_path(self):
         for name, entry in HARNESSES.items():
-            assert isinstance(entry["default_log_file"], Path), (
-                f"Harness '{name}' default_log_file should be a Path"
-            )
+            assert isinstance(entry["default_log_file"], Path), f"Harness '{name}' default_log_file should be a Path"
 
     def test_state_subdir_matches_key(self):
         for name, entry in HARNESSES.items():

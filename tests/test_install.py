@@ -1,7 +1,7 @@
 """Tests for install.sh — the native bash installer."""
+
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -14,6 +14,7 @@ INSTALL_BAT = REPO_ROOT / "install.bat"
 # ---------------------------------------------------------------------------
 # File existence and basic validity
 # ---------------------------------------------------------------------------
+
 
 def test_install_sh_exists():
     """install.sh must exist at repo root."""
@@ -41,7 +42,9 @@ def test_install_sh_syntax_valid():
     """install.sh must parse without syntax errors."""
     result = subprocess.run(
         ["bash", "-n", str(INSTALL_SH)],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert result.returncode == 0, f"Bash syntax error: {result.stderr}"
 
@@ -50,12 +53,15 @@ def test_install_sh_syntax_valid():
 # Help / usage
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.skipif(os.name == "nt", reason="bash not available on Windows")
 def test_install_sh_help():
     """install.sh --help exits 0 and shows usage."""
     result = subprocess.run(
         ["bash", str(INSTALL_SH), "--help"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert result.returncode == 0
     assert "Usage" in result.stdout or "usage" in result.stdout
@@ -66,7 +72,9 @@ def test_install_sh_no_args_exits_nonzero():
     """install.sh with no arguments should exit with error."""
     result = subprocess.run(
         ["bash", str(INSTALL_SH)],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert result.returncode != 0
 
@@ -76,7 +84,9 @@ def test_install_sh_unknown_command_exits_nonzero():
     """install.sh with unknown command should exit with error."""
     result = subprocess.run(
         ["bash", str(INSTALL_SH), "bogus"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert result.returncode != 0
 
@@ -85,10 +95,11 @@ def test_install_sh_unknown_command_exits_nonzero():
 # Script content checks
 # ---------------------------------------------------------------------------
 
+
 def test_install_sh_has_all_commands():
-    """install.sh must support claude, codex, cursor, update, uninstall."""
+    """install.sh must support claude, codex, copilot, cursor, update, uninstall."""
     text = INSTALL_SH.read_text()
-    for cmd in ["claude", "codex", "cursor", "update", "uninstall"]:
+    for cmd in ["claude", "codex", "copilot", "cursor", "update", "uninstall"]:
         assert cmd in text, f"Missing command: {cmd}"
 
 
@@ -155,6 +166,51 @@ def test_install_sh_has_cursor_events():
         assert event in text, f"Missing Cursor event: {event}"
 
 
+def test_install_sh_has_copilot_hook_entry_points():
+    """install.sh must reference all Copilot hook entry points."""
+    text = INSTALL_SH.read_text()
+    expected_hooks = [
+        "arize-hook-copilot-session-start",
+        "arize-hook-copilot-user-prompt",
+        "arize-hook-copilot-pre-tool",
+        "arize-hook-copilot-post-tool",
+        "arize-hook-copilot-stop",
+        "arize-hook-copilot-subagent-stop",
+        "arize-hook-copilot-error",
+        "arize-hook-copilot-session-end",
+    ]
+    for hook in expected_hooks:
+        assert hook in text, f"Missing Copilot hook entry point: {hook}"
+
+
+def test_install_sh_has_setup_copilot_function():
+    """install.sh must define setup_copilot function."""
+    text = INSTALL_SH.read_text()
+    assert "setup_copilot()" in text
+
+
+def test_install_sh_copilot_vscode_hooks_format():
+    """install.sh must write VS Code hooks with PascalCase keys and command field."""
+    text = INSTALL_SH.read_text()
+    assert "copilot-tracing.json" in text
+    # VS Code events use PascalCase
+    for event in ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SubagentStop"]:
+        assert f'"{event}": "arize-hook-copilot-' in text, f"Missing VS Code PascalCase event: {event}"
+    # VS Code uses "command" field
+    assert '"type": "command", "command": hook_cmd' in text
+
+
+def test_install_sh_copilot_cli_hooks_format():
+    """install.sh must write CLI hooks with camelCase keys, bash field, version 1."""
+    text = INSTALL_SH.read_text()
+    # CLI events use camelCase
+    for event in ["sessionStart", "userPromptSubmitted", "preToolUse", "postToolUse", "errorOccurred", "sessionEnd"]:
+        assert f'"{event}": "arize-hook-copilot-' in text, f"Missing CLI camelCase event: {event}"
+    # CLI uses "bash" field and version 1
+    assert '"type": "command", "bash": hook_cmd' in text
+    assert '"version": 1' in text
+
+
 def test_install_sh_venv_skip_requires_package_install():
     """Skipping pip install must require arize-agent-kit + console scripts, not yaml alone."""
     text = INSTALL_SH.read_text()
@@ -182,10 +238,50 @@ def test_install_sh_does_not_reference_install_py():
 
 
 def test_install_bat_has_all_commands():
-    """install.bat must support claude, codex, cursor, update, uninstall."""
+    """install.bat must support claude, codex, copilot, cursor, update, uninstall."""
     text = INSTALL_BAT.read_text()
-    for cmd in ["claude", "codex", "cursor", "update", "uninstall"]:
+    for cmd in ["claude", "codex", "copilot", "cursor", "update", "uninstall"]:
         assert cmd.lower() in text.lower(), f"Missing command: {cmd}"
+
+
+def test_install_bat_has_copilot_hook_entry_points():
+    """install.bat must reference all Copilot hook entry points."""
+    text = INSTALL_BAT.read_text()
+    expected_hooks = [
+        "arize-hook-copilot-session-start",
+        "arize-hook-copilot-user-prompt",
+        "arize-hook-copilot-pre-tool",
+        "arize-hook-copilot-post-tool",
+        "arize-hook-copilot-stop",
+        "arize-hook-copilot-subagent-stop",
+        "arize-hook-copilot-error",
+        "arize-hook-copilot-session-end",
+    ]
+    for hook in expected_hooks:
+        assert hook in text, f"Missing Copilot hook entry point: {hook}"
+
+
+def test_install_bat_has_setup_copilot_routine():
+    """install.bat must define :setup_copilot routine."""
+    text = INSTALL_BAT.read_text()
+    assert ":setup_copilot" in text
+    assert ":cmd_copilot" in text
+
+
+def test_install_bat_copilot_vscode_hooks_format():
+    """install.bat must write VS Code hooks with PascalCase keys and command field."""
+    text = INSTALL_BAT.read_text()
+    assert "copilot-tracing.json" in text
+    for event in ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SubagentStop"]:
+        assert f"'{event}':" in text, f"Missing VS Code PascalCase event: {event}"
+
+
+def test_install_bat_copilot_cli_hooks_format():
+    """install.bat must write CLI hooks with camelCase keys, bash field, version 1."""
+    text = INSTALL_BAT.read_text()
+    for event in ["sessionStart", "userPromptSubmitted", "preToolUse", "postToolUse", "errorOccurred", "sessionEnd"]:
+        assert f"'{event}':" in text, f"Missing CLI camelCase event: {event}"
+    assert "'version':1" in text or "'version': 1" in text
 
 
 def test_install_bat_does_not_reference_install_py():
@@ -211,6 +307,7 @@ def test_install_bat_venv_skip_requires_package_install():
 # ---------------------------------------------------------------------------
 # Direct-send architecture: collector → buffer service rename
 # ---------------------------------------------------------------------------
+
 
 class TestCollectorToBufferRename:
     """Verify the collector has been renamed to buffer service throughout install.sh."""
@@ -239,7 +336,8 @@ class TestCollectorToBufferRename:
         """start_collector must be renamed to start_codex_buffer."""
         # Must not contain start_collector as a function name (word boundary)
         import re
-        assert not re.search(r'\bstart_collector\b', self.text)
+
+        assert not re.search(r"\bstart_collector\b", self.text)
 
     def test_start_codex_buffer_exists(self):
         """start_codex_buffer function must be defined."""
@@ -248,7 +346,8 @@ class TestCollectorToBufferRename:
     def test_no_stop_collector_function(self):
         """stop_collector must be renamed to stop_codex_buffer."""
         import re
-        assert not re.search(r'\bstop_collector\b', self.text)
+
+        assert not re.search(r"\bstop_collector\b", self.text)
 
     def test_stop_codex_buffer_exists(self):
         """stop_codex_buffer function must be defined."""
@@ -259,15 +358,17 @@ class TestCollectorToBufferRename:
         assert "arize-collector-ctl" not in self.text
 
     def test_main_calls_setup_shared_runtime(self):
-        """main() must call setup_shared_runtime for all three harnesses."""
+        """main() must call setup_shared_runtime for all four harnesses."""
         assert 'setup_shared_runtime "claude-code"' in self.text
         assert 'setup_shared_runtime "codex"' in self.text
+        assert 'setup_shared_runtime "copilot"' in self.text
         assert 'setup_shared_runtime "cursor"' in self.text
 
 
 # ---------------------------------------------------------------------------
 # Buffer service constants
 # ---------------------------------------------------------------------------
+
 
 class TestBufferServiceConstants:
     """Verify buffer service constants are properly defined."""
@@ -299,6 +400,7 @@ class TestBufferServiceConstants:
 # Buffer service only started for Codex
 # ---------------------------------------------------------------------------
 
+
 class TestBufferServiceCodexOnly:
     """Buffer service should only be started for Codex, not Claude or Cursor."""
 
@@ -329,6 +431,7 @@ class TestBufferServiceCodexOnly:
 # ---------------------------------------------------------------------------
 # Per-harness credentials
 # ---------------------------------------------------------------------------
+
 
 class TestPerHarnessCredentials:
     """Verify per-harness credential support in install.sh."""
@@ -374,14 +477,13 @@ class TestPerHarnessCredentials:
         lines = self.text.split("\n")
         in_cfgeof = False
         for line in lines:
-            if "cat > \"$CONFIG_FILE\" <<CFGEOF" in line:
+            if 'cat > "$CONFIG_FILE" <<CFGEOF' in line:
                 in_cfgeof = True
                 continue
             if in_cfgeof and line.strip() == "CFGEOF":
                 break
             if in_cfgeof:
-                assert not line.startswith("collector:"), \
-                    "Fresh config template must not contain collector: section"
+                assert not line.startswith("collector:"), "Fresh config template must not contain collector: section"
 
     def test_buffer_port_only_for_codex(self):
         """Buffer port prompt must only appear for Codex harness."""
@@ -392,6 +494,7 @@ class TestPerHarnessCredentials:
 # ---------------------------------------------------------------------------
 # Project name collection
 # ---------------------------------------------------------------------------
+
 
 class TestProjectNameCollection:
     """Verify project name prompt during install."""
@@ -425,6 +528,7 @@ class TestProjectNameCollection:
 # ---------------------------------------------------------------------------
 # Upgrade / uninstall cleanup
 # ---------------------------------------------------------------------------
+
 
 class TestUpgradeAndUninstallCleanup:
     """Verify upgrade and uninstall handle both old and new artifacts."""
@@ -483,6 +587,7 @@ class TestUpgradeAndUninstallCleanup:
 # Codex-specific messaging
 # ---------------------------------------------------------------------------
 
+
 class TestCodexMessaging:
     """Verify Codex setup messages reference buffer service correctly."""
 
@@ -498,14 +603,21 @@ class TestCodexMessaging:
         """Codex summary must reference buffer log file."""
         assert "View buffer service logs" in self.text
 
-    def test_codex_proxy_uses_arize_codex_buffer(self):
-        """Codex proxy wrapper must reference arize-codex-buffer entry point."""
-        assert 'venv_bin "arize-codex-buffer"' in self.text
+    def test_codex_proxy_uses_python_entry_point(self):
+        """Codex proxy wrapper must install the Python arize-codex-proxy entry point."""
+        assert 'venv_bin "arize-codex-proxy"' in self.text
+
+    def test_codex_proxy_errors_when_entry_point_missing(self):
+        """Install must hard-error if arize-codex-proxy is not in the venv."""
+        # The error path is triggered by `[[ ! -x "$py_proxy" ]]`.
+        assert '[[ ! -x "$py_proxy" ]]' in self.text
+        assert "missing ${py_proxy}" in self.text
 
 
 # ---------------------------------------------------------------------------
 # Header / description updated
 # ---------------------------------------------------------------------------
+
 
 class TestScriptDescription:
     """Verify the script header describes the new architecture."""

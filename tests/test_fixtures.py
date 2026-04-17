@@ -1,4 +1,5 @@
 """Tests for conftest fixtures and test infrastructure."""
+
 import json
 import urllib.request
 
@@ -9,8 +10,12 @@ class TestTmpHarnessDir:
     """Verify the tmp_harness_dir fixture creates the expected directory tree."""
 
     EXPECTED_SUBDIRS = [
-        "bin", "run", "logs",
-        "state/claude-code", "state/codex", "state/cursor",
+        "bin",
+        "run",
+        "logs",
+        "state/claude-code",
+        "state/codex",
+        "state/cursor",
     ]
 
     def test_creates_all_subdirs(self, tmp_harness_dir):
@@ -20,6 +25,7 @@ class TestTmpHarnessDir:
 
     def test_monkeypatches_constants(self, tmp_harness_dir):
         import core.constants as c
+
         assert c.BASE_DIR == tmp_harness_dir
         assert c.CONFIG_FILE == tmp_harness_dir / "config.yaml"
         assert c.STATE_BASE_DIR == tmp_harness_dir / "state"
@@ -89,6 +95,7 @@ class TestFixtureData:
 
     def test_transcript_file(self, transcript_file):
         from pathlib import Path
+
         p = Path(transcript_file)
         assert p.exists()
         lines = p.read_text().strip().splitlines()

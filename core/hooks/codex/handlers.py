@@ -13,19 +13,20 @@ import sys
 import time
 import urllib.request
 from pathlib import Path
+from typing import Any
 
+from core.codex_buffer_ctl import buffer_ensure
 from core.common import (
     build_multi_span,
     build_span,
     debug_dump,
-    env,
     error,
     generate_span_id,
     generate_trace_id,
     get_timestamp_ms,
     log,
-    send_span as send_span_to_backend,
 )
+from core.common import send_span as send_span_to_backend
 from core.hooks.codex.adapter import (
     SCOPE_NAME,
     SERVICE_NAME,
@@ -35,12 +36,15 @@ from core.hooks.codex.adapter import (
     load_env_file,
     resolve_session,
 )
-from core.codex_buffer_ctl import buffer_ensure
+
+# HTTP timeout for the /flush-idle request to the buffer service.
+_DRAIN_HTTP_TIMEOUT_SECONDS = 5
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _flex_get(d: dict, *keys, default=""):
     """Try multiple key names, return first non-None/non-empty value."""
@@ -62,7 +66,7 @@ def _flex_get_obj(d: dict, *keys):
 
 def _nested_get(d: dict, *keys):
     """Walk nested dicts by key sequence. Returns None if any step fails."""
-    current = d
+    current: Any = d
     for key in keys:
         if not isinstance(current, dict):
             return None
@@ -124,6 +128,7 @@ def _extract_user_prompt(user_input) -> str:
 # Token enrichment
 # ---------------------------------------------------------------------------
 
+
 def _find_token_usage(input_json: dict):
     """Search for token usage dict in multiple payload locations.
 
@@ -154,6 +159,7 @@ def _extract_token_counts(usage: dict) -> dict:
     Returns {"prompt": int|None, "completion": int|None, "total": int|None}.
     Auto-computes total if prompt + completion are present but total isn't.
     """
+
     def pick_first(*keys):
         for k in keys:
             val = usage.get(k)
@@ -165,15 +171,30 @@ def _extract_token_counts(usage: dict) -> dict:
         return None
 
     prompt = pick_first(
-        "prompt_tokens", "input_tokens", "promptTokens", "inputTokens",
-        "prompt", "input", "cache_read_input_tokens", "cache_creation_input_tokens",
+        "prompt_tokens",
+        "input_tokens",
+        "promptTokens",
+        "inputTokens",
+        "prompt",
+        "input",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
     )
     completion = pick_first(
-        "completion_tokens", "output_tokens", "completionTokens", "outputTokens",
-        "completion", "output",
+        "completion_tokens",
+        "output_tokens",
+        "completionTokens",
+        "outputTokens",
+        "completion",
+        "output",
     )
     total = pick_first(
-        "total_tokens", "totalTokens", "tokens", "token_count", "overall", "sum",
+        "total_tokens",
+        "totalTokens",
+        "tokens",
+        "token_count",
+        "overall",
+        "sum",
     )
     if total is None and prompt is not None and completion is not None:
         total = prompt + completion
@@ -185,6 +206,7 @@ def _extract_token_counts(usage: dict) -> dict:
 # Tool call extraction
 # ---------------------------------------------------------------------------
 
+
 def _find_tool_calls(input_json: dict):
     """Search for tool calls list in multiple payload locations.
 
@@ -193,9 +215,13 @@ def _find_tool_calls(input_json: dict):
     Searches: root, last-assistant-message, last-assistant-message.message
     """
     tool_keys = (
-        "tool_calls", "tool-calls", "toolCalls",
-        "tool_invocations", "toolInvocations",
-        "tools", "tool_results",
+        "tool_calls",
+        "tool-calls",
+        "toolCalls",
+        "tool_invocations",
+        "toolInvocations",
+        "tools",
+        "tool_results",
     )
     search_locations = [
         input_json,
@@ -218,6 +244,7 @@ def _find_tool_calls(input_json: dict):
 # ---------------------------------------------------------------------------
 # Event buffer drain
 # ---------------------------------------------------------------------------
+
 
 def _drain_events(thread_id: str, state, collector_port: int) -> list:
     """Drain buffered events from the collector for this thread.
@@ -264,6 +291,7 @@ def _drain_events(thread_id: str, state, collector_port: int) -> list:
 # Span sending
 # ---------------------------------------------------------------------------
 
+
 def _send_span(payload: dict) -> None:
     """Send the completed span payload directly to the configured backend."""
     if not send_span_to_backend(payload):
@@ -274,11 +302,13 @@ def _send_span(payload: dict) -> None:
 # Child span building from collector events
 # ---------------------------------------------------------------------------
 
-def _build_child_spans(events: list, trace_id: str, parent_span_id: str,
-                       session_id: str, start_time: int, attrs: dict) -> list:
+
+def _build_child_spans(
+    events: list, trace_id: str, parent_span_id: str, session_id: str, start_time: int, attrs: dict
+) -> "tuple[list, int, int]":
     """Build child spans from collector events and enrich parent attrs in-place.
 
-    Returns list of child span payloads (each from build_span()).
+    Returns (list of child span payloads, earliest event start time, latest event end time).
     Modifies attrs dict in-place with enrichments from events.
     """
     child_spans = []
@@ -311,7 +341,8 @@ def _build_child_spans(events: list, trace_id: str, parent_span_id: str,
 
     # --- Token enrichment from SSE events (bash lines 280-315) ---
     sse_events = [
-        e for e in events
+        e
+        for e in events
         if e.get("event") == "codex.sse_event"
         and (
             (e.get("attrs", {}).get("type") == "response.completed")
@@ -348,12 +379,12 @@ def _build_child_spans(events: list, trace_id: str, parent_span_id: str,
 
     for i, decision in enumerate(decisions):
         da = decision.get("attrs", {})
-        tool_name = (da.get("tool_name") or da.get("tool.name")
-                     or da.get("name") or "unknown_tool")
+        tool_name = da.get("tool_name") or da.get("tool.name") or da.get("name") or "unknown_tool"
         call_id = da.get("call_id", "")
         decision_ns = _safe_int(decision.get("time_ns", 0))
-        approval_status = (da.get("approved") or da.get("approval")
-                           or da.get("decision") or da.get("status") or "unknown")
+        approval_status = (
+            da.get("approved") or da.get("approval") or da.get("decision") or da.get("status") or "unknown"
+        )
 
         # Match result by call_id first, then by index
         result = results_by_call_id.get(call_id)
@@ -368,9 +399,7 @@ def _build_child_spans(events: list, trace_id: str, parent_span_id: str,
             ra = result.get("attrs", {})
             # arguments contains the tool input as JSON (e.g. {"cmd":"pwd","workdir":"..."})
             tool_input = str(ra.get("arguments") or ra.get("input") or "")
-            tool_output = str(
-                ra.get("output") or ra.get("result") or ra.get("tool.output") or ""
-            )
+            tool_output = str(ra.get("output") or ra.get("result") or ra.get("tool.output") or "")
             tool_duration_ms = _safe_int(ra.get("duration_ms", 0))
 
         tool_start_ms = decision_ns // 1_000_000 or event_start_time
@@ -390,9 +419,16 @@ def _build_child_spans(events: list, trace_id: str, parent_span_id: str,
             tool_attrs["codex.tool.call_id"] = call_id
 
         child_span = build_span(
-            tool_name, "TOOL", generate_span_id(), trace_id,
-            parent_span_id, tool_start_ms, tool_end_ms, tool_attrs,
-            SERVICE_NAME, SCOPE_NAME,
+            tool_name,
+            "TOOL",
+            generate_span_id(),
+            trace_id,
+            parent_span_id,
+            tool_start_ms,
+            tool_end_ms,
+            tool_attrs,
+            SERVICE_NAME,
+            SCOPE_NAME,
         )
         child_spans.append(child_span)
 
@@ -404,6 +440,7 @@ def _enrich_tokens_from_event_attrs(ea: dict, attrs: dict) -> None:
 
     Matches bash lines 286-313 — tries multiple key variants for each count.
     """
+
     def _pick(d, *keys):
         for k in keys:
             v = d.get(k)
@@ -440,6 +477,7 @@ def _safe_int(val) -> int:
 # ---------------------------------------------------------------------------
 # Main handler
 # ---------------------------------------------------------------------------
+
 
 def _handle_notify(input_json: dict) -> None:
     """Main notify handler, broken into phases matching notify.sh."""
@@ -545,11 +583,16 @@ def _handle_notify(input_json: dict) -> None:
             state.set("last_collector_time_ns", str(max_ns))
 
     # Phase 8: Enrich parent span and build child spans from events
-    child_spans = []
+    child_spans: list = []
     if events:
         log(f"Processing {len(events)} collector events")
         child_spans, event_start, event_end = _build_child_spans(
-            events, trace_id, span_id, session_id, start_time, attrs,
+            events,
+            trace_id,
+            span_id,
+            session_id or "",
+            start_time,
+            attrs,
         )
         # Use event-derived timing if available
         if event_start != start_time or event_end != start_time:
@@ -558,8 +601,16 @@ def _handle_notify(input_json: dict) -> None:
 
     # Phase 9: Build and send (bash lines 424-440)
     parent_span = build_span(
-        f"Turn {trace_count}", "LLM", span_id, trace_id, "",
-        start_time, end_time, attrs, SERVICE_NAME, SCOPE_NAME,
+        f"Turn {trace_count}",
+        "LLM",
+        span_id,
+        trace_id,
+        "",
+        start_time,
+        end_time,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     debug_dump(f"{debug_prefix}_parent_span", parent_span)
 
@@ -588,6 +639,7 @@ def _handle_notify(input_json: dict) -> None:
 # CLI entry point
 # ---------------------------------------------------------------------------
 
+
 def notify():
     """Entry point for arize-hook-codex-notify. Codex hook.
 
@@ -606,6 +658,111 @@ def notify():
         _handle_notify(input_json)
     except Exception as e:
         error(f"codex notify hook failed: {e}")
+
+
+def drain_idle():
+    """Entry point for arize-hook-codex-drain. Flushes all buffered conversations.
+
+    Called by the proxy after `codex exec` exits. Since codex has already
+    terminated, every buffered conversation is by definition complete —
+    we fetch everything unconditionally and build span trees from the events.
+    """
+    try:
+        load_env_file(Path.home() / ".codex" / "arize-env.sh")
+
+        if not check_requirements():
+            return
+
+        buffer_ensure()
+
+        port = int(os.environ.get("ARIZE_COLLECTOR_PORT", "4318"))
+
+        # Codex has already exited, so all events are at the buffer and no new
+        # events can arrive. Pass timeout_seconds=0 to grab every conversation.
+        url = f"http://127.0.0.1:{port}/flush-idle?timeout_seconds=0"
+        try:
+            with urllib.request.urlopen(url, timeout=_DRAIN_HTTP_TIMEOUT_SECONDS) as resp:
+                conversations = json.loads(resp.read())
+        except Exception as e:
+            error(f"Failed to fetch idle conversations: {e}")
+            return
+
+        if not conversations:
+            return
+
+        log(f"Draining {len(conversations)} idle conversation(s)")
+
+        for conv_id, events in conversations.items():
+            if not events:
+                continue
+
+            log(f"Processing {len(events)} events for conversation {conv_id}")
+
+            # Resolve session for this conversation
+            state = resolve_session(conv_id)
+            ensure_session_initialized(state, conv_id, os.getcwd())
+            session_id = state.get("session_id")
+            state.increment("trace_count")
+            trace_count = state.get("trace_count")
+            project_name = state.get("project_name")
+            user_id = state.get("user_id")
+
+            # Generate IDs
+            trace_id = generate_trace_id()
+            span_id = generate_span_id()
+            start_time = get_timestamp_ms()
+            end_time = start_time
+
+            # Build parent span attrs from events
+            attrs = {
+                "session.id": session_id,
+                "trace.number": trace_count,
+                "project.name": project_name,
+                "openinference.span.kind": "LLM",
+                "codex.thread_id": conv_id,
+                "codex.drain_source": "flush-idle",
+            }
+            if user_id:
+                attrs["user.id"] = user_id
+
+            # Build child spans and enrich parent from events
+            child_spans, event_start, event_end = _build_child_spans(
+                events,
+                trace_id,
+                span_id,
+                session_id,
+                start_time,
+                attrs,
+            )
+            if event_start != start_time or event_end != start_time:
+                start_time = event_start
+                end_time = event_end
+
+            # Build and send
+            parent_span = build_span(
+                f"Turn {trace_count}",
+                "LLM",
+                span_id,
+                trace_id,
+                "",
+                start_time,
+                end_time,
+                attrs,
+                SERVICE_NAME,
+                SCOPE_NAME,
+            )
+
+            if child_spans:
+                all_spans = [parent_span] + child_spans
+                multi_payload = build_multi_span(all_spans, SERVICE_NAME, SCOPE_NAME)
+                _send_span(multi_payload)
+            else:
+                _send_span(parent_span)
+
+            log(f"Drained conversation {conv_id}: turn {trace_count}, {len(child_spans)} children")
+
+    except Exception as e:
+        error(f"codex drain-idle failed: {e}")
 
 
 if __name__ == "__main__":
