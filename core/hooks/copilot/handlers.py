@@ -612,10 +612,10 @@ def _handle_subagent_stop(input_json: dict) -> None:
     transcript_path = input_json.get("transcript_path", "") or input_json.get("agent_transcript_path", "")
     if transcript_path and Path(transcript_path).is_file():
         p = Path(transcript_path)
-        try:
-            start_ms = int(p.stat().st_birthtime * 1000)
-        except AttributeError:
-            start_ms = int(p.stat().st_ctime * 1000)
+        st = p.stat()
+        # st_birthtime is macOS/BSD only; fall back to ctime elsewhere.
+        birth = getattr(st, "st_birthtime", st.st_ctime)
+        start_ms = int(birth * 1000)
         start_time = str(start_ms)
 
         with open(transcript_path) as f:
