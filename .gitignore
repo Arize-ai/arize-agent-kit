@@ -38,3 +38,4 @@ Thumbs.db
 .claude/
 mempalace.yaml
 entities.json
+*.code-workspace

@@ -238,10 +238,50 @@ def test_install_sh_does_not_reference_install_py():
 
 
 def test_install_bat_has_all_commands():
-    """install.bat must support claude, codex, cursor, update, uninstall."""
+    """install.bat must support claude, codex, copilot, cursor, update, uninstall."""
     text = INSTALL_BAT.read_text()
-    for cmd in ["claude", "codex", "cursor", "update", "uninstall"]:
+    for cmd in ["claude", "codex", "copilot", "cursor", "update", "uninstall"]:
         assert cmd.lower() in text.lower(), f"Missing command: {cmd}"
+
+
+def test_install_bat_has_copilot_hook_entry_points():
+    """install.bat must reference all Copilot hook entry points."""
+    text = INSTALL_BAT.read_text()
+    expected_hooks = [
+        "arize-hook-copilot-session-start",
+        "arize-hook-copilot-user-prompt",
+        "arize-hook-copilot-pre-tool",
+        "arize-hook-copilot-post-tool",
+        "arize-hook-copilot-stop",
+        "arize-hook-copilot-subagent-stop",
+        "arize-hook-copilot-error",
+        "arize-hook-copilot-session-end",
+    ]
+    for hook in expected_hooks:
+        assert hook in text, f"Missing Copilot hook entry point: {hook}"
+
+
+def test_install_bat_has_setup_copilot_routine():
+    """install.bat must define :setup_copilot routine."""
+    text = INSTALL_BAT.read_text()
+    assert ":setup_copilot" in text
+    assert ":cmd_copilot" in text
+
+
+def test_install_bat_copilot_vscode_hooks_format():
+    """install.bat must write VS Code hooks with PascalCase keys and command field."""
+    text = INSTALL_BAT.read_text()
+    assert "copilot-tracing.json" in text
+    for event in ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SubagentStop"]:
+        assert f"'{event}':" in text, f"Missing VS Code PascalCase event: {event}"
+
+
+def test_install_bat_copilot_cli_hooks_format():
+    """install.bat must write CLI hooks with camelCase keys, bash field, version 1."""
+    text = INSTALL_BAT.read_text()
+    for event in ["sessionStart", "userPromptSubmitted", "preToolUse", "postToolUse", "errorOccurred", "sessionEnd"]:
+        assert f"'{event}':" in text, f"Missing CLI camelCase event: {event}"
+    assert "'version':1" in text or "'version': 1" in text
 
 
 def test_install_bat_does_not_reference_install_py():
