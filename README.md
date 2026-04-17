@@ -21,6 +21,21 @@ claude plugin marketplace add Arize-ai/arize-agent-kit
 claude plugin install claude-code-tracing@arize-agent-kit
 ```
 
+Then add your backend credentials to `~/.claude/settings.json` (or `.claude/settings.local.json` for per-project):
+
+```json
+{
+  "env": {
+    "ARIZE_TRACE_ENABLED": "true",
+    "ARIZE_API_KEY": "<your-arize-api-key>",
+    "ARIZE_SPACE_ID": "<your-arize-space-id>",
+    "ARIZE_PROJECT_NAME": "claude-code"
+  }
+}
+```
+
+For Phoenix, use `"PHOENIX_ENDPOINT": "http://localhost:6006"` instead of the Arize keys.
+
 **Any harness (curl-pipe):**
 
 ```bash
