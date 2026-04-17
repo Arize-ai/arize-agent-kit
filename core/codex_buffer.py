@@ -285,7 +285,15 @@ class CodexBufferHandler(BaseHTTPRequestHandler):
             self._send_json(200, events)
         elif path == "/flush-idle":
             query = parse_qs(parsed.query)
-            timeout = float(query.get("timeout_seconds", ["2"])[0] or "2")
+            raw_timeout = query.get("timeout_seconds", ["2"])[0]
+            try:
+                timeout = float(raw_timeout)
+            except (TypeError, ValueError):
+                self._send_json(400, {
+                    "status": "error",
+                    "message": f"invalid timeout_seconds: {raw_timeout!r}",
+                })
+                return
             result = _flush_idle(timeout)
             self._send_json(200, result)
         elif path.startswith("/drain/"):

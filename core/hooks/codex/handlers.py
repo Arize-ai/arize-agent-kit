@@ -37,6 +37,9 @@ from core.hooks.codex.adapter import (
 )
 from core.codex_buffer_ctl import buffer_ensure
 
+# HTTP timeout for the /flush-idle request to the buffer service.
+_DRAIN_HTTP_TIMEOUT_SECONDS = 5
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -609,10 +612,11 @@ def notify():
 
 
 def drain_idle():
-    """Entry point for arize-hook-codex-drain. Flushes idle conversations from the buffer.
+    """Entry point for arize-hook-codex-drain. Flushes all buffered conversations.
 
-    Called by the proxy after `codex exec` exits. Fetches conversations that have
-    been idle for >2 seconds, builds span trees from their events, and sends them.
+    Called by the proxy after `codex exec` exits. Since codex has already
+    terminated, every buffered conversation is by definition complete —
+    we fetch everything unconditionally and build span trees from the events.
     """
     try:
         load_env_file(Path.home() / ".codex" / "arize-env.sh")
@@ -622,17 +626,13 @@ def drain_idle():
 
         buffer_ensure()
 
-        import time
-        import urllib.request
         port = int(os.environ.get("ARIZE_COLLECTOR_PORT", "4318"))
 
-        # Wait for events to finish arriving after codex exits
-        time.sleep(5)
-
-        # Fetch conversations idle for >5 seconds (safe margin for completed sessions)
-        url = f"http://127.0.0.1:{port}/flush-idle?timeout_seconds=5"
+        # Codex has already exited, so all events are at the buffer and no new
+        # events can arrive. Pass timeout_seconds=0 to grab every conversation.
+        url = f"http://127.0.0.1:{port}/flush-idle?timeout_seconds=0"
         try:
-            with urllib.request.urlopen(url, timeout=5) as resp:
+            with urllib.request.urlopen(url, timeout=_DRAIN_HTTP_TIMEOUT_SECONDS) as resp:
                 conversations = json.loads(resp.read())
         except Exception as e:
             error(f"Failed to fetch idle conversations: {e}")

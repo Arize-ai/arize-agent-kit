@@ -112,11 +112,15 @@ def main() -> None:
     if is_exec or os.name == "nt":
         result = subprocess.run([real_codex] + sys.argv[1:])
         if is_exec:
+            # Import scoped here: drain_idle pulls in core.common + OTLP span
+            # building (~34 modules). Interactive codex doesn't need it, so we
+            # defer the cost to exec-mode only. Same fast-path pattern as line 96.
             try:
                 from core.hooks.codex.handlers import drain_idle
                 drain_idle()
-            except Exception:
-                pass  # never fail the proxy
+            except Exception as e:
+                # Never fail the proxy, but surface the failure for debugging.
+                print(f"[arize] drain_idle failed: {e}", file=sys.stderr)
         sys.exit(result.returncode)
     else:
         os.execvp(real_codex, [real_codex] + sys.argv[1:])

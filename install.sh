@@ -1181,49 +1181,39 @@ OTELEOF
     info "Added [otel] exporter pointing to Codex buffer service (port ${buffer_port})"
 
     # --- 4. Install codex proxy wrapper ---
+    # The wrapper is a thin shim that execs the Python proxy (arize-codex-proxy),
+    # which discovers the real codex binary dynamically, ensures the buffer
+    # service is running, and drains the buffer after `codex exec`.
     local proxy_dir="${HOME}/.local/bin"
     local proxy_path="${proxy_dir}/codex"
     local proxy_backup="${proxy_dir}/codex.arize-backup"
-    local proxy_template="${plugin_dir}/scripts/codex_proxy.sh"
 
     local real_codex_bin
     real_codex_bin=$(discover_real_codex || true)
     if [[ -z "$real_codex_bin" ]]; then
         warn "Could not find codex binary — skipping proxy install"
     else
+        local py_proxy
+        py_proxy=$(venv_bin "arize-codex-proxy")
+        if [[ ! -x "$py_proxy" ]]; then
+            err "Cannot install codex proxy — missing ${py_proxy}"
+            err "Install the package into the harness venv, then re-run: ./install.sh codex"
+            exit 1
+        fi
+
         mkdir -p "$proxy_dir"
         if [[ -f "$proxy_path" ]] && ! grep -q "ARIZE_CODEX_PROXY" "$proxy_path" 2>/dev/null; then
             cp "$proxy_path" "$proxy_backup"
             info "Backed up existing ${proxy_path} to ${proxy_backup}"
         fi
 
-        if [[ -f "$proxy_template" ]]; then
-            local ctl_cmd drain_cmd
-            ctl_cmd=$(venv_bin "arize-codex-buffer")
-            drain_cmd=$(venv_bin "arize-hook-codex-drain")
-            sed \
-                -e "s|__REAL_CODEX__|${real_codex_bin}|g" \
-                -e "s|__ARIZE_ENV_FILE__|${env_file}|g" \
-                -e "s|__SHARED_COLLECTOR_CTL__|${ctl_cmd}|g" \
-                -e "s|__DRAIN_CMD__|${drain_cmd}|g" \
-                "$proxy_template" > "$proxy_path"
-            chmod +x "$proxy_path"
-            info "Installed codex proxy to ${proxy_path}"
-        else
-            # No template — try Python proxy entry point
-            local py_proxy
-            py_proxy=$(venv_bin "arize-codex-proxy")
-            if [[ -f "$py_proxy" ]]; then
-                cat > "$proxy_path" <<PROXYEOF
+        cat > "$proxy_path" <<PROXYEOF
 #!/bin/bash
-REAL_CODEX="${real_codex_bin}"
 ARIZE_CODEX_PROXY=true
 exec "${py_proxy}" "\$@"
 PROXYEOF
-                chmod +x "$proxy_path"
-                info "Installed codex proxy to ${proxy_path}"
-            fi
-        fi
+        chmod +x "$proxy_path"
+        info "Installed codex proxy to ${proxy_path}"
     fi
 
     # --- 5. PATH management ---
@@ -1303,9 +1293,12 @@ setup_copilot() {
         exit 1
     fi
 
-    # Use Python for reliable JSON manipulation
+    # Use Python for reliable JSON manipulation.
+    # The trailing `|| true` prevents `set -e` from aborting when both helpers
+    # return non-zero; we handle the empty-$vp case explicitly below so we can
+    # emit a clear error message instead of a cryptic shell exit.
     local vp
-    vp=$(venv_python 2>/dev/null) || vp=$(find_python 2>/dev/null) || true
+    vp=$(venv_python) || vp=$(find_python) || true
     if [[ -z "$vp" ]]; then
         err "Python is required for JSON manipulation but was not found"
         exit 1

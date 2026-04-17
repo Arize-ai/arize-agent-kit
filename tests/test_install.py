@@ -548,9 +548,15 @@ class TestCodexMessaging:
         """Codex summary must reference buffer log file."""
         assert "View buffer service logs" in self.text
 
-    def test_codex_proxy_uses_arize_codex_buffer(self):
-        """Codex proxy wrapper must reference arize-codex-buffer entry point."""
-        assert 'venv_bin "arize-codex-buffer"' in self.text
+    def test_codex_proxy_uses_python_entry_point(self):
+        """Codex proxy wrapper must install the Python arize-codex-proxy entry point."""
+        assert 'venv_bin "arize-codex-proxy"' in self.text
+
+    def test_codex_proxy_errors_when_entry_point_missing(self):
+        """Install must hard-error if arize-codex-proxy is not in the venv."""
+        # The error path is triggered by `[[ ! -x "$py_proxy" ]]`.
+        assert '[[ ! -x "$py_proxy" ]]' in self.text
+        assert "missing ${py_proxy}" in self.text
 
 
 # ---------------------------------------------------------------------------

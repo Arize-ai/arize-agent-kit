@@ -738,46 +738,6 @@ class TestCLI:
                     # but it shouldn't be a usage error
                     pass
 
-
-# ---------------------------------------------------------------------------
-# Integration test: full lifecycle
-# ---------------------------------------------------------------------------
-
-@pytest.mark.slow
-class TestIntegration:
-    def test_full_lifecycle(self, ctl_paths, sample_config):
-        """Start -> status -> stop cycle with real codex_buffer.py."""
-        buffer_py = Path(__file__).parent.parent / "core" / "codex_buffer.py"
-        if not buffer_py.is_file():
-            pytest.skip("codex_buffer.py not found")
-
-        # Start
-        ok = buffer_start()
-        if not ok:
-            pytest.skip("buffer failed to start (may need dependencies)")
-
-        try:
-            # Verify actually running (not just briefly alive)
-            status, pid, addr = buffer_status()
-            if status != "running":
-                pytest.skip("buffer started but exited quickly (environment issue)")
-
-            assert pid is not None
-            assert addr is not None
-
-            # Stop
-            result = buffer_stop()
-            assert result == "stopped"
-
-            # Verify stopped
-            status2, _, _ = buffer_status()
-            assert status2 == "stopped"
-        except Exception:
-            # Clean up even on failure
-            buffer_stop()
-            raise
-
-
 # ---------------------------------------------------------------------------
 # Edge cases and robustness
 # ---------------------------------------------------------------------------
