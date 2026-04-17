@@ -7,16 +7,8 @@ Writes config.yaml and prints instructions for hooks.json.
 
 import sys
 
-from core.config import load_config, get_value, set_value, save_config
-from core.setup import (
-    err,
-    info,
-    print_color,
-    prompt_backend,
-    prompt_project_name,
-    prompt_user_id,
-    write_config,
-)
+from core.config import get_value, load_config, save_config, set_value
+from core.setup import info, print_color, prompt_backend, prompt_project_name, prompt_user_id, write_config
 
 
 def main() -> None:
@@ -55,7 +47,9 @@ def _run() -> None:
     else:
         # No existing config — prompt for backend
         target, credentials = prompt_backend()
-        info(f"Target: {'Phoenix at ' + credentials['endpoint'] if target == 'phoenix' else 'Arize AX (endpoint: ' + credentials['endpoint'] + ')'}")
+        info(
+            f"Target: {'Phoenix at ' + credentials['endpoint'] if target == 'phoenix' else 'Arize AX (endpoint: ' + credentials['endpoint'] + ')'}"
+        )
 
         # Write config.yaml
         write_config(target, credentials, "cursor", project_name)

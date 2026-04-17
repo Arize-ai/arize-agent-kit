@@ -5,7 +5,17 @@ requires-python = ">=3.9"
 dependencies = ["pyyaml"]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-timeout", "pytest-cov"]
+dev = [
+    "pytest",
+    "pytest-timeout",
+    "pytest-cov",
+    "pre-commit",
+    "ruff",
+    "black",
+    "isort",
+    "mypy",
+    "types-PyYAML",
+]
 
 [project.scripts]
 # Core tools
@@ -63,8 +73,28 @@ target-version = "py39"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I"]
+# I (isort) handled by isort pre-commit hook; formatting handled by black.
+select = ["E", "F", "W"]
 ignore = ["E501"]
+
+[tool.black]
+line-length = 120
+target-version = ["py39"]
+
+[tool.isort]
+profile = "black"
+line_length = 120
+known_first_party = ["core", "tests"]
+
+[tool.mypy]
+python_version = "3.9"
+ignore_missing_imports = true
+# Lenient baseline — tighten over time.
+check_untyped_defs = false
+disallow_untyped_defs = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+files = ["core"]
 
 [build-system]
 requires = ["setuptools>=64"]

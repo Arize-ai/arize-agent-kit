@@ -1,4 +1,5 @@
 """Tests for Copilot entry points in pyproject.toml and install.sh."""
+
 import json
 import os
 import subprocess
@@ -15,6 +16,7 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 # ---------------------------------------------------------------------------
 # pyproject.toml entry point tests
 # ---------------------------------------------------------------------------
+
 
 class TestCopilotEntryPoints:
     """Verify all 9 Copilot entry points (8 hooks + 1 setup) in pyproject.toml."""
@@ -58,17 +60,33 @@ class TestCopilotEntryPoints:
     def test_entry_points_importable(self):
         """All referenced handler functions should be importable."""
         from core.hooks.copilot.handlers import (
-            session_start, user_prompt_submitted, pre_tool_use,
-            post_tool_use, stop, subagent_stop, error_occurred, session_end,
+            error_occurred,
+            post_tool_use,
+            pre_tool_use,
+            session_end,
+            session_start,
+            stop,
+            subagent_stop,
+            user_prompt_submitted,
         )
-        for fn in [session_start, user_prompt_submitted, pre_tool_use,
-                    post_tool_use, stop, subagent_stop, error_occurred, session_end]:
+
+        for fn in [
+            session_start,
+            user_prompt_submitted,
+            pre_tool_use,
+            post_tool_use,
+            stop,
+            subagent_stop,
+            error_occurred,
+            session_end,
+        ]:
             assert callable(fn)
 
 
 # ---------------------------------------------------------------------------
 # install.sh — Copilot function and integration
 # ---------------------------------------------------------------------------
+
 
 class TestInstallShCopilotFunction:
     """Verify setup_copilot function exists and is structured correctly."""
@@ -166,6 +184,7 @@ class TestInstallShCopilotHasAllCommands:
 # VS Code hooks JSON format tests (embedded Python)
 # ---------------------------------------------------------------------------
 
+
 class TestVSCodeHooksFormat:
     """Test the VS Code hooks JSON generation (PascalCase, command field)."""
 
@@ -179,8 +198,7 @@ class TestVSCodeHooksFormat:
 
     def test_vscode_uses_pascal_case_events(self):
         """VS Code hook events use PascalCase."""
-        for event in ["SessionStart", "UserPromptSubmit", "PreToolUse",
-                       "PostToolUse", "Stop", "SubagentStop"]:
+        for event in ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SubagentStop"]:
             assert f'"{event}"' in self.text
 
     def test_vscode_uses_command_field(self):
@@ -192,8 +210,12 @@ class TestVSCodeHooksFormat:
         """VS Code format should register 6 hook events."""
         # The VSCODE_HOOK_EVENTS dict in embedded Python
         vscode_events = [
-            "SessionStart", "UserPromptSubmit", "PreToolUse",
-            "PostToolUse", "Stop", "SubagentStop",
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "Stop",
+            "SubagentStop",
         ]
         for event in vscode_events:
             assert f'"{event}": "arize-hook-copilot-' in self.text
@@ -213,13 +235,14 @@ class TestVSCodeHooksFormat:
 
     def test_vscode_dedup_check(self):
         """VS Code Python block checks for duplicates before adding."""
-        assert 'already = any(' in self.text
-        assert 'if not already:' in self.text
+        assert "already = any(" in self.text
+        assert "if not already:" in self.text
 
 
 # ---------------------------------------------------------------------------
 # CLI hooks JSON format tests (embedded Python)
 # ---------------------------------------------------------------------------
+
 
 class TestCLIHooksFormat:
     """Test the CLI hooks JSON generation (camelCase, bash field, version: 1)."""
@@ -234,8 +257,14 @@ class TestCLIHooksFormat:
 
     def test_cli_uses_camel_case_events(self):
         """CLI hook events use camelCase."""
-        for event in ["sessionStart", "userPromptSubmitted", "preToolUse",
-                       "postToolUse", "errorOccurred", "sessionEnd"]:
+        for event in [
+            "sessionStart",
+            "userPromptSubmitted",
+            "preToolUse",
+            "postToolUse",
+            "errorOccurred",
+            "sessionEnd",
+        ]:
             assert f'"{event}"' in self.text
 
     def test_cli_uses_bash_field(self):
@@ -249,8 +278,12 @@ class TestCLIHooksFormat:
     def test_cli_hooks_count(self):
         """CLI format should register 6 hook events."""
         cli_events = [
-            "sessionStart", "userPromptSubmitted", "preToolUse",
-            "postToolUse", "errorOccurred", "sessionEnd",
+            "sessionStart",
+            "userPromptSubmitted",
+            "preToolUse",
+            "postToolUse",
+            "errorOccurred",
+            "sessionEnd",
         ]
         for event in cli_events:
             assert f'"{event}": "arize-hook-copilot-' in self.text
@@ -270,8 +303,8 @@ class TestCLIHooksFormat:
 
     def test_cli_preserves_existing_hooks(self):
         """CLI Python block loads existing file and preserves hooks."""
-        assert 'os.path.isfile(hooks_file)' in self.text
-        assert 'hooks_data = json.load(f)' in self.text
+        assert "os.path.isfile(hooks_file)" in self.text
+        assert "hooks_data = json.load(f)" in self.text
 
     def test_cli_dedup_check(self):
         """CLI Python block checks for duplicates."""
@@ -281,6 +314,7 @@ class TestCLIHooksFormat:
 # ---------------------------------------------------------------------------
 # Embedded Python JSON generation (functional tests)
 # ---------------------------------------------------------------------------
+
 
 class TestEmbeddedPythonVSCodeHooks:
     """Run the embedded VS Code hooks Python code in isolation."""
@@ -295,7 +329,7 @@ class TestEmbeddedPythonVSCodeHooks:
                 with open(hooks_file, "w") as f:
                     json.dump(existing_file, f)
 
-            code = '''
+            code = """
 import json, os
 
 hooks_file = os.environ["_VSCODE_HOOKS_FILE"]
@@ -335,14 +369,17 @@ for event, entry_point in VSCODE_HOOK_EVENTS.items():
 with open(hooks_file, "w") as f:
     json.dump(hooks_data, f, indent=2)
     f.write("\\n")
-'''
+"""
             env = os.environ.copy()
             env["_VSCODE_HOOKS_FILE"] = hooks_file
             env["_VENV_BIN_DIR"] = venv_bin
 
             result = subprocess.run(
                 ["python3", "-c", code],
-                env=env, capture_output=True, text=True, timeout=10,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             assert result.returncode == 0, f"Python error: {result.stderr}"
 
@@ -356,8 +393,12 @@ with open(hooks_file, "w") as f:
         assert "hooks" in data
         hooks = data["hooks"]
         assert set(hooks.keys()) == {
-            "SessionStart", "UserPromptSubmit", "PreToolUse",
-            "PostToolUse", "Stop", "SubagentStop",
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "Stop",
+            "SubagentStop",
         }
 
         # Each event should have one entry with command field
@@ -403,7 +444,7 @@ with open(hooks_file, "w") as f:
             with open(hooks_file, "w") as f:
                 f.write("not valid json{{{")
 
-            code = '''
+            code = """
 import json, os
 
 hooks_file = os.environ["_VSCODE_HOOKS_FILE"]
@@ -443,14 +484,17 @@ for event, entry_point in VSCODE_HOOK_EVENTS.items():
 with open(hooks_file, "w") as f:
     json.dump(hooks_data, f, indent=2)
     f.write("\\n")
-'''
+"""
             env = os.environ.copy()
             env["_VSCODE_HOOKS_FILE"] = hooks_file
             env["_VENV_BIN_DIR"] = venv_bin
 
             result = subprocess.run(
                 ["python3", "-c", code],
-                env=env, capture_output=True, text=True, timeout=10,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             assert result.returncode == 0, f"Python error: {result.stderr}"
 
@@ -473,7 +517,7 @@ class TestEmbeddedPythonCLIHooks:
                 with open(hooks_file, "w") as f:
                     json.dump(existing_file, f)
 
-            code = '''
+            code = """
 import json, os
 
 hooks_file = os.environ["_CLI_HOOKS_FILE"]
@@ -510,14 +554,17 @@ for event, entry_point in CLI_HOOK_EVENTS.items():
 with open(hooks_file, "w") as f:
     json.dump(hooks_data, f, indent=2)
     f.write("\\n")
-'''
+"""
             env = os.environ.copy()
             env["_CLI_HOOKS_FILE"] = hooks_file
             env["_VENV_BIN_DIR"] = venv_bin
 
             result = subprocess.run(
                 ["python3", "-c", code],
-                env=env, capture_output=True, text=True, timeout=10,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             assert result.returncode == 0, f"Python error: {result.stderr}"
 
@@ -532,8 +579,12 @@ with open(hooks_file, "w") as f:
         assert "hooks" in data
         hooks = data["hooks"]
         assert set(hooks.keys()) == {
-            "sessionStart", "userPromptSubmitted", "preToolUse",
-            "postToolUse", "errorOccurred", "sessionEnd",
+            "sessionStart",
+            "userPromptSubmitted",
+            "preToolUse",
+            "postToolUse",
+            "errorOccurred",
+            "sessionEnd",
         }
 
         for event, entries in hooks.items():
@@ -550,7 +601,7 @@ with open(hooks_file, "w") as f:
             "hooks": {
                 "sessionStart": [{"type": "command", "bash": "/other/hook"}],
                 "customHook": [{"type": "command", "bash": "/custom/hook"}],
-            }
+            },
         }
         data, venv_bin = self._run_cli_python(existing)
 
@@ -570,8 +621,14 @@ with open(hooks_file, "w") as f:
         data2, _ = self._run_cli_python(data1, venv_bin_override=fixed_venv)
 
         for event in data2["hooks"]:
-            if event in ["sessionStart", "userPromptSubmitted", "preToolUse",
-                         "postToolUse", "errorOccurred", "sessionEnd"]:
+            if event in [
+                "sessionStart",
+                "userPromptSubmitted",
+                "preToolUse",
+                "postToolUse",
+                "errorOccurred",
+                "sessionEnd",
+            ]:
                 assert len(data2["hooks"][event]) == 1
 
     def test_cli_hooks_version_preserved(self):
@@ -597,6 +654,7 @@ with open(hooks_file, "w") as f:
 # ---------------------------------------------------------------------------
 # Cross-format consistency tests
 # ---------------------------------------------------------------------------
+
 
 class TestCrossFormatConsistency:
     """Verify VS Code and CLI formats are consistent where expected."""
@@ -634,6 +692,7 @@ class TestCrossFormatConsistency:
 # setup_copilot guard checks
 # ---------------------------------------------------------------------------
 
+
 class TestSetupCopilotGuards:
     """Verify setup_copilot has proper guard checks."""
 
@@ -670,6 +729,7 @@ class TestSetupCopilotGuards:
 # install.sh syntax check (critical for shell scripts)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.skipif(os.name == "nt", reason="bash not available on Windows")
 class TestInstallShSyntaxWithCopilot:
     """Verify install.sh still parses correctly with copilot additions."""
@@ -677,14 +737,18 @@ class TestInstallShSyntaxWithCopilot:
     def test_syntax_valid(self):
         result = subprocess.run(
             ["bash", "-n", str(INSTALL_SH)],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         assert result.returncode == 0, f"Bash syntax error: {result.stderr}"
 
     def test_help_shows_copilot(self):
         result = subprocess.run(
             ["bash", str(INSTALL_SH), "--help"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         assert result.returncode == 0
         assert "copilot" in result.stdout
@@ -693,6 +757,7 @@ class TestInstallShSyntaxWithCopilot:
 # ---------------------------------------------------------------------------
 # Summary output checks
 # ---------------------------------------------------------------------------
+
 
 class TestSetupCopilotSummary:
     """Verify setup_copilot summary output mentions key info."""

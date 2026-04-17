@@ -2,15 +2,13 @@
 """Tests for core.hooks.copilot.adapter — dual-mode session resolution, init, GC, requirements."""
 import os
 import subprocess
-from pathlib import Path
 from unittest.mock import mock_open, patch
 
 import pytest
 import yaml
 
-from core.hooks.copilot import adapter
 from core.common import StateManager
-
+from core.hooks.copilot import adapter
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -266,9 +264,7 @@ class TestGetGrandparentPid:
         """When /proc read fails, falls back to ps command."""
         monkeypatch.setattr(os, "getppid", lambda: 100)
         with patch("builtins.open", side_effect=OSError("no /proc")):
-            with patch(
-                "subprocess.check_output", return_value=b"  789  \n"
-            ):
+            with patch("subprocess.check_output", return_value=b"  789  \n"):
                 result = adapter._get_grandparent_pid()
         assert result == "789"
 

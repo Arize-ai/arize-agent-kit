@@ -5,6 +5,16 @@ Every module that needs a path imports it from here. Tests monkeypatch these
 values via the tmp_harness_dir fixture to avoid touching the real filesystem.
 """
 from pathlib import Path
+from typing import TypedDict
+
+
+class HarnessMetadata(TypedDict):
+    service_name: str
+    scope_name: str
+    default_project_name: str
+    state_subdir: str
+    default_log_file: Path
+
 
 # --- Base layout ---
 BASE_DIR = Path.home() / ".arize" / "harness"
@@ -31,7 +41,7 @@ STATE_BASE_DIR = BASE_DIR / "state"
 # --- Harness metadata ---
 # Used by adapters to look up service_name, scope_name, state_subdir, etc.
 # Keys match the harness names used in config.yaml harnesses section.
-HARNESSES = {
+HARNESSES: dict[str, HarnessMetadata] = {
     "claude-code": {
         "service_name": "claude-code",
         "scope_name": "arize-claude-plugin",

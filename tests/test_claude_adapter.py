@@ -2,15 +2,13 @@
 """Tests for core.hooks.claude.adapter — session resolution, init, GC, requirements."""
 import os
 import subprocess
-from pathlib import Path
 from unittest.mock import mock_open, patch
 
 import pytest
 import yaml
 
-from core.hooks.claude import adapter
 from core.common import StateManager
-
+from core.hooks.claude import adapter
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -69,9 +67,7 @@ class TestResolveSession:
         sm2 = adapter.resolve_session({"session_id": "stable"})
         assert sm1.state_file == sm2.state_file
 
-    def test_session_id_takes_priority_over_env(
-        self, claude_state_dir, disable_env_vars, monkeypatch
-    ):
+    def test_session_id_takes_priority_over_env(self, claude_state_dir, disable_env_vars, monkeypatch):
         """session_id in input takes priority over CLAUDE_SESSION_KEY."""
         monkeypatch.setenv("CLAUDE_SESSION_KEY", "env-key")
         sm = adapter.resolve_session({"session_id": "input-key"})
@@ -250,9 +246,7 @@ class TestGetGrandparentPid:
         """When /proc read fails, falls back to ps command."""
         monkeypatch.setattr(os, "getppid", lambda: 100)
         with patch("builtins.open", side_effect=OSError("no /proc")):
-            with patch(
-                "subprocess.check_output", return_value=b"  789  \n"
-            ):
+            with patch("subprocess.check_output", return_value=b"  789  \n"):
                 result = adapter._get_grandparent_pid()
         assert result == "789"
 

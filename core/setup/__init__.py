@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Shared setup utilities for all harness setup wizards."""
 
-import json
 import os
 import sys
-from pathlib import Path
+from typing import Optional
 
 try:
-    import yaml
+    import yaml  # noqa: F401  # presence check; writing configs needs PyYAML at runtime
 except ImportError:
     sys.stderr.write("error: PyYAML not installed. Install it in the collector venv.\n")
     sys.exit(1)
@@ -87,11 +86,14 @@ def prompt_backend() -> tuple[str, dict]:
         if not otlp_endpoint:
             otlp_endpoint = "otlp.arize.com:443"
 
-        return ("arize", {
-            "endpoint": otlp_endpoint,
-            "api_key": api_key,
-            "space_id": space_id,
-        })
+        return (
+            "arize",
+            {
+                "endpoint": otlp_endpoint,
+                "api_key": api_key,
+                "space_id": space_id,
+            },
+        )
 
     else:
         err("Invalid choice. Run setup again.")
@@ -116,9 +118,14 @@ def prompt_user_id() -> str:
     return user_id
 
 
-def write_config(target: str, credentials: dict, harness_name: str,
-                 project_name: str, user_id: str = "",
-                 config_path: str = None) -> None:
+def write_config(
+    target: str,
+    credentials: dict,
+    harness_name: str,
+    project_name: str,
+    user_id: str = "",
+    config_path: Optional[str] = None,
+) -> None:
     """Write or merge config.yaml with backend credentials and harness entry.
 
     If config.yaml exists with valid backend, only add/update the harness entry.

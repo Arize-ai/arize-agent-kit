@@ -64,7 +64,7 @@ def _load_env_file(path: str) -> None:
         if not line or line.startswith("#"):
             continue
         if line.startswith("export "):
-            line = line[len("export "):]
+            line = line[len("export ") :]
         if "=" not in line:
             continue
         key, _, value = line.partition("=")
@@ -77,6 +77,7 @@ def _load_env_file(path: str) -> None:
 def _quick_health_check(host: str = "127.0.0.1", port: int = 4318) -> bool:
     """Fast HTTP health check with hard timeout. No heavy imports."""
     import urllib.request
+
     try:
         urllib.request.urlopen(f"http://{host}:{port}/health", timeout=1)
         return True
@@ -95,6 +96,7 @@ def main() -> None:
         # Fast path: if buffer service is already healthy, skip heavy imports
         if not _quick_health_check():
             from core.codex_buffer_ctl import buffer_ensure  # noqa: E402
+
             buffer_ensure()
     except Exception:
         pass  # Never prevent codex from starting
@@ -117,6 +119,7 @@ def main() -> None:
             # defer the cost to exec-mode only. Same fast-path pattern as line 96.
             try:
                 from core.hooks.codex.handlers import drain_idle
+
                 drain_idle()
             except Exception as e:
                 # Never fail the proxy, but surface the failure for debugging.

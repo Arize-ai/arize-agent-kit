@@ -17,8 +17,9 @@ import signal
 import sys
 import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
 import yaml
-from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 # --- Paths ---
 BASE_DIR = os.path.expanduser("~/.arize/harness")
@@ -39,8 +40,8 @@ _config = {}
 _shutting_down = False
 _log_lock = threading.Lock()
 _event_lock = threading.Lock()
-_event_buffers = {}   # conversation_id -> [event, ...]
-_event_timestamps = {}  # conversation_id -> last_update_time
+_event_buffers: "dict[str, list[dict]]" = {}  # conversation_id -> [event, ...]
+_event_timestamps: "dict[str, float]" = {}  # conversation_id -> last_update_time
 
 
 def _log(msg):
@@ -56,6 +57,7 @@ def _log(msg):
 
 
 # --- Event buffer ---
+
 
 def _expire_old_events():
     """Remove event buffers older than TTL."""
@@ -184,11 +186,16 @@ def _extract_log_events(body):
                     except (TypeError, ValueError):
                         time_ns_int = 0
 
-                results.append((str(conv_id), {
-                    "event": event_name,
-                    "time_ns": time_ns_int,
-                    "attrs": attrs,
-                }))
+                results.append(
+                    (
+                        str(conv_id),
+                        {
+                            "event": event_name,
+                            "time_ns": time_ns_int,
+                            "attrs": attrs,
+                        },
+                    )
+                )
     return results
 
 
@@ -201,6 +208,7 @@ def _decode_otlp_logs(raw):
     try:
         from google.protobuf.json_format import MessageToDict
         from opentelemetry.proto.collector.logs.v1 import logs_service_pb2
+
         request = logs_service_pb2.ExportLogsServiceRequest()
         request.ParseFromString(raw)
         return MessageToDict(request)
@@ -209,6 +217,7 @@ def _decode_otlp_logs(raw):
 
 
 # --- HTTP Handler ---
+
 
 class CodexBufferHandler(BaseHTTPRequestHandler):
 
@@ -243,6 +252,7 @@ class CodexBufferHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         from urllib.parse import urlparse
+
         path = urlparse(self.path).path.rstrip("/")
 
         # POST /v1/logs or root (Codex sends to both)
@@ -270,14 +280,15 @@ class CodexBufferHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"status": "accepted", "buffered": len(events)})
 
     def do_GET(self):
-        from urllib.parse import urlparse, parse_qs
+        from urllib.parse import parse_qs, urlparse
+
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
 
         if path == "/health":
             self._handle_health()
         elif path.startswith("/flush/"):
-            conv_id = path[len("/flush/"):]
+            conv_id = path[len("/flush/") :]
             if not conv_id:
                 self._send_json(400, {"status": "error", "message": "missing conversation_id"})
                 return
@@ -289,15 +300,18 @@ class CodexBufferHandler(BaseHTTPRequestHandler):
             try:
                 timeout = float(raw_timeout)
             except (TypeError, ValueError):
-                self._send_json(400, {
-                    "status": "error",
-                    "message": f"invalid timeout_seconds: {raw_timeout!r}",
-                })
+                self._send_json(
+                    400,
+                    {
+                        "status": "error",
+                        "message": f"invalid timeout_seconds: {raw_timeout!r}",
+                    },
+                )
                 return
             result = _flush_idle(timeout)
             self._send_json(200, result)
         elif path.startswith("/drain/"):
-            conv_id = path[len("/drain/"):]
+            conv_id = path[len("/drain/") :]
             if not conv_id:
                 self._send_json(400, {"status": "error", "message": "missing conversation_id"})
                 return
@@ -326,6 +340,7 @@ class CodexBufferHandler(BaseHTTPRequestHandler):
 
 
 # --- Process lifecycle ---
+
 
 def _write_pid():
     os.makedirs(PID_DIR, exist_ok=True)

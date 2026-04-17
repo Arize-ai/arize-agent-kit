@@ -9,40 +9,39 @@ entry points.
 import io
 import json
 import sys
-from pathlib import Path
 from unittest import mock
 
 import pytest
 
-from core.hooks.copilot.handlers import (
-    _read_stdin,
-    _print_response,
-    _flush_pending_turn,
-    _save_pending_turn,
-    _clear_pending_turn,
-    _handle_session_start,
-    _handle_user_prompt_submitted,
-    _handle_pre_tool_use,
-    _handle_post_tool_use,
-    _handle_stop,
-    _handle_error_occurred,
-    _handle_session_end,
-    _handle_subagent_stop,
-    session_start,
-    user_prompt_submitted,
-    pre_tool_use,
-    post_tool_use,
-    stop,
-    error_occurred,
-    session_end,
-    subagent_stop,
-)
 from core.common import StateManager
-
+from core.hooks.copilot.handlers import (
+    _clear_pending_turn,
+    _flush_pending_turn,
+    _handle_error_occurred,
+    _handle_post_tool_use,
+    _handle_pre_tool_use,
+    _handle_session_end,
+    _handle_session_start,
+    _handle_stop,
+    _handle_subagent_stop,
+    _handle_user_prompt_submitted,
+    _print_response,
+    _read_stdin,
+    _save_pending_turn,
+    error_occurred,
+    post_tool_use,
+    pre_tool_use,
+    session_end,
+    session_start,
+    stop,
+    subagent_stop,
+    user_prompt_submitted,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _vscode_base(extra=None):
     """Return a base VS Code mode payload with sessionId and hookEventName."""
@@ -74,6 +73,7 @@ def _get_span(span_payload):
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def state(tmp_path):
@@ -128,6 +128,7 @@ def transcript_file(tmp_path):
 # _read_stdin tests
 # ---------------------------------------------------------------------------
 
+
 class TestReadStdin:
 
     def test_empty_stdin(self):
@@ -146,6 +147,7 @@ class TestReadStdin:
 # ---------------------------------------------------------------------------
 # _print_response tests
 # ---------------------------------------------------------------------------
+
 
 class TestPrintResponse:
 
@@ -199,6 +201,7 @@ class TestPrintResponse:
 # session_start tests
 # ---------------------------------------------------------------------------
 
+
 class TestSessionStart:
 
     def test_vscode_mode_saves_source(self, mock_resolve, mock_ensure, state, captured_spans):
@@ -232,6 +235,7 @@ class TestSessionStart:
 # user_prompt_submitted tests
 # ---------------------------------------------------------------------------
 
+
 class TestUserPromptSubmitted:
 
     def test_vscode_sets_trace_state(self, mock_resolve, mock_ensure, state, captured_spans):
@@ -244,7 +248,9 @@ class TestUserPromptSubmitted:
         assert state.get("current_trace_prompt") == "explain this code"
         assert state.get("trace_count") == "1"
 
-    def test_vscode_records_transcript_position(self, mock_resolve, mock_ensure, state, captured_spans, transcript_file):
+    def test_vscode_records_transcript_position(
+        self, mock_resolve, mock_ensure, state, captured_spans, transcript_file
+    ):
         """VS Code mode records transcript line count as trace_start_line."""
         inp = _vscode_base({"prompt": "test", "transcript_path": transcript_file})
         _handle_user_prompt_submitted(inp)
@@ -304,6 +310,7 @@ class TestUserPromptSubmitted:
 # pre_tool_use tests
 # ---------------------------------------------------------------------------
 
+
 class TestPreToolUse:
 
     def test_vscode_records_tool_start(self, mock_resolve, state):
@@ -335,18 +342,21 @@ class TestPreToolUse:
 # post_tool_use tests
 # ---------------------------------------------------------------------------
 
+
 class TestPostToolUse:
 
     def test_vscode_builds_tool_span(self, mock_resolve, state, captured_spans):
         """VS Code mode builds a TOOL span with correct attributes."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _vscode_base({
-            "tool_name": "Read",
-            "tool_use_id": "t1",
-            "tool_input": {"file_path": "/foo/bar.py"},
-            "tool_response": "file content",
-        })
+        inp = _vscode_base(
+            {
+                "tool_name": "Read",
+                "tool_use_id": "t1",
+                "tool_input": {"file_path": "/foo/bar.py"},
+                "tool_response": "file content",
+            }
+        )
         _handle_post_tool_use(inp)
         assert len(captured_spans) == 1
         attrs = _get_span_attrs(captured_spans[0])
@@ -359,11 +369,13 @@ class TestPostToolUse:
         """CLI mode parses toolArgs JSON string and builds TOOL span."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _cli_base({
-            "toolName": "Bash",
-            "toolArgs": '{"command": "ls -la"}',
-            "toolResult": {"resultType": "success", "textResultForLlm": "total 42"},
-        })
+        inp = _cli_base(
+            {
+                "toolName": "Bash",
+                "toolArgs": '{"command": "ls -la"}',
+                "toolResult": {"resultType": "success", "textResultForLlm": "total 42"},
+            }
+        )
         _handle_post_tool_use(inp)
         assert len(captured_spans) == 1
         attrs = _get_span_attrs(captured_spans[0])
@@ -377,11 +389,13 @@ class TestPostToolUse:
         """CLI mode extracts textResultForLlm from nested toolResult."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _cli_base({
-            "toolName": "Read",
-            "toolArgs": '{"file_path": "/foo.py"}',
-            "toolResult": {"resultType": "success", "textResultForLlm": "file contents here"},
-        })
+        inp = _cli_base(
+            {
+                "toolName": "Read",
+                "toolArgs": '{"file_path": "/foo.py"}',
+                "toolResult": {"resultType": "success", "textResultForLlm": "file contents here"},
+            }
+        )
         _handle_post_tool_use(inp)
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["output.value"]["stringValue"] == "file contents here"
@@ -390,11 +404,13 @@ class TestPostToolUse:
         """CLI mode sets tool.result_type from toolResult.resultType."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _cli_base({
-            "toolName": "Edit",
-            "toolArgs": "{}",
-            "toolResult": {"resultType": "failure", "textResultForLlm": "error"},
-        })
+        inp = _cli_base(
+            {
+                "toolName": "Edit",
+                "toolArgs": "{}",
+                "toolResult": {"resultType": "failure", "textResultForLlm": "error"},
+            }
+        )
         _handle_post_tool_use(inp)
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["tool.result_type"]["stringValue"] == "failure"
@@ -403,12 +419,14 @@ class TestPostToolUse:
         """VS Code mode does not set tool.result_type."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _vscode_base({
-            "tool_name": "Bash",
-            "tool_use_id": "t1",
-            "tool_input": {"command": "echo hi"},
-            "tool_response": "hi",
-        })
+        inp = _vscode_base(
+            {
+                "tool_name": "Bash",
+                "tool_use_id": "t1",
+                "tool_input": {"command": "echo hi"},
+                "tool_response": "hi",
+            }
+        )
         _handle_post_tool_use(inp)
         attrs = _get_span_attrs(captured_spans[0])
         assert "tool.result_type" not in attrs
@@ -417,11 +435,13 @@ class TestPostToolUse:
         """CLI mode handles malformed toolArgs gracefully."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _cli_base({
-            "toolName": "CustomTool",
-            "toolArgs": "not valid json",
-            "toolResult": {"textResultForLlm": "result"},
-        })
+        inp = _cli_base(
+            {
+                "toolName": "CustomTool",
+                "toolArgs": "not valid json",
+                "toolResult": {"textResultForLlm": "result"},
+            }
+        )
         _handle_post_tool_use(inp)
         assert len(captured_spans) == 1
         attrs = _get_span_attrs(captured_spans[0])
@@ -432,12 +452,14 @@ class TestPostToolUse:
         """VS Code Bash tool sets command and description."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _vscode_base({
-            "tool_name": "Bash",
-            "tool_use_id": "t1",
-            "tool_input": {"command": "git status"},
-            "tool_response": "clean",
-        })
+        inp = _vscode_base(
+            {
+                "tool_name": "Bash",
+                "tool_use_id": "t1",
+                "tool_input": {"command": "git status"},
+                "tool_response": "clean",
+            }
+        )
         _handle_post_tool_use(inp)
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["tool.command"]["stringValue"] == "git status"
@@ -455,12 +477,14 @@ class TestPostToolUse:
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
         state.set("tool_t7_start", "1000000")
-        inp = _vscode_base({
-            "tool_name": "Read",
-            "tool_use_id": "t7",
-            "tool_input": {"file_path": "/a.py"},
-            "tool_response": "content",
-        })
+        inp = _vscode_base(
+            {
+                "tool_name": "Read",
+                "tool_use_id": "t7",
+                "tool_input": {"file_path": "/a.py"},
+                "tool_response": "content",
+            }
+        )
         _handle_post_tool_use(inp)
         span = _get_span(captured_spans[0])
         assert span["startTimeUnixNano"] == "1000000000000"
@@ -470,12 +494,14 @@ class TestPostToolUse:
         """Grep tool sets query, file_path, and description."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _vscode_base({
-            "tool_name": "Grep",
-            "tool_use_id": "t1",
-            "tool_input": {"pattern": "TODO", "path": "/src"},
-            "tool_response": "matches",
-        })
+        inp = _vscode_base(
+            {
+                "tool_name": "Grep",
+                "tool_use_id": "t1",
+                "tool_input": {"pattern": "TODO", "path": "/src"},
+                "tool_response": "matches",
+            }
+        )
         _handle_post_tool_use(inp)
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["tool.query"]["stringValue"] == "TODO"
@@ -486,12 +512,14 @@ class TestPostToolUse:
         """WebFetch tool sets url."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _vscode_base({
-            "tool_name": "WebFetch",
-            "tool_use_id": "t1",
-            "tool_input": {"url": "https://example.com"},
-            "tool_response": "page",
-        })
+        inp = _vscode_base(
+            {
+                "tool_name": "WebFetch",
+                "tool_use_id": "t1",
+                "tool_input": {"url": "https://example.com"},
+                "tool_response": "page",
+            }
+        )
         _handle_post_tool_use(inp)
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["tool.url"]["stringValue"] == "https://example.com"
@@ -501,11 +529,13 @@ class TestPostToolUse:
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
         tool_dict = {"file_path": "/foo.py"}
-        inp = _cli_base({
-            "toolName": "Read",
-            "toolArgs": json.dumps(tool_dict),
-            "toolResult": {"textResultForLlm": "ok"},
-        })
+        inp = _cli_base(
+            {
+                "toolName": "Read",
+                "toolArgs": json.dumps(tool_dict),
+                "toolResult": {"textResultForLlm": "ok"},
+            }
+        )
         _handle_post_tool_use(inp)
         attrs = _get_span_attrs(captured_spans[0])
         # Should match json.dumps of the parsed dict (same as VS Code mode)
@@ -515,6 +545,7 @@ class TestPostToolUse:
 # ---------------------------------------------------------------------------
 # stop tests (VS Code only)
 # ---------------------------------------------------------------------------
+
 
 class TestStop:
 
@@ -603,12 +634,14 @@ class TestStop:
     def test_string_content_format(self, mock_resolve, state, captured_spans, tmp_path):
         """Handles transcript with string content format."""
         tf = tmp_path / "t.jsonl"
-        entry = {"message": {
-            "role": "assistant",
-            "content": "Hello string",
-            "model": "gpt-4o",
-            "usage": {"input_tokens": 10, "output_tokens": 5}
-        }}
+        entry = {
+            "message": {
+                "role": "assistant",
+                "content": "Hello string",
+                "model": "gpt-4o",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            }
+        }
         tf.write_text(json.dumps(entry) + "\n")
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
@@ -624,15 +657,18 @@ class TestStop:
 # error_occurred tests
 # ---------------------------------------------------------------------------
 
+
 class TestErrorOccurred:
 
     def test_cli_nested_error_object(self, mock_resolve, state, captured_spans):
         """CLI mode extracts error from nested object."""
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
-        inp = _cli_base({
-            "error": {"message": "Something failed", "name": "TypeError", "stack": "at line 42"},
-        })
+        inp = _cli_base(
+            {
+                "error": {"message": "Something failed", "name": "TypeError", "stack": "at line 42"},
+            }
+        )
         _handle_error_occurred(inp)
         assert len(captured_spans) == 1
         attrs = _get_span_attrs(captured_spans[0])
@@ -644,9 +680,11 @@ class TestErrorOccurred:
     def test_vscode_error(self, mock_resolve, state, captured_spans):
         """VS Code error with nested error object."""
         state.set("current_trace_id", "t" * 32)
-        inp = _vscode_base({
-            "error": {"message": "Oops", "name": "RuntimeError"},
-        })
+        inp = _vscode_base(
+            {
+                "error": {"message": "Oops", "name": "RuntimeError"},
+            }
+        )
         _handle_error_occurred(inp)
         assert len(captured_spans) == 1
         attrs = _get_span_attrs(captured_spans[0])
@@ -683,6 +721,7 @@ class TestErrorOccurred:
 # session_end tests
 # ---------------------------------------------------------------------------
 
+
 class TestSessionEnd:
 
     def test_cli_flushes_pending_turn(self, mock_resolve, state, captured_spans):
@@ -715,8 +754,10 @@ class TestSessionEnd:
         """Logs session summary via error()."""
         state.set("trace_count", "10")
         state.set("tool_count", "25")
-        with mock.patch("core.hooks.copilot.handlers.error") as err_mock, \
-             mock.patch("core.hooks.copilot.handlers.gc_stale_state_files"):
+        with (
+            mock.patch("core.hooks.copilot.handlers.error") as err_mock,
+            mock.patch("core.hooks.copilot.handlers.gc_stale_state_files"),
+        ):
             _handle_session_end(_cli_base({"reason": "complete"}))
         calls = [c[0][0] for c in err_mock.call_args_list]
         assert any("10 traces" in c for c in calls)
@@ -725,24 +766,30 @@ class TestSessionEnd:
     def test_removes_state_file(self, mock_resolve, state, tmp_path):
         """Removes state file."""
         assert state.state_file.exists()
-        with mock.patch("core.hooks.copilot.handlers.error"), \
-             mock.patch("core.hooks.copilot.handlers.gc_stale_state_files"):
+        with (
+            mock.patch("core.hooks.copilot.handlers.error"),
+            mock.patch("core.hooks.copilot.handlers.gc_stale_state_files"),
+        ):
             _handle_session_end(_cli_base({"reason": "complete"}))
         assert not state.state_file.exists()
 
     def test_calls_gc(self, mock_resolve, state):
         """Calls gc_stale_state_files."""
-        with mock.patch("core.hooks.copilot.handlers.error"), \
-             mock.patch("core.hooks.copilot.handlers.gc_stale_state_files") as gc_mock:
+        with (
+            mock.patch("core.hooks.copilot.handlers.error"),
+            mock.patch("core.hooks.copilot.handlers.gc_stale_state_files") as gc_mock,
+        ):
             _handle_session_end(_cli_base())
         gc_mock.assert_called_once()
 
     def test_no_session_id_returns_early(self, state):
         """Returns early when session_id is None."""
         state.delete("session_id")
-        with mock.patch("core.hooks.copilot.handlers.resolve_session", return_value=state), \
-             mock.patch("core.hooks.copilot.handlers.error") as err_mock, \
-             mock.patch("core.hooks.copilot.handlers.gc_stale_state_files") as gc_mock:
+        with (
+            mock.patch("core.hooks.copilot.handlers.resolve_session", return_value=state),
+            mock.patch("core.hooks.copilot.handlers.error") as err_mock,
+            mock.patch("core.hooks.copilot.handlers.gc_stale_state_files") as gc_mock,
+        ):
             _handle_session_end(_cli_base())
         err_mock.assert_not_called()
         gc_mock.assert_not_called()
@@ -752,17 +799,20 @@ class TestSessionEnd:
 # subagent_stop tests (VS Code only)
 # ---------------------------------------------------------------------------
 
+
 class TestSubagentStop:
 
     def test_builds_llm_span_for_subagent(self, mock_resolve, state, captured_spans, transcript_file):
         """Builds LLM span for subagent with agent_type using transcript_path (VS Code base field)."""
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
-        inp = _vscode_base({
-            "agent_type": "code-review",
-            "agent_id": "agent-1",
-            "transcript_path": transcript_file,
-        })
+        inp = _vscode_base(
+            {
+                "agent_type": "code-review",
+                "agent_id": "agent-1",
+                "transcript_path": transcript_file,
+            }
+        )
         _handle_subagent_stop(inp)
         assert len(captured_spans) == 1
         attrs = _get_span_attrs(captured_spans[0])
@@ -775,11 +825,13 @@ class TestSubagentStop:
         """Falls back to agent_transcript_path if transcript_path not present."""
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
-        inp = _vscode_base({
-            "agent_type": "code-review",
-            "agent_id": "agent-1",
-            "agent_transcript_path": transcript_file,
-        })
+        inp = _vscode_base(
+            {
+                "agent_type": "code-review",
+                "agent_id": "agent-1",
+                "agent_transcript_path": transcript_file,
+            }
+        )
         _handle_subagent_stop(inp)
         assert len(captured_spans) == 1
         attrs = _get_span_attrs(captured_spans[0])
@@ -812,10 +864,12 @@ class TestSubagentStop:
         """No transcript → no output.value attribute."""
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
-        inp = _vscode_base({
-            "agent_type": "explorer",
-            "agent_id": "a1",
-        })
+        inp = _vscode_base(
+            {
+                "agent_type": "explorer",
+                "agent_id": "a1",
+            }
+        )
         _handle_subagent_stop(inp)
         assert len(captured_spans) == 1
         attrs = _get_span_attrs(captured_spans[0])
@@ -825,10 +879,14 @@ class TestSubagentStop:
         """Subagent span has parent_span_id from current trace."""
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "parentspan1234567")
-        _handle_subagent_stop(_vscode_base({
-            "agent_type": "test-agent",
-            "agent_id": "a1",
-        }))
+        _handle_subagent_stop(
+            _vscode_base(
+                {
+                    "agent_type": "test-agent",
+                    "agent_id": "a1",
+                }
+            )
+        )
         span = _get_span(captured_spans[0])
         assert span.get("parentSpanId") == "parentspan1234567"
 
@@ -836,6 +894,7 @@ class TestSubagentStop:
 # ---------------------------------------------------------------------------
 # CLI deferred turn pattern integration tests
 # ---------------------------------------------------------------------------
+
 
 class TestDeferredTurnPattern:
 
@@ -887,6 +946,7 @@ class TestDeferredTurnPattern:
 # _save_pending_turn and _clear_pending_turn tests
 # ---------------------------------------------------------------------------
 
+
 class TestPendingTurnHelpers:
 
     def test_save_pending_turn(self, state):
@@ -919,15 +979,17 @@ class TestPendingTurnHelpers:
 # Error handling tests
 # ---------------------------------------------------------------------------
 
+
 class TestErrorHandling:
 
     def test_entry_point_catches_exception(self, monkeypatch, capsys):
         """Exception in handler → entry point catches, calls error()."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.copilot.handlers._read_stdin", return_value={}), \
-             mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True), \
-             mock.patch("core.hooks.copilot.handlers._handle_session_start",
-                        side_effect=RuntimeError("boom")):
+        with (
+            mock.patch("core.hooks.copilot.handlers._read_stdin", return_value={}),
+            mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True),
+            mock.patch("core.hooks.copilot.handlers._handle_session_start", side_effect=RuntimeError("boom")),
+        ):
             session_start()
         captured = capsys.readouterr()
         assert "boom" in captured.err
@@ -935,10 +997,12 @@ class TestErrorHandling:
     def test_malformed_stdin_no_crash(self, monkeypatch):
         """Malformed stdin JSON doesn't crash entry point."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True), \
-             mock.patch.object(sys, "stdin", new=io.StringIO("not json")), \
-             mock.patch("core.hooks.copilot.handlers.resolve_session") as rs, \
-             mock.patch("core.hooks.copilot.handlers.ensure_session_initialized"):
+        with (
+            mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True),
+            mock.patch.object(sys, "stdin", new=io.StringIO("not json")),
+            mock.patch("core.hooks.copilot.handlers.resolve_session") as rs,
+            mock.patch("core.hooks.copilot.handlers.ensure_session_initialized"),
+        ):
             session_start()
         rs.assert_called_once_with({})
 
@@ -965,20 +1029,24 @@ class TestEntryPoints:
     def test_happy_path_calls_handler(self, name, entry_fn, handler_name, event):
         """Entry point calls the corresponding _handle_* with parsed stdin JSON."""
         input_data = {"sessionId": "s1", "hookEventName": event}
-        with mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True), \
-             mock.patch("core.hooks.copilot.handlers._read_stdin", return_value=input_data), \
-             mock.patch(f"core.hooks.copilot.handlers.{handler_name}") as handler_mock, \
-             mock.patch("core.hooks.copilot.handlers._print_response"):
+        with (
+            mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True),
+            mock.patch("core.hooks.copilot.handlers._read_stdin", return_value=input_data),
+            mock.patch(f"core.hooks.copilot.handlers.{handler_name}") as handler_mock,
+            mock.patch("core.hooks.copilot.handlers._print_response"),
+        ):
             entry_fn()
         handler_mock.assert_called_once_with(input_data)
 
     @pytest.mark.parametrize("name,entry_fn,handler_name,event", ENTRY_POINTS)
     def test_requirements_not_met_skips_handler(self, name, entry_fn, handler_name, event):
         """When check_requirements returns False, handler is NOT called but response is still printed."""
-        with mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=False), \
-             mock.patch("core.hooks.copilot.handlers._read_stdin", return_value={}), \
-             mock.patch(f"core.hooks.copilot.handlers.{handler_name}") as handler_mock, \
-             mock.patch("core.hooks.copilot.handlers._print_response") as pr_mock:
+        with (
+            mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=False),
+            mock.patch("core.hooks.copilot.handlers._read_stdin", return_value={}),
+            mock.patch(f"core.hooks.copilot.handlers.{handler_name}") as handler_mock,
+            mock.patch("core.hooks.copilot.handlers._print_response") as pr_mock,
+        ):
             entry_fn()
         handler_mock.assert_not_called()
         pr_mock.assert_called_once_with({}, event)
@@ -986,11 +1054,12 @@ class TestEntryPoints:
     @pytest.mark.parametrize("name,entry_fn,handler_name,event", ENTRY_POINTS)
     def test_exception_caught_and_logged(self, name, entry_fn, handler_name, event, capsys):
         """Handler exception is caught; error is logged to stderr, response still printed."""
-        with mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True), \
-             mock.patch("core.hooks.copilot.handlers._read_stdin", return_value={}), \
-             mock.patch(f"core.hooks.copilot.handlers.{handler_name}",
-                        side_effect=RuntimeError("test-boom")), \
-             mock.patch("core.hooks.copilot.handlers._print_response") as pr_mock:
+        with (
+            mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True),
+            mock.patch("core.hooks.copilot.handlers._read_stdin", return_value={}),
+            mock.patch(f"core.hooks.copilot.handlers.{handler_name}", side_effect=RuntimeError("test-boom")),
+            mock.patch("core.hooks.copilot.handlers._print_response") as pr_mock,
+        ):
             entry_fn()  # should not raise
         captured = capsys.readouterr()
         assert "test-boom" in captured.err
@@ -1000,19 +1069,22 @@ class TestEntryPoints:
     def test_prints_response(self, name, entry_fn, handler_name, event):
         """Entry point calls _print_response with correct event name."""
         input_data = {"sessionId": "s1", "hookEventName": event}
-        with mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True), \
-             mock.patch("core.hooks.copilot.handlers._read_stdin", return_value=input_data), \
-             mock.patch(f"core.hooks.copilot.handlers.{handler_name}"), \
-             mock.patch("core.hooks.copilot.handlers._print_response") as pr_mock:
+        with (
+            mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True),
+            mock.patch("core.hooks.copilot.handlers._read_stdin", return_value=input_data),
+            mock.patch(f"core.hooks.copilot.handlers.{handler_name}"),
+            mock.patch("core.hooks.copilot.handlers._print_response") as pr_mock,
+        ):
             entry_fn()
         pr_mock.assert_called_once_with(input_data, event)
 
     def test_pre_tool_use_prints_permission_on_exception(self, capsys):
         """pre_tool_use MUST print permission response even when handler crashes."""
-        with mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True), \
-             mock.patch("core.hooks.copilot.handlers._read_stdin", return_value={}), \
-             mock.patch("core.hooks.copilot.handlers._handle_pre_tool_use",
-                        side_effect=RuntimeError("boom")):
+        with (
+            mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True),
+            mock.patch("core.hooks.copilot.handlers._read_stdin", return_value={}),
+            mock.patch("core.hooks.copilot.handlers._handle_pre_tool_use", side_effect=RuntimeError("boom")),
+        ):
             pre_tool_use()
         out = capsys.readouterr().out.strip()
         # CLI mode (empty input_json) → flat permission response
@@ -1020,8 +1092,10 @@ class TestEntryPoints:
 
     def test_pre_tool_use_prints_permission_when_disabled(self, capsys):
         """pre_tool_use MUST print permission response even when tracing disabled."""
-        with mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=False), \
-             mock.patch("core.hooks.copilot.handlers._read_stdin", return_value={}):
+        with (
+            mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=False),
+            mock.patch("core.hooks.copilot.handlers._read_stdin", return_value={}),
+        ):
             pre_tool_use()
         out = capsys.readouterr().out.strip()
         assert json.loads(out) == {"permissionDecision": "allow"}
@@ -1031,18 +1105,21 @@ class TestEntryPoints:
 # project.name attribute tests
 # ---------------------------------------------------------------------------
 
+
 class TestProjectNameOnAllSpans:
 
     def test_tool_span_has_project_name(self, mock_resolve, state, captured_spans):
         """TOOL spans include project.name."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _vscode_base({
-            "tool_name": "Bash",
-            "tool_use_id": "t1",
-            "tool_input": {"command": "ls"},
-            "tool_response": "output",
-        })
+        inp = _vscode_base(
+            {
+                "tool_name": "Bash",
+                "tool_use_id": "t1",
+                "tool_input": {"command": "ls"},
+                "tool_response": "output",
+            }
+        )
         _handle_post_tool_use(inp)
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["project.name"]["stringValue"] == "test-copilot-project"

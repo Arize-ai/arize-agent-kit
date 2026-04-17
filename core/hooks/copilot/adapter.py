@@ -10,22 +10,14 @@ Mode is auto-detected by checking for VS Code-specific fields in the hook payloa
 import os
 import platform
 import subprocess
-import sys
 
+from core.common import StateManager, env, generate_trace_id, get_timestamp_ms, log
 from core.constants import HARNESSES, STATE_BASE_DIR
-from core.common import (
-    StateManager,
-    env,
-    log,
-    error,
-    generate_trace_id,
-    get_timestamp_ms,
-)
 
 # --- Module-level constants derived from HARNESSES ---
 _HARNESS = HARNESSES["copilot"]
-SERVICE_NAME = _HARNESS["service_name"]       # "copilot"
-SCOPE_NAME = _HARNESS["scope_name"]           # "arize-copilot-plugin"
+SERVICE_NAME = _HARNESS["service_name"]  # "copilot"
+SCOPE_NAME = _HARNESS["scope_name"]  # "arize-copilot-plugin"
 STATE_DIR = STATE_BASE_DIR / _HARNESS["state_subdir"]  # ~/.arize/harness/state/copilot
 
 
@@ -89,7 +81,8 @@ def _is_pid_alive(pid: int) -> bool:
     if platform.system() == "Windows":
         try:
             import ctypes
-            kernel32 = ctypes.windll.kernel32
+
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
             handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if handle:

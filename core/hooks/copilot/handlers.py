@@ -10,24 +10,31 @@ Each entry point reads stdin JSON, detects mode, and adapts behavior accordingly
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 
-from core.hooks.copilot.adapter import (
-    resolve_session, ensure_session_initialized,
-    gc_stale_state_files, check_requirements,
-    is_vscode_mode,
-    SERVICE_NAME, SCOPE_NAME,
-)
 from core.common import (
-    build_span, send_span, log, error,
-    generate_trace_id, generate_span_id, get_timestamp_ms, env,
     StateManager,
+    build_span,
+    error,
+    generate_span_id,
+    generate_trace_id,
+    get_timestamp_ms,
+    log,
+    send_span,
 )
-
+from core.hooks.copilot.adapter import (
+    SCOPE_NAME,
+    SERVICE_NAME,
+    check_requirements,
+    ensure_session_initialized,
+    gc_stale_state_files,
+    is_vscode_mode,
+    resolve_session,
+)
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
 
 def _read_stdin() -> dict:
     """Read JSON from stdin. Returns {} on empty/invalid input."""
@@ -50,12 +57,16 @@ def _print_response(input_json: dict, event: str) -> None:
 
     if event == "PreToolUse" or event == "preToolUse":
         if vscode:
-            print(json.dumps({
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "allow",
-                }
-            }))
+            print(
+                json.dumps(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "allow",
+                        }
+                    }
+                )
+            )
         else:
             print(json.dumps({"permissionDecision": "allow"}))
     elif vscode:
@@ -98,11 +109,16 @@ def _flush_pending_turn(state: StateManager) -> None:
         attrs["user.id"] = user_id
 
     span = build_span(
-        f"Turn {trace_count}", "CHAIN", span_id,
-        trace_id, "",
+        f"Turn {trace_count}",
+        "CHAIN",
+        span_id,
+        trace_id,
+        "",
         start_time or str(get_timestamp_ms()),
         str(get_timestamp_ms()),
-        attrs, SERVICE_NAME, SCOPE_NAME,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
 
@@ -111,9 +127,13 @@ def _flush_pending_turn(state: StateManager) -> None:
 
 def _clear_pending_turn(state: StateManager) -> None:
     """Remove all pending_turn keys from state."""
-    for key in ("pending_turn_prompt", "pending_turn_trace_id",
-                "pending_turn_span_id", "pending_turn_start_time",
-                "pending_turn_trace_count"):
+    for key in (
+        "pending_turn_prompt",
+        "pending_turn_trace_id",
+        "pending_turn_span_id",
+        "pending_turn_start_time",
+        "pending_turn_trace_count",
+    ):
         state.delete(key)
 
 
@@ -127,13 +147,14 @@ def _save_pending_turn(state: StateManager, prompt: str) -> None:
     state.set("pending_turn_start_time", str(get_timestamp_ms()))
     state.set("pending_turn_trace_count", trace_count)
     # Set current trace context for child spans (tool spans, etc.)
-    state.set("current_trace_id", state.get("pending_turn_trace_id"))
-    state.set("current_trace_span_id", state.get("pending_turn_span_id"))
+    state.set("current_trace_id", state.get("pending_turn_trace_id") or "")
+    state.set("current_trace_span_id", state.get("pending_turn_span_id") or "")
 
 
 # ---------------------------------------------------------------------------
 # Internal handler implementations
 # ---------------------------------------------------------------------------
+
 
 def _handle_session_start(input_json: dict) -> None:
     """Handle session start: initialize session."""
@@ -185,9 +206,16 @@ def _handle_user_prompt_submitted(input_json: dict) -> None:
             if user_id:
                 failsafe_attrs["user.id"] = user_id
             failsafe_span = build_span(
-                f"Turn {prev_count}", "LLM", prev_span_id, prev_trace_id, "",
-                prev_start, str(get_timestamp_ms()), failsafe_attrs,
-                SERVICE_NAME, SCOPE_NAME,
+                f"Turn {prev_count}",
+                "LLM",
+                prev_span_id,
+                prev_trace_id,
+                "",
+                prev_start,
+                str(get_timestamp_ms()),
+                failsafe_attrs,
+                SERVICE_NAME,
+                SCOPE_NAME,
             )
             send_span(failsafe_span)
             log(f"Fail-safe: closed orphaned Turn {prev_count}")
@@ -277,8 +305,7 @@ def _handle_post_tool_use(input_json: dict) -> None:
             tool_command = tool_input_raw.get("command", "")
             tool_description = tool_command[:200]
         elif tool_name in ("Read", "Write", "Edit", "Glob"):
-            tool_file_path = (tool_input_raw.get("file_path")
-                              or tool_input_raw.get("pattern", ""))
+            tool_file_path = tool_input_raw.get("file_path") or tool_input_raw.get("pattern", "")
             tool_description = tool_file_path[:200]
         elif tool_name == "WebSearch":
             tool_query = tool_input_raw.get("query", "")
@@ -331,10 +358,16 @@ def _handle_post_tool_use(input_json: dict) -> None:
             attrs["tool.result_type"] = result_type
 
     span = build_span(
-        tool_name, "TOOL", generate_span_id(),
-        trace_id or "", parent_span_id or "",
-        start_time, end_time, attrs,
-        SERVICE_NAME, SCOPE_NAME,
+        tool_name,
+        "TOOL",
+        generate_span_id(),
+        trace_id or "",
+        parent_span_id or "",
+        start_time,
+        end_time,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
 
@@ -394,8 +427,7 @@ def _handle_stop(input_json: dict) -> None:
                 model = entry.get("message", {}).get("model", "") or model
                 # Accumulate tokens
                 usage = entry.get("message", {}).get("usage", {})
-                for key in ("input_tokens", "cache_read_input_tokens",
-                            "cache_creation_input_tokens"):
+                for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
                     val = usage.get(key, 0)
                     if isinstance(val, int):
                         in_tokens += val
@@ -425,9 +457,16 @@ def _handle_stop(input_json: dict) -> None:
         attrs["user.id"] = user_id
 
     span = build_span(
-        f"Turn {trace_count}", "LLM", trace_span_id, trace_id, "",
-        trace_start_time, str(get_timestamp_ms()), attrs,
-        SERVICE_NAME, SCOPE_NAME,
+        f"Turn {trace_count}",
+        "LLM",
+        trace_span_id,
+        trace_id,
+        "",
+        trace_start_time,
+        str(get_timestamp_ms()),
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
 
@@ -493,11 +532,16 @@ def _handle_error_occurred(input_json: dict) -> None:
 
     now = str(get_timestamp_ms())
     span = build_span(
-        f"Error: {error_name or 'unknown'}", "CHAIN", generate_span_id(),
+        f"Error: {error_name or 'unknown'}",
+        "CHAIN",
+        generate_span_id(),
         trace_id or generate_trace_id(),
         parent_span_id or "",
-        now, now, attrs,
-        SERVICE_NAME, SCOPE_NAME,
+        now,
+        now,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
 
@@ -565,8 +609,7 @@ def _handle_subagent_stop(input_json: dict) -> None:
     out_tokens = 0
     start_time = end_time
 
-    transcript_path = (input_json.get("transcript_path", "")
-                       or input_json.get("agent_transcript_path", ""))
+    transcript_path = input_json.get("transcript_path", "") or input_json.get("agent_transcript_path", "")
     if transcript_path and Path(transcript_path).is_file():
         p = Path(transcript_path)
         try:
@@ -601,8 +644,7 @@ def _handle_subagent_stop(input_json: dict) -> None:
                     output = f"{output}\n{text}" if output else text
                 model = entry.get("message", {}).get("model", "") or model
                 usage = entry.get("message", {}).get("usage", {})
-                for key in ("input_tokens", "cache_read_input_tokens",
-                            "cache_creation_input_tokens"):
+                for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
                     val = usage.get(key, 0)
                     if isinstance(val, int):
                         in_tokens += val
@@ -632,9 +674,16 @@ def _handle_subagent_stop(input_json: dict) -> None:
         attrs["user.id"] = user_id
 
     span = build_span(
-        f"Subagent: {agent_type}", "LLM", span_id, trace_id,
-        parent or "", start_time, end_time, attrs,
-        SERVICE_NAME, SCOPE_NAME,
+        f"Subagent: {agent_type}",
+        "LLM",
+        span_id,
+        trace_id,
+        parent or "",
+        start_time,
+        end_time,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
 
@@ -642,6 +691,7 @@ def _handle_subagent_stop(input_json: dict) -> None:
 # ---------------------------------------------------------------------------
 # CLI entry points
 # ---------------------------------------------------------------------------
+
 
 def session_start():
     """Entry point for arize-hook-copilot-session-start."""

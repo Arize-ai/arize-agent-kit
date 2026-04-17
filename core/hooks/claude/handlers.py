@@ -5,25 +5,23 @@ Replaces 9 bash scripts in claude-code-tracing/hooks/. Each function is a CLI
 entry point registered in pyproject.toml [project.scripts].
 """
 import json
-import os
 import sys
 from pathlib import Path
-from typing import Optional
 
+from core.common import build_span, error, generate_span_id, generate_trace_id, get_timestamp_ms, log, send_span
 from core.hooks.claude.adapter import (
-    resolve_session, ensure_session_initialized,
-    gc_stale_state_files, check_requirements,
-    SERVICE_NAME, SCOPE_NAME,
+    SCOPE_NAME,
+    SERVICE_NAME,
+    check_requirements,
+    ensure_session_initialized,
+    gc_stale_state_files,
+    resolve_session,
 )
-from core.common import (
-    build_span, send_span, log, error,
-    generate_trace_id, generate_span_id, get_timestamp_ms, env,
-)
-
 
 # ---------------------------------------------------------------------------
 # Shared helper
 # ---------------------------------------------------------------------------
+
 
 def _read_stdin() -> dict:
     """Read JSON from stdin. Returns {} on empty/invalid input."""
@@ -37,6 +35,7 @@ def _read_stdin() -> dict:
 # ---------------------------------------------------------------------------
 # Internal handler implementations
 # ---------------------------------------------------------------------------
+
 
 def _handle_session_start(input_json: dict) -> None:
     """Handle session_start: initialize session."""
@@ -80,8 +79,9 @@ def _handle_post_tool_use(input_json: dict) -> None:
         tool_command = input_json.get("tool_input", {}).get("command", "")
         tool_description = tool_command[:200]
     elif tool_name in ("Read", "Write", "Edit", "Glob"):
-        tool_file_path = (input_json.get("tool_input", {}).get("file_path")
-                          or input_json.get("tool_input", {}).get("pattern", ""))
+        tool_file_path = input_json.get("tool_input", {}).get("file_path") or input_json.get("tool_input", {}).get(
+            "pattern", ""
+        )
         tool_description = tool_file_path[:200]
     elif tool_name == "WebSearch":
         tool_query = input_json.get("tool_input", {}).get("query", "")
@@ -123,10 +123,16 @@ def _handle_post_tool_use(input_json: dict) -> None:
         attrs["tool.query"] = tool_query
 
     span = build_span(
-        tool_name, "TOOL", generate_span_id(),
-        trace_id or "", parent_span_id or "",
-        start_time, end_time, attrs,
-        SERVICE_NAME, SCOPE_NAME,
+        tool_name,
+        "TOOL",
+        generate_span_id(),
+        trace_id or "",
+        parent_span_id or "",
+        start_time,
+        end_time,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
 
@@ -154,9 +160,16 @@ def _handle_user_prompt_submit(input_json: dict) -> None:
         if user_id:
             failsafe_attrs["user.id"] = user_id
         failsafe_span = build_span(
-            f"Turn {prev_count}", "LLM", prev_span_id, prev_trace_id, "",
-            prev_start, str(get_timestamp_ms()), failsafe_attrs,
-            SERVICE_NAME, SCOPE_NAME,
+            f"Turn {prev_count}",
+            "LLM",
+            prev_span_id,
+            prev_trace_id,
+            "",
+            prev_start,
+            str(get_timestamp_ms()),
+            failsafe_attrs,
+            SERVICE_NAME,
+            SCOPE_NAME,
         )
         send_span(failsafe_span)
         state.delete("current_trace_id")
@@ -237,8 +250,7 @@ def _handle_stop(input_json: dict) -> None:
                 model = entry.get("message", {}).get("model", "") or model
                 # Accumulate tokens
                 usage = entry.get("message", {}).get("usage", {})
-                for key in ("input_tokens", "cache_read_input_tokens",
-                            "cache_creation_input_tokens"):
+                for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
                     val = usage.get(key, 0)
                     if isinstance(val, int):
                         in_tokens += val
@@ -268,9 +280,16 @@ def _handle_stop(input_json: dict) -> None:
         attrs["user.id"] = user_id
 
     span = build_span(
-        f"Turn {trace_count}", "LLM", trace_span_id, trace_id, "",
-        trace_start_time, str(get_timestamp_ms()), attrs,
-        SERVICE_NAME, SCOPE_NAME,
+        f"Turn {trace_count}",
+        "LLM",
+        trace_span_id,
+        trace_id,
+        "",
+        trace_start_time,
+        str(get_timestamp_ms()),
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
 
@@ -351,8 +370,7 @@ def _handle_subagent_stop(input_json: dict) -> None:
                     output = f"{output}\n{text}" if output else text
                 model = entry.get("message", {}).get("model", "") or model
                 usage = entry.get("message", {}).get("usage", {})
-                for key in ("input_tokens", "cache_read_input_tokens",
-                            "cache_creation_input_tokens"):
+                for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
                     val = usage.get(key, 0)
                     if isinstance(val, int):
                         in_tokens += val
@@ -380,9 +398,16 @@ def _handle_subagent_stop(input_json: dict) -> None:
         attrs["user.id"] = user_id
 
     span = build_span(
-        f"Subagent: {agent_type}", "CHAIN", span_id, trace_id,
-        parent or "", start_time, end_time, attrs,
-        SERVICE_NAME, SCOPE_NAME,
+        f"Subagent: {agent_type}",
+        "CHAIN",
+        span_id,
+        trace_id,
+        parent or "",
+        start_time,
+        end_time,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
 
@@ -413,10 +438,16 @@ def _handle_notification(input_json: dict) -> None:
 
     now = str(get_timestamp_ms())
     span = build_span(
-        f"Notification: {notification_type}", "CHAIN", generate_span_id(),
-        trace_id, state.get("current_trace_span_id") or "",
-        now, now, attrs,
-        SERVICE_NAME, SCOPE_NAME,
+        f"Notification: {notification_type}",
+        "CHAIN",
+        generate_span_id(),
+        trace_id,
+        state.get("current_trace_span_id") or "",
+        now,
+        now,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
 
@@ -448,10 +479,16 @@ def _handle_permission_request(input_json: dict) -> None:
 
     now = str(get_timestamp_ms())
     span = build_span(
-        "Permission Request", "CHAIN", generate_span_id(),
-        trace_id, state.get("current_trace_span_id") or "",
-        now, now, attrs,
-        SERVICE_NAME, SCOPE_NAME,
+        "Permission Request",
+        "CHAIN",
+        generate_span_id(),
+        trace_id,
+        state.get("current_trace_span_id") or "",
+        now,
+        now,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
 
@@ -484,6 +521,7 @@ def _handle_session_end(input_json: dict) -> None:
 # ---------------------------------------------------------------------------
 # CLI entry points
 # ---------------------------------------------------------------------------
+
 
 def session_start():
     """Entry point for arize-hook-session-start."""

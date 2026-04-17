@@ -9,15 +9,7 @@ import json
 import sys
 from pathlib import Path
 
-from core.setup import (
-    err,
-    info,
-    print_color,
-    prompt_backend,
-    prompt_project_name,
-    prompt_user_id,
-    write_config,
-)
+from core.setup import err, info, print_color, prompt_backend, prompt_project_name, prompt_user_id, write_config
 
 
 def _ensure_settings_file(settings_path: Path) -> None:

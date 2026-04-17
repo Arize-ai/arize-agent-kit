@@ -14,17 +14,17 @@ import time
 import urllib.request
 from pathlib import Path
 
+from core.config import get_value, load_config
 from core.constants import (
     CODEX_BUFFER_BIN,
     CODEX_BUFFER_LOG_FILE,
+    CODEX_BUFFER_PID_FILE,
     CONFIG_FILE,
     DEFAULT_BUFFER_HOST,
     DEFAULT_BUFFER_PORT,
     LOG_DIR,
     PID_DIR,
-    CODEX_BUFFER_PID_FILE,
 )
-from core.config import load_config, get_value
 
 
 def _log(msg: str) -> None:
@@ -49,12 +49,11 @@ def _is_process_alive(pid: int) -> bool:
         # Windows: try OpenProcess, fall back to tasklist
         try:
             import ctypes
+
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            handle = ctypes.windll.kernel32.OpenProcess(
-                PROCESS_QUERY_LIMITED_INFORMATION, False, pid
-            )
+            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)  # type: ignore[attr-defined]
             if handle:
-                ctypes.windll.kernel32.CloseHandle(handle)
+                ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]
                 return True
             return False
         except (AttributeError, OSError):
@@ -62,7 +61,9 @@ def _is_process_alive(pid: int) -> bool:
             try:
                 result = subprocess.run(
                     ["tasklist", "/FI", f"PID eq {pid}"],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
                 return str(pid) in result.stdout
             except (subprocess.SubprocessError, FileNotFoundError):
@@ -193,9 +194,7 @@ def buffer_start() -> bool:
                 cmd,
                 stdout=log_fd,
                 stderr=subprocess.STDOUT,
-                creationflags=(
-                    subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW
-                ),
+                creationflags=(subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW),  # type: ignore[attr-defined]
             )
         else:
             proc = subprocess.Popen(
@@ -251,7 +250,8 @@ def buffer_stop() -> str:
                 except OSError:
                     subprocess.run(
                         ["taskkill", "/PID", str(pid)],
-                        capture_output=True, timeout=5,
+                        capture_output=True,
+                        timeout=5,
                     )
             else:
                 os.kill(pid, signal.SIGTERM)
@@ -286,9 +286,7 @@ def buffer_ensure() -> None:
 def main() -> None:
     """CLI entrypoint for arize-codex-buffer."""
     if len(sys.argv) < 2 or sys.argv[1] not in ("start", "stop", "status"):
-        sys.stderr.write(
-            "usage: arize-codex-buffer <start|stop|status>\n"
-        )
+        sys.stderr.write("usage: arize-codex-buffer <start|stop|status>\n")
         sys.exit(1)
 
     command = sys.argv[1]

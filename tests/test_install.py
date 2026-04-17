@@ -1,7 +1,7 @@
 """Tests for install.sh — the native bash installer."""
+
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -14,6 +14,7 @@ INSTALL_BAT = REPO_ROOT / "install.bat"
 # ---------------------------------------------------------------------------
 # File existence and basic validity
 # ---------------------------------------------------------------------------
+
 
 def test_install_sh_exists():
     """install.sh must exist at repo root."""
@@ -41,7 +42,9 @@ def test_install_sh_syntax_valid():
     """install.sh must parse without syntax errors."""
     result = subprocess.run(
         ["bash", "-n", str(INSTALL_SH)],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert result.returncode == 0, f"Bash syntax error: {result.stderr}"
 
@@ -50,12 +53,15 @@ def test_install_sh_syntax_valid():
 # Help / usage
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.skipif(os.name == "nt", reason="bash not available on Windows")
 def test_install_sh_help():
     """install.sh --help exits 0 and shows usage."""
     result = subprocess.run(
         ["bash", str(INSTALL_SH), "--help"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert result.returncode == 0
     assert "Usage" in result.stdout or "usage" in result.stdout
@@ -66,7 +72,9 @@ def test_install_sh_no_args_exits_nonzero():
     """install.sh with no arguments should exit with error."""
     result = subprocess.run(
         ["bash", str(INSTALL_SH)],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert result.returncode != 0
 
@@ -76,7 +84,9 @@ def test_install_sh_unknown_command_exits_nonzero():
     """install.sh with unknown command should exit with error."""
     result = subprocess.run(
         ["bash", str(INSTALL_SH), "bogus"],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     assert result.returncode != 0
 
@@ -84,6 +94,7 @@ def test_install_sh_unknown_command_exits_nonzero():
 # ---------------------------------------------------------------------------
 # Script content checks
 # ---------------------------------------------------------------------------
+
 
 def test_install_sh_has_all_commands():
     """install.sh must support claude, codex, copilot, cursor, update, uninstall."""
@@ -183,10 +194,8 @@ def test_install_sh_copilot_vscode_hooks_format():
     text = INSTALL_SH.read_text()
     assert "copilot-tracing.json" in text
     # VS Code events use PascalCase
-    for event in ["SessionStart", "UserPromptSubmit", "PreToolUse",
-                   "PostToolUse", "Stop", "SubagentStop"]:
-        assert f'"{event}": "arize-hook-copilot-' in text, \
-            f"Missing VS Code PascalCase event: {event}"
+    for event in ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SubagentStop"]:
+        assert f'"{event}": "arize-hook-copilot-' in text, f"Missing VS Code PascalCase event: {event}"
     # VS Code uses "command" field
     assert '"type": "command", "command": hook_cmd' in text
 
@@ -195,10 +204,8 @@ def test_install_sh_copilot_cli_hooks_format():
     """install.sh must write CLI hooks with camelCase keys, bash field, version 1."""
     text = INSTALL_SH.read_text()
     # CLI events use camelCase
-    for event in ["sessionStart", "userPromptSubmitted", "preToolUse",
-                   "postToolUse", "errorOccurred", "sessionEnd"]:
-        assert f'"{event}": "arize-hook-copilot-' in text, \
-            f"Missing CLI camelCase event: {event}"
+    for event in ["sessionStart", "userPromptSubmitted", "preToolUse", "postToolUse", "errorOccurred", "sessionEnd"]:
+        assert f'"{event}": "arize-hook-copilot-' in text, f"Missing CLI camelCase event: {event}"
     # CLI uses "bash" field and version 1
     assert '"type": "command", "bash": hook_cmd' in text
     assert '"version": 1' in text
@@ -261,6 +268,7 @@ def test_install_bat_venv_skip_requires_package_install():
 # Direct-send architecture: collector → buffer service rename
 # ---------------------------------------------------------------------------
 
+
 class TestCollectorToBufferRename:
     """Verify the collector has been renamed to buffer service throughout install.sh."""
 
@@ -288,7 +296,8 @@ class TestCollectorToBufferRename:
         """start_collector must be renamed to start_codex_buffer."""
         # Must not contain start_collector as a function name (word boundary)
         import re
-        assert not re.search(r'\bstart_collector\b', self.text)
+
+        assert not re.search(r"\bstart_collector\b", self.text)
 
     def test_start_codex_buffer_exists(self):
         """start_codex_buffer function must be defined."""
@@ -297,7 +306,8 @@ class TestCollectorToBufferRename:
     def test_no_stop_collector_function(self):
         """stop_collector must be renamed to stop_codex_buffer."""
         import re
-        assert not re.search(r'\bstop_collector\b', self.text)
+
+        assert not re.search(r"\bstop_collector\b", self.text)
 
     def test_stop_codex_buffer_exists(self):
         """stop_codex_buffer function must be defined."""
@@ -318,6 +328,7 @@ class TestCollectorToBufferRename:
 # ---------------------------------------------------------------------------
 # Buffer service constants
 # ---------------------------------------------------------------------------
+
 
 class TestBufferServiceConstants:
     """Verify buffer service constants are properly defined."""
@@ -349,6 +360,7 @@ class TestBufferServiceConstants:
 # Buffer service only started for Codex
 # ---------------------------------------------------------------------------
 
+
 class TestBufferServiceCodexOnly:
     """Buffer service should only be started for Codex, not Claude or Cursor."""
 
@@ -379,6 +391,7 @@ class TestBufferServiceCodexOnly:
 # ---------------------------------------------------------------------------
 # Per-harness credentials
 # ---------------------------------------------------------------------------
+
 
 class TestPerHarnessCredentials:
     """Verify per-harness credential support in install.sh."""
@@ -424,14 +437,13 @@ class TestPerHarnessCredentials:
         lines = self.text.split("\n")
         in_cfgeof = False
         for line in lines:
-            if "cat > \"$CONFIG_FILE\" <<CFGEOF" in line:
+            if 'cat > "$CONFIG_FILE" <<CFGEOF' in line:
                 in_cfgeof = True
                 continue
             if in_cfgeof and line.strip() == "CFGEOF":
                 break
             if in_cfgeof:
-                assert not line.startswith("collector:"), \
-                    "Fresh config template must not contain collector: section"
+                assert not line.startswith("collector:"), "Fresh config template must not contain collector: section"
 
     def test_buffer_port_only_for_codex(self):
         """Buffer port prompt must only appear for Codex harness."""
@@ -442,6 +454,7 @@ class TestPerHarnessCredentials:
 # ---------------------------------------------------------------------------
 # Project name collection
 # ---------------------------------------------------------------------------
+
 
 class TestProjectNameCollection:
     """Verify project name prompt during install."""
@@ -475,6 +488,7 @@ class TestProjectNameCollection:
 # ---------------------------------------------------------------------------
 # Upgrade / uninstall cleanup
 # ---------------------------------------------------------------------------
+
 
 class TestUpgradeAndUninstallCleanup:
     """Verify upgrade and uninstall handle both old and new artifacts."""
@@ -533,6 +547,7 @@ class TestUpgradeAndUninstallCleanup:
 # Codex-specific messaging
 # ---------------------------------------------------------------------------
 
+
 class TestCodexMessaging:
     """Verify Codex setup messages reference buffer service correctly."""
 
@@ -562,6 +577,7 @@ class TestCodexMessaging:
 # ---------------------------------------------------------------------------
 # Header / description updated
 # ---------------------------------------------------------------------------
+
 
 class TestScriptDescription:
     """Verify the script header describes the new architecture."""
