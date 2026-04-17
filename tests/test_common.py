@@ -4,6 +4,7 @@ import json
 import os
 import threading
 import time
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -16,7 +17,6 @@ from core.common import (
     StateManager,
     _attrs_to_otlp,
     _resolve_kind,
-    _send_to_collector,
     _to_otlp_attr_value,
     build_multi_span,
     build_span,
@@ -25,6 +25,7 @@ from core.common import (
     error,
     get_target,
     log,
+    resolve_backend,
     send_span,
 )
 
@@ -582,65 +583,6 @@ class TestBuildMultiSpan:
 class TestEnvConfigProperties:
     """Tests for _Env (accessed via the module-level `env` singleton)."""
 
-    def test_collector_host_from_env(self, monkeypatch):
-        monkeypatch.setenv("ARIZE_COLLECTOR_HOST", "10.0.0.1")
-        assert env.collector_host == "10.0.0.1"
-
-    def test_collector_host_from_config(self, monkeypatch):
-        monkeypatch.delenv("ARIZE_COLLECTOR_HOST", raising=False)
-        monkeypatch.setattr(
-            "core.common.load_config",
-            lambda: {"collector": {"host": "cfg-host"}},
-            raising=False,
-        )
-        # Patch load_config and get_value at the import point inside _Env
-        fake_cfg = {"collector": {"host": "cfg-host"}}
-        monkeypatch.setattr("core.config.load_config", lambda: fake_cfg)
-        monkeypatch.setattr("core.config.get_value", lambda cfg, key: cfg.get("collector", {}).get("host"))
-        assert env.collector_host == "cfg-host"
-
-    def test_collector_host_default(self, monkeypatch):
-        monkeypatch.delenv("ARIZE_COLLECTOR_HOST", raising=False)
-        # Make config loading fail to hit the default path
-        monkeypatch.setattr("core.config.load_config", mock.Mock(side_effect=Exception("no config")))
-        assert env.collector_host == "127.0.0.1"
-
-    def test_collector_port_from_env(self, monkeypatch):
-        monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "9999")
-        assert env.collector_port == 9999
-
-    def test_collector_port_non_numeric_env(self, monkeypatch):
-        """Non-numeric ARIZE_COLLECTOR_PORT falls through to config/default."""
-        monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "not-a-number")
-        # Make config loading fail to hit the default
-        monkeypatch.setattr("core.config.load_config", mock.Mock(side_effect=Exception("no config")))
-        assert env.collector_port == 4318
-
-    def test_collector_port_from_config(self, monkeypatch):
-        monkeypatch.delenv("ARIZE_COLLECTOR_PORT", raising=False)
-        fake_cfg = {"collector": {"port": 5555}}
-        monkeypatch.setattr("core.config.load_config", lambda: fake_cfg)
-        monkeypatch.setattr("core.config.get_value", lambda cfg, key: cfg.get("collector", {}).get("port"))
-        assert env.collector_port == 5555
-
-    def test_collector_port_default(self, monkeypatch):
-        monkeypatch.delenv("ARIZE_COLLECTOR_PORT", raising=False)
-        monkeypatch.setattr("core.config.load_config", mock.Mock(side_effect=Exception("no config")))
-        assert env.collector_port == 4318
-
-    def test_collector_url(self, monkeypatch):
-        monkeypatch.setenv("ARIZE_COLLECTOR_HOST", "myhost")
-        monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "1234")
-        assert env.collector_url == "http://myhost:1234"
-
-    def test_direct_send_true(self, monkeypatch):
-        monkeypatch.setenv("ARIZE_DIRECT_SEND", "true")
-        assert env.direct_send is True
-
-    def test_direct_send_false(self, monkeypatch):
-        monkeypatch.delenv("ARIZE_DIRECT_SEND", raising=False)
-        assert env.direct_send is False
-
     def test_verbose_true(self, monkeypatch):
         monkeypatch.setenv("ARIZE_VERBOSE", "true")
         assert env.verbose is True
@@ -658,11 +600,11 @@ class TestEnvConfigProperties:
         assert env.dry_run is False
 
 
-# ── send_span / _send_to_collector tests ───────────────────────────────────
+# ── send_span tests ──────────────────────────────────────────────────────
 
 
 class TestSendSpan:
-    """Tests for send_span() and _send_to_collector()."""
+    """Tests for send_span() using resolve_backend() for direct send."""
 
     _SAMPLE_SPAN = {
         "resourceSpans": [{
@@ -671,6 +613,19 @@ class TestSendSpan:
         }]
     }
 
+    def _make_span_with_service(self, service_name):
+        """Build a sample span with a specific service.name resource attribute."""
+        return {
+            "resourceSpans": [{
+                "resource": {
+                    "attributes": [
+                        {"key": "service.name", "value": {"stringValue": service_name}}
+                    ]
+                },
+                "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
+            }]
+        }
+
     @pytest.fixture(autouse=True)
     def _mock_sleep(self, monkeypatch):
         sleep_calls = []
@@ -678,20 +633,47 @@ class TestSendSpan:
         return sleep_calls
 
     def test_dry_run_returns_true(self, monkeypatch):
-        """send_span in dry_run mode returns True without calling _send_to_collector."""
+        """send_span in dry_run mode returns True without sending."""
         monkeypatch.setenv("ARIZE_DRY_RUN", "true")
         monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
-        with mock.patch("core.common._send_to_collector") as mock_send:
-            result = send_span(self._SAMPLE_SPAN)
+        result = send_span(self._SAMPLE_SPAN)
         assert result is True
-        mock_send.assert_not_called()
 
+    @mock.patch("core.common.resolve_backend")
     @mock.patch("core.common.urllib.request.urlopen")
-    def test_collector_success(self, mock_urlopen, monkeypatch):
-        """send_span returns True when collector accepts the span."""
+    def test_uses_resolve_backend(self, mock_urlopen, mock_resolve, monkeypatch):
+        """send_span calls resolve_backend() to get credentials."""
         monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
-        monkeypatch.delenv("ARIZE_DIRECT_SEND", raising=False)
         monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
+
+        mock_resolve.return_value = {
+            "target": "phoenix",
+            "endpoint": "http://phoenix:6006",
+            "api_key": "",
+            "project_name": "test-proj",
+        }
+        mock_resp = mock.MagicMock()
+        mock_resp.status = 200
+        mock_resp.__enter__ = mock.Mock(return_value=mock_resp)
+        mock_resp.__exit__ = mock.Mock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        assert send_span(self._SAMPLE_SPAN) is True
+        mock_resolve.assert_called_once_with(self._SAMPLE_SPAN)
+
+    @mock.patch("core.common.resolve_backend")
+    @mock.patch("core.common.urllib.request.urlopen")
+    def test_phoenix_direct_send(self, mock_urlopen, mock_resolve, monkeypatch):
+        """send_span sends directly to Phoenix REST endpoint."""
+        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
+        monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
+
+        mock_resolve.return_value = {
+            "target": "phoenix",
+            "endpoint": "http://phoenix:6006",
+            "api_key": "test-key",
+            "project_name": "my-project",
+        }
         mock_resp = mock.MagicMock()
         mock_resp.status = 200
         mock_resp.__enter__ = mock.Mock(return_value=mock_resp)
@@ -700,85 +682,137 @@ class TestSendSpan:
 
         assert send_span(self._SAMPLE_SPAN) is True
 
-    @mock.patch("core.common.urllib.request.urlopen")
-    def test_collector_fails_phoenix_fallback(self, mock_urlopen, monkeypatch):
-        """When collector fails, send_span falls back to phoenix if configured."""
-        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
-        monkeypatch.delenv("ARIZE_DIRECT_SEND", raising=False)
-        monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
-        monkeypatch.setenv("PHOENIX_ENDPOINT", "http://phoenix:6006")
-        monkeypatch.setenv("ARIZE_PROJECT_NAME", "test-proj")
-
-        # First call (collector) fails, second call (phoenix) succeeds
-        mock_phoenix_resp = mock.MagicMock()
-        mock_phoenix_resp.status = 200
-        mock_phoenix_resp.__enter__ = mock.Mock(return_value=mock_phoenix_resp)
-        mock_phoenix_resp.__exit__ = mock.Mock(return_value=False)
-
-        mock_urlopen.side_effect = [
-            urllib_error_for_collector(),
-            mock_phoenix_resp,
-        ]
-
-        assert send_span(self._SAMPLE_SPAN) is True
-        assert mock_urlopen.call_count == 2
-
-    @mock.patch("core.common.urllib.request.urlopen")
-    def test_no_backend_returns_false(self, mock_urlopen, monkeypatch):
-        """send_span returns False when no backend is configured."""
-        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
-        monkeypatch.delenv("ARIZE_DIRECT_SEND", raising=False)
-        monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
-        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
-        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
-        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
-
-        # Collector call fails
-        mock_urlopen.side_effect = Exception("connection refused")
-
-        assert send_span(self._SAMPLE_SPAN) is False
-
-
-class TestSendToCollector:
-    """Tests for _send_to_collector()."""
-
-    _SAMPLE_SPAN = TestSendSpan._SAMPLE_SPAN
-
-    @pytest.fixture(autouse=True)
-    def _mock_sleep(self, monkeypatch):
-        sleep_calls = []
-        monkeypatch.setattr("time.sleep", lambda s: sleep_calls.append(s))
-        return sleep_calls
-
-    @mock.patch("core.common.urllib.request.urlopen")
-    def test_posts_json_to_correct_url(self, mock_urlopen, monkeypatch):
-        """_send_to_collector POSTs JSON to http://{host}:{port}/v1/spans."""
-        monkeypatch.setenv("ARIZE_COLLECTOR_HOST", "localhost")
-        monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "4318")
-
-        mock_resp = mock.MagicMock()
-        mock_resp.status = 200
-        mock_resp.__enter__ = mock.Mock(return_value=mock_resp)
-        mock_resp.__exit__ = mock.Mock(return_value=False)
-        mock_urlopen.return_value = mock_resp
-
-        result = _send_to_collector(self._SAMPLE_SPAN)
-        assert result is True
-
-        # Verify the request was made to the correct URL with JSON
         req = mock_urlopen.call_args[0][0]
-        assert req.full_url == "http://localhost:4318/v1/spans"
+        assert req.full_url == "http://phoenix:6006/v1/projects/my-project/spans"
         assert req.get_header("Content-type") == "application/json"
+        assert req.get_header("Authorization") == "Bearer test-key"
         assert req.method == "POST"
         body = json.loads(req.data)
         assert body == self._SAMPLE_SPAN
 
+    @mock.patch("core.common.resolve_backend")
     @mock.patch("core.common.urllib.request.urlopen")
-    def test_network_error_returns_false(self, mock_urlopen, monkeypatch):
-        """_send_to_collector returns False on network error."""
+    def test_phoenix_no_api_key_no_auth_header(self, mock_urlopen, mock_resolve, monkeypatch):
+        """Phoenix send omits Authorization header when api_key is empty."""
+        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
         monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
+
+        mock_resolve.return_value = {
+            "target": "phoenix",
+            "endpoint": "http://localhost:6006",
+            "api_key": "",
+            "project_name": "default",
+        }
+        mock_resp = mock.MagicMock()
+        mock_resp.status = 200
+        mock_resp.__enter__ = mock.Mock(return_value=mock_resp)
+        mock_resp.__exit__ = mock.Mock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        assert send_span(self._SAMPLE_SPAN) is True
+        req = mock_urlopen.call_args[0][0]
+        assert req.get_header("Authorization") is None
+
+    @mock.patch("core.common.resolve_backend")
+    @mock.patch("core.common.urllib.request.urlopen")
+    def test_phoenix_send_failure(self, mock_urlopen, mock_resolve, monkeypatch):
+        """Phoenix send returns False on network error."""
+        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
+        monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
+
+        mock_resolve.return_value = {
+            "target": "phoenix",
+            "endpoint": "http://phoenix:6006",
+            "api_key": "",
+            "project_name": "default",
+        }
         mock_urlopen.side_effect = Exception("connection refused")
-        assert _send_to_collector(self._SAMPLE_SPAN) is False
+
+        assert send_span(self._SAMPLE_SPAN) is False
+
+    @mock.patch("core.common.resolve_backend")
+    @mock.patch("core.common.urllib.request.urlopen")
+    def test_arize_direct_send(self, mock_urlopen, mock_resolve, monkeypatch):
+        """send_span sends directly to Arize HTTP/JSON endpoint."""
+        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
+        monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
+
+        mock_resolve.return_value = {
+            "target": "arize",
+            "api_key": "my-key",
+            "space_id": "my-space",
+            "endpoint": "otlp.arize.com:443",
+            "project_name": "proj",
+        }
+        mock_resp = mock.MagicMock()
+        mock_resp.status = 200
+        mock_resp.__enter__ = mock.Mock(return_value=mock_resp)
+        mock_resp.__exit__ = mock.Mock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        assert send_span(self._SAMPLE_SPAN) is True
+
+        req = mock_urlopen.call_args[0][0]
+        assert req.full_url == "https://otlp.arize.com:443/v1/traces"
+        assert req.get_header("Content-type") == "application/json"
+        assert req.get_header("Authorization") == "Bearer my-key"
+        assert req.get_header("Space_id") == "my-space"
+        body = json.loads(req.data)
+        # Verify arize.project.name injected into span attributes
+        span_attrs = body["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+        project_names = [a["value"]["stringValue"] for a in span_attrs if a["key"] == "arize.project.name"]
+        assert "proj" in project_names
+
+    @mock.patch("core.common.resolve_backend")
+    @mock.patch("core.common.urllib.request.urlopen")
+    def test_arize_send_failure(self, mock_urlopen, mock_resolve, monkeypatch):
+        """Arize send returns False on network error."""
+        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
+        monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
+
+        mock_resolve.return_value = {
+            "target": "arize",
+            "api_key": "key",
+            "space_id": "space",
+            "endpoint": "otlp.arize.com:443",
+            "project_name": "proj",
+        }
+        mock_urlopen.side_effect = urllib.error.URLError("connection refused")
+
+        assert send_span(self._SAMPLE_SPAN) is False
+
+    @mock.patch("core.common.resolve_backend")
+    def test_no_backend_returns_false(self, mock_resolve, monkeypatch):
+        """send_span returns False when no backend is configured."""
+        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
+        monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
+
+        mock_resolve.return_value = {"target": "none", "project_name": "default"}
+
+        assert send_span(self._SAMPLE_SPAN) is False
+
+    @mock.patch("core.common.resolve_backend")
+    @mock.patch("core.common.urllib.request.urlopen")
+    def test_verbose_logs_payload(self, mock_urlopen, mock_resolve, capsys, monkeypatch):
+        """Verbose mode logs span payload to stderr."""
+        monkeypatch.setenv("ARIZE_VERBOSE", "true")
+        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
+
+        mock_resolve.return_value = {
+            "target": "phoenix",
+            "endpoint": "http://localhost:6006",
+            "api_key": "",
+            "project_name": "default",
+        }
+        mock_resp = mock.MagicMock()
+        mock_resp.status = 200
+        mock_resp.__enter__ = mock.Mock(return_value=mock_resp)
+        mock_resp.__exit__ = mock.Mock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        send_span(self._SAMPLE_SPAN)
+        captured = capsys.readouterr().err
+        assert "span payload" in captured
 
 
 # ── get_target tests ──────────────────────────────────────────────────────
@@ -821,92 +855,331 @@ class TestDebugDump:
         assert data == {"foo": "bar", "count": 42}
 
 
-# ── Helper ─────────────────────────────────────────────────────────────────
+# ── resolve_backend tests ────────────────────────────────────────────────
 
 
-def urllib_error_for_collector():
-    """Create an exception to simulate collector failure."""
-    import urllib.error
-    return urllib.error.URLError("connection refused")
+class TestResolveBackend:
+    """Tests for resolve_backend() credential resolution."""
+
+    def _make_span(self, service_name=""):
+        """Build a minimal span with optional service.name."""
+        attrs = []
+        if service_name:
+            attrs = [{"key": "service.name", "value": {"stringValue": service_name}}]
+        return {
+            "resourceSpans": [{
+                "resource": {"attributes": attrs},
+                "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "s"}]}],
+            }]
+        }
+
+    def test_global_only_phoenix(self, monkeypatch):
+        """Global config returns global phoenix credentials."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+
+        cfg = {
+            "backend": {
+                "target": "phoenix",
+                "phoenix": {"endpoint": "http://global:6006", "api_key": "global-key"},
+            },
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("claude-code"))
+        assert result["target"] == "phoenix"
+        assert result["endpoint"] == "http://global:6006"
+        assert result["api_key"] == "global-key"
+
+    def test_per_harness_override(self, monkeypatch):
+        """Per-harness backend overrides global credentials."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+
+        cfg = {
+            "backend": {
+                "target": "phoenix",
+                "phoenix": {"endpoint": "http://global:6006", "api_key": "global-key"},
+            },
+            "harnesses": {
+                "claude-code": {
+                    "project_name": "my-claude-project",
+                    "backend": {
+                        "target": "arize",
+                        "arize": {
+                            "api_key": "harness-key",
+                            "space_id": "harness-space",
+                            "endpoint": "otlp.arize.com:443",
+                        },
+                    },
+                },
+            },
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("claude-code"))
+        assert result["target"] == "arize"
+        assert result["api_key"] == "harness-key"
+        assert result["space_id"] == "harness-space"
+        assert result["project_name"] == "my-claude-project"
+
+    def test_missing_harness_falls_back_to_global(self, monkeypatch):
+        """Unknown harness falls back to global config."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+
+        cfg = {
+            "backend": {
+                "target": "phoenix",
+                "phoenix": {"endpoint": "http://global:6006"},
+            },
+            "harnesses": {},
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("unknown-harness"))
+        assert result["target"] == "phoenix"
+        assert result["endpoint"] == "http://global:6006"
+        assert result["project_name"] == "unknown-harness"
+
+    def test_env_var_fallback_phoenix(self, monkeypatch):
+        """Falls back to env vars when no config is available."""
+        monkeypatch.setenv("PHOENIX_ENDPOINT", "http://env-phoenix:6006")
+        monkeypatch.setenv("ARIZE_API_KEY", "env-key")
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+
+        monkeypatch.setattr("core.config.load_config", mock.Mock(side_effect=Exception("no config")))
+
+        result = resolve_backend(self._make_span("test-svc"))
+        assert result["target"] == "phoenix"
+        assert result["endpoint"] == "http://env-phoenix:6006"
+        assert result["api_key"] == "env-key"
+        assert result["project_name"] == "test-svc"
+
+    def test_env_var_fallback_arize(self, monkeypatch):
+        """Falls back to env vars for Arize when no config is available."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.setenv("ARIZE_API_KEY", "env-arize-key")
+        monkeypatch.setenv("ARIZE_SPACE_ID", "env-space")
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+
+        monkeypatch.setattr("core.config.load_config", mock.Mock(side_effect=Exception("no config")))
+
+        result = resolve_backend(self._make_span("test-svc"))
+        assert result["target"] == "arize"
+        assert result["api_key"] == "env-arize-key"
+        assert result["space_id"] == "env-space"
+
+    def test_no_config_no_env_returns_none(self, monkeypatch):
+        """Returns target=none when neither config nor env vars are set."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+
+        monkeypatch.setattr("core.config.load_config", mock.Mock(side_effect=Exception("no config")))
+
+        result = resolve_backend(self._make_span())
+        assert result["target"] == "none"
+
+    def test_project_name_from_env_var(self, monkeypatch):
+        """Project name falls back to ARIZE_PROJECT_NAME env var."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.setenv("ARIZE_PROJECT_NAME", "env-proj")
+
+        cfg = {
+            "backend": {"target": "phoenix", "phoenix": {"endpoint": "http://x:6006"}},
+            "harnesses": {"svc": {}},  # no project_name in harness config
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("svc"))
+        assert result["project_name"] == "env-proj"
+
+    def test_project_name_defaults_to_service_name(self, monkeypatch):
+        """Project name defaults to service.name when no config or env var."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+
+        cfg = {
+            "backend": {"target": "phoenix", "phoenix": {"endpoint": "http://x:6006"}},
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("my-service"))
+        assert result["project_name"] == "my-service"
+
+    def test_project_name_errors_when_unresolvable(self, monkeypatch):
+        """Returns target=none when project name cannot be resolved."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+
+        cfg = {"backend": {"target": "phoenix", "phoenix": {"endpoint": "http://x:6006"}}}
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span(""))
+        assert result["target"] == "none"
+        assert result["project_name"] == ""
+
+    def test_global_arize_config(self, monkeypatch):
+        """Global arize config returns arize credentials."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+
+        cfg = {
+            "backend": {
+                "target": "arize",
+                "arize": {
+                    "api_key": "global-arize-key",
+                    "space_id": "global-space",
+                    "endpoint": "otlp.arize.com:443",
+                },
+            },
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("test-svc"))
+        assert result["target"] == "arize"
+        assert result["api_key"] == "global-arize-key"
+        assert result["space_id"] == "global-space"
+        assert result["endpoint"] == "otlp.arize.com:443"
+        assert result["project_name"] == "test-svc"
+
+    def test_harness_phoenix_overrides_global_arize(self, monkeypatch):
+        """Per-harness phoenix target overrides global arize target."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+
+        cfg = {
+            "backend": {
+                "target": "arize",
+                "arize": {"api_key": "g-key", "space_id": "g-space"},
+            },
+            "harnesses": {
+                "cursor": {
+                    "project_name": "cursor-proj",
+                    "backend": {
+                        "target": "phoenix",
+                        "phoenix": {"endpoint": "http://cursor-phoenix:6006"},
+                    },
+                },
+            },
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("cursor"))
+        assert result["target"] == "phoenix"
+        assert result["endpoint"] == "http://cursor-phoenix:6006"
+        assert result["project_name"] == "cursor-proj"
+
+    def test_arize_default_endpoint(self, monkeypatch):
+        """Arize backend defaults endpoint to otlp.arize.com:443."""
+        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
+        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+
+        cfg = {
+            "backend": {
+                "target": "arize",
+                "arize": {"api_key": "key", "space_id": "space"},
+            },
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("test-svc"))
+        assert result["endpoint"] == "otlp.arize.com:443"
 
 
-# ── Additional SendSpan coverage ──────────────────────────────────────────
+# ── send_span integration edge cases ─────────────────────────────────────
 
 
-class TestSendSpanDirectPaths:
-    """Tests for send_span direct-send paths: Phoenix with API key, Arize fallbacks, verbose logging."""
+class TestSendSpanEdgeCases:
+    """Additional edge case tests for send_span()."""
 
-    _SAMPLE_SPAN = TestSendSpan._SAMPLE_SPAN
+    _SAMPLE_SPAN = {
+        "resourceSpans": [{
+            "resource": {"attributes": []},
+            "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
+        }]
+    }
 
     @pytest.fixture(autouse=True)
     def _mock_sleep(self, monkeypatch):
-        sleep_calls = []
-        monkeypatch.setattr("time.sleep", lambda s: sleep_calls.append(s))
-        return sleep_calls
+        monkeypatch.setattr("time.sleep", lambda s: None)
 
+    @mock.patch("core.common.resolve_backend")
     @mock.patch("core.common.urllib.request.urlopen")
-    def test_phoenix_direct_send_with_api_key(self, mock_urlopen, monkeypatch):
-        """Phoenix direct send includes Authorization header when API key is set."""
-        monkeypatch.setenv("ARIZE_DIRECT_SEND", "true")
-        monkeypatch.setenv("PHOENIX_ENDPOINT", "http://phoenix:6006")
-        monkeypatch.setenv("ARIZE_API_KEY", "test-key")
+    def test_phoenix_non_200_returns_false(self, mock_urlopen, mock_resolve, monkeypatch):
+        """Phoenix send returns False for non-2xx status."""
         monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
         monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
 
+        mock_resolve.return_value = {
+            "target": "phoenix",
+            "endpoint": "http://phoenix:6006",
+            "api_key": "",
+            "project_name": "default",
+        }
         mock_resp = mock.MagicMock()
-        mock_resp.status = 200
+        mock_resp.status = 500
         mock_resp.__enter__ = mock.Mock(return_value=mock_resp)
         mock_resp.__exit__ = mock.Mock(return_value=False)
         mock_urlopen.return_value = mock_resp
 
-        result = send_span(self._SAMPLE_SPAN)
-        assert result is True
+        assert send_span(self._SAMPLE_SPAN) is False
 
-        req = mock_urlopen.call_args[0][0]
-        assert req.full_url == "http://phoenix:6006/v1/projects/default/spans"
-        assert req.get_header("Authorization") == "Bearer test-key"
-
-    @mock.patch("core.common.urllib.request.urlopen")
-    def test_arize_direct_send_import_error(self, mock_urlopen, monkeypatch):
-        """Arize direct send returns False when send_arize module is not importable."""
-        monkeypatch.setenv("ARIZE_DIRECT_SEND", "true")
-        monkeypatch.setenv("ARIZE_API_KEY", "key")
-        monkeypatch.setenv("ARIZE_SPACE_ID", "space")
-        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
+    @mock.patch("core.common.resolve_backend")
+    def test_resolve_backend_exception_returns_false(self, mock_resolve, monkeypatch):
+        """send_span returns False when resolve_backend raises."""
         monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
         monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
 
-        with mock.patch.dict("sys.modules", {"core.send_arize": None}):
-            result = send_span(self._SAMPLE_SPAN)
-        assert result is False
+        mock_resolve.side_effect = RuntimeError("config corruption")
 
-    @mock.patch("core.common.urllib.request.urlopen")
-    def test_arize_direct_send_exception(self, mock_urlopen, monkeypatch):
-        """Arize direct send returns False when send_to_arize raises RuntimeError."""
-        monkeypatch.setenv("ARIZE_DIRECT_SEND", "true")
-        monkeypatch.setenv("ARIZE_API_KEY", "key")
-        monkeypatch.setenv("ARIZE_SPACE_ID", "space")
-        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
-        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
-        monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
+        assert send_span(self._SAMPLE_SPAN) is False
 
-        fake_mod = mock.MagicMock()
-        fake_mod.send_to_arize.side_effect = RuntimeError("boom")
-        with mock.patch.dict("sys.modules", {"core.send_arize": fake_mod}):
-            result = send_span(self._SAMPLE_SPAN)
-        assert result is False
-
-    @mock.patch("core.common._send_to_collector", return_value=True)
-    def test_verbose_logs_payload(self, mock_send, capsys, monkeypatch):
-        """Verbose mode logs span payload to stderr."""
+    def test_dry_run_logs_span_name(self, capsys, monkeypatch):
+        """dry_run mode logs the span name."""
+        monkeypatch.setenv("ARIZE_DRY_RUN", "true")
         monkeypatch.setenv("ARIZE_VERBOSE", "true")
-        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
-        monkeypatch.delenv("ARIZE_DIRECT_SEND", raising=False)
 
-        send_span(self._SAMPLE_SPAN)
-        captured = capsys.readouterr().err
-        assert "span payload" in captured
+        span = {
+            "resourceSpans": [{
+                "resource": {"attributes": []},
+                "scopeSpans": [{"scope": {"name": "t"}, "spans": [{"name": "my-operation"}]}],
+            }]
+        }
+        result = send_span(span)
+        assert result is True
+        assert "my-operation" in capsys.readouterr().err
+
+    def test_no_collector_references_in_common(self):
+        """Verify _send_to_collector, collector_host, collector_port, collector_url
+        and direct_send are not present in core.common module."""
+        import core.common as mod
+        assert not hasattr(mod, "_send_to_collector")
+        assert not hasattr(mod.env, "collector_host")
+        assert not hasattr(mod.env, "collector_port")
+        assert not hasattr(mod.env, "collector_url")
+        assert not hasattr(mod.env, "direct_send")
 
 
 # ── Additional FileLock coverage (mkdir fallback) ─────────────────────────

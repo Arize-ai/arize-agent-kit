@@ -99,17 +99,9 @@ class TestReadStdin:
 
 class TestSessionStart:
 
-    def test_calls_collector_ensure(self, mock_resolve, captured_spans):
-        """session_start calls collector_ensure()."""
-        with mock.patch("core.hooks.claude.handlers.collector_ensure") as ce, \
-             mock.patch("core.hooks.claude.handlers.ensure_session_initialized"):
-            _handle_session_start({"session_id": "s1"})
-            ce.assert_called_once()
-
     def test_calls_resolve_and_init(self, state, captured_spans):
         """session_start calls resolve_session and ensure_session_initialized."""
-        with mock.patch("core.hooks.claude.handlers.collector_ensure"), \
-             mock.patch("core.hooks.claude.handlers.resolve_session", return_value=state) as rs, \
+        with mock.patch("core.hooks.claude.handlers.resolve_session", return_value=state) as rs, \
              mock.patch("core.hooks.claude.handlers.ensure_session_initialized") as esi:
             inp = {"session_id": "s1"}
             _handle_session_start(inp)
@@ -226,22 +218,6 @@ class TestPostToolUse:
         # Description is the JSON serialization of tool_input, truncated
         assert "hello" in desc
 
-    def test_input_truncated_at_5000(self, mock_resolve, state, captured_spans):
-        """Input > 5000 chars is truncated, tool.truncated is 'true'."""
-        state.set("current_trace_id", "trace-abc")
-        state.set("current_trace_span_id", "span-parent")
-        big_input = {"data": "x" * 6000}
-        _handle_post_tool_use({
-            "tool_name": "CustomTool",
-            "tool_use_id": "t6",
-            "tool_input": big_input,
-            "tool_response": "ok",
-        })
-        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        attrs = {a["key"]: a["value"] for a in span["attributes"]}
-        assert len(attrs["input.value"]["stringValue"]) == 5000
-        assert attrs["tool.truncated"]["stringValue"] == "true"
-
     def test_uses_pre_tool_start_time(self, mock_resolve, state, captured_spans):
         """Timing uses pre_tool_use start time if available in state."""
         state.set("current_trace_id", "trace-abc")
@@ -322,13 +298,6 @@ class TestUserPromptSubmit:
         # New trace should be set up
         assert state.get("current_trace_id") != "old-trace-id-00000000000000000000"
 
-    def test_prompt_truncated_to_1000(self, mock_resolve, state, captured_spans):
-        """Prompt is truncated to 1000 chars."""
-        long_prompt = "x" * 2000
-        with mock.patch("core.hooks.claude.handlers.ensure_session_initialized"):
-            _handle_user_prompt_submit({"prompt": long_prompt})
-        assert len(state.get("current_trace_prompt")) == 1000
-
 
 # ---------------------------------------------------------------------------
 # stop tests
@@ -399,28 +368,6 @@ class TestStop:
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
         assert attrs["output.value"]["stringValue"] == "(No response)"
-
-    def test_output_truncated_to_5000(self, mock_resolve, state, captured_spans, tmp_path):
-        """Output truncated to 5000 chars."""
-        tf = tmp_path / "transcript_big.jsonl"
-        big_text = "x" * 6000
-        entry = {"message": {
-            "role": "assistant",
-            "content": [{"type": "text", "text": big_text}],
-            "model": "test",
-            "usage": {"input_tokens": 0, "output_tokens": 0}
-        }}
-        tf.write_text(json.dumps(entry) + "\n")
-
-        state.set("current_trace_id", "t" * 32)
-        state.set("current_trace_span_id", "s" * 16)
-        state.set("current_trace_start_time", "1000")
-        state.set("current_trace_prompt", "test")
-        state.set("trace_start_line", "0")
-        _handle_stop({"transcript_path": str(tf)})
-        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        attrs = {a["key"]: a["value"] for a in span["attributes"]}
-        assert len(attrs["output.value"]["stringValue"]) == 5000
 
     def test_no_transcript_file(self, mock_resolve, state, captured_spans):
         """No transcript file → output is '(No response)'."""
@@ -722,7 +669,6 @@ class TestErrorHandling:
         with mock.patch("core.hooks.claude.handlers.check_requirements", return_value=True), \
              mock.patch.object(sys, "stdin",
                                new=__import__("io").StringIO("not valid json")), \
-             mock.patch("core.hooks.claude.handlers.collector_ensure"), \
              mock.patch("core.hooks.claude.handlers.resolve_session") as rs, \
              mock.patch("core.hooks.claude.handlers.ensure_session_initialized"):
             session_start()

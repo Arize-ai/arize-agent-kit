@@ -383,14 +383,6 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
-if "%_SV_BACKEND%"=="arize" (
-    echo [arize] Installing Arize AX dependencies...
-    "%VENV_PIP%" install --quiet opentelemetry-proto grpcio >nul 2>&1
-    if %ERRORLEVEL% neq 0 (
-        echo [arize] Warning: Failed to install Arize AX dependencies
-    )
-)
-
 echo [arize] Collector venv ready at %VENV_DIR%
 goto :eof
 

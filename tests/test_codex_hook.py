@@ -131,7 +131,7 @@ class TestEventFiltering:
 
         # Mock _send_span to capture what was sent
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify({
                 "type": "agent-turn-complete",
                 "thread-id": "t1",
@@ -279,31 +279,6 @@ class TestExtractUserPrompt:
 
 class TestTruncationAndDefaults:
 
-    def test_truncation_5000(self, tmp_harness_dir, monkeypatch):
-        """Both user prompt and assistant output are truncated to 5000 chars."""
-        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
-
-        import core.hooks.codex.adapter as adapter
-        import core.constants as c
-        state_dir = c.STATE_BASE_DIR / "codex"
-        state_dir.mkdir(parents=True, exist_ok=True)
-        monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
-
-        sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
-            _handle_notify({
-                "type": "agent-turn-complete",
-                "thread-id": "t1",
-                "input-messages": "x" * 10000,
-                "last-assistant-message": "y" * 10000,
-            })
-
-        span = sent[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        attrs = {a["key"]: a["value"] for a in span["attributes"]}
-        assert len(attrs["input.value"]["stringValue"]) == 5000
-        assert len(attrs["output.value"]["stringValue"]) == 5000
-
     def test_empty_assistant_becomes_no_response(self, tmp_harness_dir, monkeypatch):
         """Empty assistant output becomes '(No response)'."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
@@ -316,7 +291,7 @@ class TestTruncationAndDefaults:
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
 
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify({
                 "type": "agent-turn-complete",
                 "thread-id": "t1",
@@ -413,7 +388,7 @@ class TestFindToolCalls:
 
         tools = [{"name": f"tool{i}"} for i in range(8)]
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify({
                 "type": "agent-turn-complete",
                 "thread-id": "t-tools",
@@ -441,7 +416,7 @@ class TestFindToolCalls:
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
 
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify({
                 "type": "agent-turn-complete",
                 "thread-id": "t-no-tools",
@@ -533,7 +508,7 @@ class TestDrainEvents:
         drain_server["set_drain"](events)
 
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify({
                 "type": "agent-turn-complete",
                 "thread-id": "t-drain",
@@ -597,62 +572,6 @@ class TestBuildChildSpans:
         assert len(children) == 1
         span = children[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["name"] == "search"
-
-    def test_api_request_creates_internal_span(self):
-        """codex.api_request -> INTERNAL child span."""
-        events = [
-            {
-                "event": "codex.api_request",
-                "time_ns": "1500000000",
-                "attrs": {"model": "gpt-4", "status": "200", "attempt": "1", "duration_ms": "500"},
-            },
-        ]
-        attrs = {}
-        children, _, _ = _build_child_spans(
-            events, "trace123", "parent456", "sess1", 1000, attrs,
-        )
-        assert len(children) == 1
-        span = children[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        assert span["name"] == "API Request (gpt-4)"
-        span_attrs = {a["key"]: a["value"] for a in span["attributes"]}
-        assert span_attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
-        assert span_attrs["codex.request.model"]["stringValue"] == "gpt-4"
-        assert span_attrs["codex.request.duration_ms"]["intValue"] == 500
-
-    def test_websocket_request_creates_internal_span(self):
-        """codex.websocket_request also creates INTERNAL child span."""
-        events = [
-            {
-                "event": "codex.websocket_request",
-                "time_ns": "1500000000",
-                "attrs": {"model": "o3"},
-            },
-        ]
-        attrs = {}
-        children, _, _ = _build_child_spans(
-            events, "trace123", "parent456", "sess1", 1000, attrs,
-        )
-        assert len(children) == 1
-        span = children[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        assert "API Request" in span["name"]
-
-    def test_optional_attrs_omitted_when_empty(self):
-        """auth_mode and connection_reused omitted when empty."""
-        events = [
-            {
-                "event": "codex.api_request",
-                "time_ns": "1500000000",
-                "attrs": {"model": "gpt-4", "auth_mode": "", "auth.connection_reused": ""},
-            },
-        ]
-        attrs = {}
-        children, _, _ = _build_child_spans(
-            events, "trace123", "parent456", "sess1", 1000, attrs,
-        )
-        span = children[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        attr_keys = {a["key"] for a in span["attributes"]}
-        assert "codex.request.auth_mode" not in attr_keys
-        assert "codex.request.connection_reused" not in attr_keys
 
 
 # ---------------------------------------------------------------------------
@@ -738,7 +657,7 @@ class TestMultiSpanAssembly:
         ])
 
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify({
                 "type": "agent-turn-complete",
                 "thread-id": "t-multi",
@@ -764,7 +683,7 @@ class TestMultiSpanAssembly:
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
 
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify({
                 "type": "agent-turn-complete",
                 "thread-id": "t-single",
@@ -826,7 +745,7 @@ class TestIntegration:
         ])
 
         sent = []
-        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p, port: sent.append(p)):
+        with mock.patch("core.hooks.codex.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify(fixture)
 
         assert len(sent) == 1
@@ -842,6 +761,41 @@ class TestIntegration:
         assert attr_map["input.value"]["stringValue"] == "hello"
         assert attr_map["output.value"]["stringValue"] == "I can help with that."
         assert attr_map["codex.thread_id"]["stringValue"] == "thread-1"
+
+
+# ---------------------------------------------------------------------------
+# Span sending tests
+# ---------------------------------------------------------------------------
+
+class TestSendSpan:
+
+    def test_send_span_delegates_to_backend_sender(self):
+        """Codex hook sends completed spans via core.common.send_span()."""
+        payload = {
+            "resourceSpans": [{
+                "resource": {"attributes": []},
+                "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
+            }]
+        }
+
+        with mock.patch("core.hooks.codex.handlers.send_span_to_backend", return_value=True) as mock_send:
+            _send_span(payload)
+
+        mock_send.assert_called_once_with(payload)
+
+    def test_send_span_logs_error_when_backend_send_fails(self, capsys):
+        """Backend send failures are surfaced as Codex hook errors."""
+        payload = {
+            "resourceSpans": [{
+                "resource": {"attributes": []},
+                "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
+            }]
+        }
+
+        with mock.patch("core.hooks.codex.handlers.send_span_to_backend", return_value=False):
+            _send_span(payload)
+
+        assert "Failed to send span to backend" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------

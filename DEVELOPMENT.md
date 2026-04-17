@@ -6,10 +6,10 @@ Contributor guide for adding new harness adapters and working with the shared co
 
 The system has two layers:
 
-1. **Harness adapters** — build OpenInference spans from harness-specific events (hook payloads, session lifecycle, tool calls) and submit them locally.
-2. **Shared collector/exporter** — a background process at `http://127.0.0.1:4318` that receives spans from all harnesses and exports them to Phoenix or Arize AX.
+1. **Harness adapters** — build OpenInference spans from harness-specific events (hook payloads, session lifecycle, tool calls) and send them directly to the backend.
+2. **Direct send** — `send_span()` in `core/common.py` sends spans directly to Phoenix (REST) or Arize AX (HTTP). Per-harness credential overrides are resolved automatically.
 
-Harnesses are responsible for span construction and session state. The collector is responsible for backend export, credentials, retries, and logging. New harnesses should submit spans to the collector via `POST http://127.0.0.1:4318/v1/spans` rather than implementing direct export logic. See [COLLECTOR_ARCHITECTURE.md](docs/COLLECTOR_ARCHITECTURE.md) for the full collector contract.
+Harnesses are responsible for span construction and session state. The `send_span()` function handles backend export, credential resolution (per-harness overrides → global config → env vars), retries, and logging. Codex additionally uses a lightweight buffer service (`core/codex_buffer.py`) for native OTLP event buffering. See [TRACING_ARCHITECTURE.md](docs/TRACING_ARCHITECTURE.md) for the full architecture.
 
 ## Dev Setup
 
@@ -32,7 +32,7 @@ pytest -v
 After `pip install -e .`, all CLI entry points are available in your PATH:
 
 ```bash
-arize-collector-ctl status       # Check collector status
+arize-codex-buffer status        # Check Codex buffer service status
 arize-config get backend.target  # Read config values
 ```
 
@@ -43,10 +43,9 @@ core/
   __init__.py        # Package init
   constants.py       # Single source of truth for all paths
   config.py          # YAML config helper (CLI: arize-config)
-  collector.py       # Shared: background collector/exporter (stdlib HTTP + Phoenix/Arize export)
-  collector_ctl.py   # Shared: collector lifecycle (CLI: arize-collector-ctl)
-  common.py          # Shared: span building, sending, state, logging, IDs
-  send_arize.py      # Arize AX gRPC sender (used by collector)
+  codex_buffer.py    # Codex-only: OTLP event buffer service (no export logic)
+  codex_buffer_ctl.py # Codex buffer lifecycle (CLI: arize-codex-buffer)
+  common.py          # Shared: span building, direct send, state, logging, IDs
   hooks/
     __init__.py
     claude/
@@ -88,7 +87,7 @@ pyproject.toml       # Package definition, CLI entry points, pytest config
 - State primitives (`init_state`, `get_state`, `set_state`, `del_state`, `inc_state`, file locking)
 - Target detection (`get_target`)
 - Span building (`build_span`, `build_multi_span`)
-- Span sending (`send_span`, `send_to_collector`)
+- Span sending (`send_span`)
 
 Each adapter module (`core/hooks/<harness>/adapter.py`) provides:
 
@@ -194,7 +193,7 @@ def my_hook():
     # No stdout output unless the harness expects a response
 ```
 
-Hook handlers call `send_span()` which submits the span payload to the shared collector at `http://127.0.0.1:4318/v1/spans`. New harnesses should not implement direct backend export — the collector handles Phoenix and Arize AX export for all harnesses.
+Hook handlers call `send_span()` which sends the span payload directly to the configured backend (Phoenix REST or Arize AX HTTP). New harnesses should use `send_span()` from `core.common` rather than implementing their own export logic.
 
 ### Step 4: Register CLI entry points
 
@@ -207,7 +206,7 @@ arize-hook-<harness>-<event> = "core.hooks.<harness>.handlers:<function>"
 
 ### Step 5: Update install.sh / install.bat
 
-Add a `setup_<harness>` function to `install.sh` (and the equivalent in `install.bat`) for harness-specific configuration (hooks, env files, etc.). The shared collector setup is handled automatically — your harness setup function does not need to start or configure the collector.
+Add a `setup_<harness>` function to `install.sh` (and the equivalent in `install.bat`) for harness-specific configuration (hooks, env files, etc.). The direct send path is handled automatically by `send_span()` — your harness setup function does not need to start any background processes (unless your harness needs event buffering like Codex).
 
 ### Step 6: Write a README.md
 
@@ -228,8 +227,7 @@ All functions below are Python functions in the `core.common` module. Import the
 
 | Function | Description |
 |----------|-------------|
-| `send_span(span_json)` | Submit span to the shared collector at `http://127.0.0.1:4318/v1/spans` |
-| `send_to_collector(span_json)` | Low-level HTTP POST to the shared collector endpoint |
+| `send_span(span_json)` | Send span directly to the configured backend (Phoenix REST or Arize AX HTTP) |
 
 ### State Management
 
@@ -266,7 +264,7 @@ After `pip install .`, the following commands are available:
 
 | Command | Module | Description |
 |---------|--------|-------------|
-| `arize-collector-ctl` | `core.collector_ctl:main` | Collector lifecycle: start/stop/status/ensure |
+| `arize-codex-buffer` | `core.codex_buffer_ctl:main` | Codex buffer service lifecycle: start/stop/status/ensure |
 | `arize-config` | `core.config:main` | Config helper: get/set values in config.yaml |
 | `arize-hook-session-start` | `core.hooks.claude.handlers:session_start` | Claude SessionStart hook |
 | `arize-hook-pre-tool-use` | `core.hooks.claude.handlers:pre_tool_use` | Claude PreToolUse hook |
@@ -317,12 +315,12 @@ All adapters write to a log file by default:
 tail -f /tmp/arize-<harness>.log
 ```
 
-### Collector Control
+### Codex Buffer Service
 
-Start, stop, or check the collector status using the CLI:
+Start, stop, or check the buffer service status using the CLI (only needed for Codex):
 
 ```bash
-arize-collector-ctl start
-arize-collector-ctl status
-arize-collector-ctl stop
+arize-codex-buffer start
+arize-codex-buffer status
+arize-codex-buffer stop
 ```

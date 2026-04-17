@@ -14,6 +14,7 @@ from core.setup import (
     info,
     print_color,
     prompt_backend,
+    prompt_project_name,
     prompt_user_id,
     write_config,
 )
@@ -113,26 +114,27 @@ def _run() -> None:
     # 3. Prompt backend + credentials
     target, credentials = prompt_backend()
 
-    # 4. Write env vars to settings.json
+    # 4. Project name
+    project_name = prompt_project_name("claude-code")
+
+    # 5. Write env vars to settings.json
     _ensure_settings_file(settings_path)
     settings = _load_settings(settings_path)
     env_block = settings.setdefault("env", {})
 
+    env_block["ARIZE_TRACE_ENABLED"] = "true"
+    env_block["ARIZE_PROJECT_NAME"] = project_name
+
     if target == "phoenix":
         env_block["PHOENIX_ENDPOINT"] = credentials["endpoint"]
-        env_block["ARIZE_TRACE_ENABLED"] = "true"
         print("")
         print_color(f"✓ Configured for Phoenix at {credentials['endpoint']}", "green")
     else:
         env_block["ARIZE_API_KEY"] = credentials["api_key"]
         env_block["ARIZE_SPACE_ID"] = credentials["space_id"]
         env_block["ARIZE_OTLP_ENDPOINT"] = credentials["endpoint"]
-        env_block["ARIZE_TRACE_ENABLED"] = "true"
         print("")
         print_color(f"✓ Configured for Arize AX (endpoint: {credentials['endpoint']})", "green")
-        print("")
-        print_color("Note: Arize AX requires Python dependencies:", "yellow")
-        print("  pip install opentelemetry-proto grpcio")
 
     _save_settings(settings_path, settings)
 
@@ -143,8 +145,8 @@ def _run() -> None:
         _save_settings(settings_path, settings)
         print_color(f"✓ User ID set: {user_id}", "green")
 
-    # 6. Write config.yaml for the collector
-    write_config(target, credentials, "claude-code", "claude-code", user_id=user_id)
+    # 7. Write config.yaml
+    write_config(target, credentials, "claude-code", project_name, user_id=user_id)
     info("Wrote shared collector config to ~/.arize/harness/config.yaml")
 
     # 7. Summary

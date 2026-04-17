@@ -24,6 +24,7 @@ from core.common import (
     generate_trace_id,
     get_timestamp_ms,
     log,
+    send_span as send_span_to_backend,
 )
 from core.hooks.codex.adapter import (
     SCOPE_NAME,
@@ -34,7 +35,7 @@ from core.hooks.codex.adapter import (
     load_env_file,
     resolve_session,
 )
-from core.collector_ctl import collector_ensure
+from core.codex_buffer_ctl import buffer_ensure
 
 
 # ---------------------------------------------------------------------------
@@ -263,34 +264,10 @@ def _drain_events(thread_id: str, state, collector_port: int) -> list:
 # Span sending
 # ---------------------------------------------------------------------------
 
-def _send_span(payload: dict, collector_port: int) -> None:
-    """Send an OTLP span payload to the collector via HTTP POST.
-
-    POST http://127.0.0.1:{port}/v1/spans with JSON body.
-    Matches bash send_to_collector / send_span.
-    """
-    if env.dry_run:
-        try:
-            names = [s["name"] for s in payload.get("resourceSpans", [{}])[0]
-                     .get("scopeSpans", [{}])[0].get("spans", [])]
-            log(f"DRY RUN: {names}")
-        except Exception:
-            log("DRY RUN: (unparseable payload)")
-        return
-
-    url = f"http://127.0.0.1:{collector_port}/v1/spans"
-    body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            resp.read()
-    except Exception as e:
-        error(f"Failed to send span to collector: {e}")
+def _send_span(payload: dict) -> None:
+    """Send the completed span payload directly to the configured backend."""
+    if not send_span_to_backend(payload):
+        error("Failed to send span to backend")
 
 
 # ---------------------------------------------------------------------------
@@ -358,88 +335,63 @@ def _build_child_spans(events: list, trace_id: str, parent_span_id: str,
                 attrs["codex.approval_mode"] = approval
             break
 
-    # --- TOOL child spans from tool_decision + tool_result pairs (bash lines 328-379) ---
+    # --- TOOL child spans from tool_decision + tool_result pairs ---
     decisions = [e for e in events if e.get("event") == "codex.tool_decision"]
     results = [e for e in events if e.get("event") == "codex.tool_result"]
+
+    # Index results by call_id for fast matching
+    results_by_call_id = {}
+    for r in results:
+        cid = r.get("attrs", {}).get("call_id", "")
+        if cid:
+            results_by_call_id[cid] = r
 
     for i, decision in enumerate(decisions):
         da = decision.get("attrs", {})
         tool_name = (da.get("tool_name") or da.get("tool.name")
                      or da.get("name") or "unknown_tool")
+        call_id = da.get("call_id", "")
         decision_ns = _safe_int(decision.get("time_ns", 0))
         approval_status = (da.get("approved") or da.get("approval")
                            or da.get("decision") or da.get("status") or "unknown")
 
-        # Match result by tool name, fall back to index
-        result = None
-        for r in results:
-            ra = r.get("attrs", {})
-            rname = ra.get("tool_name") or ra.get("tool.name") or ra.get("name")
-            if rname == tool_name:
-                result = r
-                break
+        # Match result by call_id first, then by index
+        result = results_by_call_id.get(call_id)
         if result is None and i < len(results):
             result = results[i]
 
         result_ns = _safe_int(result.get("time_ns", 0)) if result else decision_ns
+        tool_input = ""
         tool_output = ""
+        tool_duration_ms = 0
         if result:
             ra = result.get("attrs", {})
+            # arguments contains the tool input as JSON (e.g. {"cmd":"pwd","workdir":"..."})
+            tool_input = str(ra.get("arguments") or ra.get("input") or "")
             tool_output = str(
                 ra.get("output") or ra.get("result") or ra.get("tool.output") or ""
-            )[:2000]
+            )
+            tool_duration_ms = _safe_int(ra.get("duration_ms", 0))
 
         tool_start_ms = decision_ns // 1_000_000 or event_start_time
         tool_end_ms = result_ns // 1_000_000 or tool_start_ms
+        if not tool_end_ms or tool_end_ms == tool_start_ms:
+            tool_end_ms = tool_start_ms + tool_duration_ms
 
         tool_attrs = {
             "openinference.span.kind": "TOOL",
             "tool.name": tool_name,
+            "input.value": tool_input,
             "output.value": tool_output,
             "codex.tool.approval_status": approval_status,
             "session.id": session_id,
         }
+        if call_id:
+            tool_attrs["codex.tool.call_id"] = call_id
+
         child_span = build_span(
             tool_name, "TOOL", generate_span_id(), trace_id,
             parent_span_id, tool_start_ms, tool_end_ms, tool_attrs,
-            SERVICE_NAME, SCOPE_NAME,
-        )
-        child_spans.append(child_span)
-
-    # --- INTERNAL child spans from API/websocket requests (bash lines 381-421) ---
-    api_events = [
-        e for e in events
-        if e.get("event") in ("codex.api_request", "codex.websocket_request")
-    ]
-    for req_event in api_events:
-        ra = req_event.get("attrs", {})
-        req_model = ra.get("model") or ra.get("llm.model_name") or "unknown"
-        req_status = str(ra.get("status") or ra.get("status_code") or ra.get("success") or "ok")
-        req_attempt = str(ra.get("attempt", "1"))
-        req_duration_ms = ra.get("duration_ms", "0")
-        req_auth_mode = ra.get("auth_mode", "")
-        req_conn_reused = ra.get("auth.connection_reused", "")
-        req_ns = _safe_int(req_event.get("time_ns", 0))
-        req_start_ms = req_ns // 1_000_000 or event_start_time
-
-        request_attrs = {
-            "openinference.span.kind": "CHAIN",
-            "codex.request.model": req_model,
-            "codex.request.status": req_status,
-            "codex.request.attempt": req_attempt,
-            "codex.request.duration_ms": _safe_int(req_duration_ms),
-            "session.id": session_id,
-        }
-        # Only include non-empty optional attrs (matches bash with_entries filter)
-        if req_auth_mode:
-            request_attrs["codex.request.auth_mode"] = req_auth_mode
-        if req_conn_reused:
-            request_attrs["codex.request.connection_reused"] = req_conn_reused == "true"
-
-        child_span = build_span(
-            f"API Request ({req_model})", "INTERNAL",
-            generate_span_id(), trace_id, parent_span_id,
-            req_start_ms, req_start_ms, request_attrs,
             SERVICE_NAME, SCOPE_NAME,
         )
         child_spans.append(child_span)
@@ -491,7 +443,7 @@ def _safe_int(val) -> int:
 
 def _handle_notify(input_json: dict) -> None:
     """Main notify handler, broken into phases matching notify.sh."""
-    collector_ensure()
+    buffer_ensure()
 
     # Phase 1: Event filtering (bash lines 22-27)
     event_type = input_json.get("type", "")
@@ -514,9 +466,6 @@ def _handle_notify(input_json: dict) -> None:
     assistant_output = _as_text(assistant_msg)
     user_prompt = _extract_user_prompt(user_input)
 
-    # Truncate to reasonable sizes (bash lines 87-89)
-    user_prompt = user_prompt[:5000]
-    assistant_output = assistant_output[:5000]
     if not assistant_output:
         assistant_output = "(No response)"
 
@@ -619,10 +568,10 @@ def _handle_notify(input_json: dict) -> None:
         all_spans = [parent_span] + child_spans
         multi_payload = build_multi_span(all_spans, SERVICE_NAME, SCOPE_NAME)
         debug_dump(f"{debug_prefix}_multi_span", multi_payload)
-        _send_span(multi_payload, collector_port)
+        _send_span(multi_payload)
     else:
         debug_dump(f"{debug_prefix}_span", parent_span)
-        _send_span(parent_span, collector_port)
+        _send_span(parent_span)
 
     log(f"Turn {trace_count} sent (thread={thread_id}, turn={turn_id}, children={len(child_spans)})")
 

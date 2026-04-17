@@ -53,45 +53,6 @@ class _Env:
         return os.environ.get("ARIZE_LOG_FILE", "/tmp/arize-agent-kit.log")
 
     @property
-    def collector_host(self) -> str:
-        val = os.environ.get("ARIZE_COLLECTOR_HOST", "")
-        if val:
-            return val
-        try:
-            from core.config import load_config, get_value
-            cfg = load_config()
-            v = get_value(cfg, "collector.host")
-            if v:
-                return str(v)
-        except Exception:
-            pass
-        from core.constants import DEFAULT_COLLECTOR_HOST
-        return DEFAULT_COLLECTOR_HOST
-
-    @property
-    def collector_port(self) -> int:
-        val = os.environ.get("ARIZE_COLLECTOR_PORT", "")
-        if val:
-            try:
-                return int(val)
-            except ValueError:
-                pass
-        try:
-            from core.config import load_config, get_value
-            cfg = load_config()
-            v = get_value(cfg, "collector.port")
-            if v is not None:
-                return int(v)
-        except Exception:
-            pass
-        from core.constants import DEFAULT_COLLECTOR_PORT
-        return DEFAULT_COLLECTOR_PORT
-
-    @property
-    def collector_url(self) -> str:
-        return f"http://{self.collector_host}:{self.collector_port}"
-
-    @property
     def phoenix_endpoint(self) -> str:
         return os.environ.get("PHOENIX_ENDPOINT", "")
 
@@ -103,9 +64,6 @@ class _Env:
     def space_id(self) -> str:
         return os.environ.get("ARIZE_SPACE_ID", "")
 
-    @property
-    def direct_send(self) -> bool:
-        return os.environ.get("ARIZE_DIRECT_SEND", "").lower() == "true"
 
 
 env = _Env()
@@ -184,21 +142,117 @@ def get_target() -> str:
     return "none"
 
 
-def _send_to_collector(span_dict: dict) -> bool:
-    """POST span to the local collector. Returns True on success."""
-    url = f"{env.collector_url}/v1/spans"
+def resolve_backend(span_dict: dict) -> dict:
+    """Resolve backend config for a span payload, checking per-harness overrides.
+
+    Returns a dict with keys: target, endpoint, api_key, space_id, project_name.
+    Resolution priority:
+      1. harnesses.<service_name>.backend.* in config (per-harness override)
+      2. backend.* in config (global)
+      3. Environment variables (PHOENIX_ENDPOINT, ARIZE_API_KEY, etc.)
+    """
+    # Extract service.name from span resource attributes
+    service_name = ""
+    for rs in span_dict.get("resourceSpans", []):
+        for attr in rs.get("resource", {}).get("attributes", []):
+            if attr.get("key") == "service.name":
+                service_name = attr.get("value", {}).get("stringValue", "")
+                break
+        if service_name:
+            break
+
+    # Load config
     try:
-        body = _json.dumps(span_dict).encode("utf-8")
-        req = urllib.request.Request(
-            url, data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
+        from core.config import load_config
+        cfg = load_config()
+    except Exception:
+        cfg = {}
+
+    # Check per-harness backend override
+    harness_cfg = cfg.get("harnesses", {}).get(service_name, {})
+    harness_backend = harness_cfg.get("backend", {})
+
+    # Resolve project name: harness config > env var > service.name
+    project_name = harness_cfg.get("project_name", "")
+    if not project_name:
+        project_name = env.project_name
+    if not project_name:
+        project_name = service_name
+    if not project_name:
+        error(
+            "No project name found. Set ARIZE_PROJECT_NAME, configure "
+            "harnesses.<name>.project_name in config.yaml, or ensure spans "
+            "include a service.name resource attribute."
         )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            return 200 <= resp.status < 300
-    except Exception as e:
-        log(f"Collector send failed ({url}): {e}")
-        return False
+        return {"target": "none", "project_name": ""}
+
+    # Resolve target: harness > global config > env detection
+    global_backend = cfg.get("backend", {})
+    target = harness_backend.get("target") or global_backend.get("target", "")
+
+    if not target:
+        # Fall back to env var detection (same as get_target())
+        if env.phoenix_endpoint:
+            target = "phoenix"
+        elif env.api_key and env.space_id:
+            target = "arize"
+        else:
+            target = "none"
+
+    # Resolve credentials based on target
+    if target == "phoenix":
+        harness_phoenix = harness_backend.get("phoenix", {})
+        global_phoenix = global_backend.get("phoenix", {})
+        return {
+            "target": "phoenix",
+            "endpoint": (harness_phoenix.get("endpoint")
+                         or global_phoenix.get("endpoint")
+                         or env.phoenix_endpoint
+                         or "http://localhost:6006"),
+            "api_key": (harness_phoenix.get("api_key")
+                        or global_phoenix.get("api_key")
+                        or env.api_key
+                        or ""),
+            "project_name": project_name,
+        }
+    elif target == "arize":
+        harness_arize = harness_backend.get("arize", {})
+        global_arize = global_backend.get("arize", {})
+        return {
+            "target": "arize",
+            "endpoint": (harness_arize.get("endpoint")
+                         or global_arize.get("endpoint")
+                         or "otlp.arize.com:443"),
+            "api_key": (harness_arize.get("api_key")
+                        or global_arize.get("api_key")
+                        or env.api_key
+                        or ""),
+            "space_id": (harness_arize.get("space_id")
+                         or global_arize.get("space_id")
+                         or env.space_id
+                         or ""),
+            "project_name": project_name,
+        }
+    else:
+        return {"target": "none", "project_name": project_name}
+
+
+def _inject_arize_project_name(span_dict: dict, project_name: str) -> dict:
+    """Return a copy of span_dict with arize.project.name on every span's attributes.
+
+    Arize requires this attribute on each span (not just the resource).
+    Modifies a shallow copy — does not mutate the original.
+    """
+    import copy
+    payload = copy.deepcopy(span_dict)
+    project_attr = {"key": "arize.project.name", "value": {"stringValue": project_name}}
+    for rs in payload.get("resourceSpans", []):
+        # Also add to resource attributes
+        rs.setdefault("resource", {}).setdefault("attributes", []).append(project_attr)
+        for ss in rs.get("scopeSpans", []):
+            for span in ss.get("spans", []):
+                span.setdefault("attributes", []).append(project_attr)
+    return payload
 
 
 def _extract_span_name(span_dict: dict) -> str:
@@ -210,7 +264,10 @@ def _extract_span_name(span_dict: dict) -> str:
 
 
 def send_span(span_dict: dict) -> bool:
-    """Send a span payload. Tries collector first, falls back to direct send.
+    """Send a span payload directly to the configured backend.
+
+    Resolves per-harness credentials from config.yaml, falling back to global
+    backend config and then environment variables.
 
     Never raises. Returns True on success, False on failure.
     """
@@ -222,26 +279,18 @@ def send_span(span_dict: dict) -> bool:
         if env.verbose:
             log(f"span payload: {_json.dumps(span_dict)}")
 
-        # Try collector first (unless direct send requested)
-        if not env.direct_send:
-            if _send_to_collector(span_dict):
-                return True
+        backend = resolve_backend(span_dict)
+        target = backend["target"]
 
-        # Direct send fallback
-        target = get_target()
         if target == "phoenix":
-            # Phoenix send via urllib
-            try:
-                from core.config import load_config, get_value
-                cfg = load_config()
-                project = get_value(cfg, "project_name") or env.project_name or "default"
-            except Exception:
-                project = env.project_name or "default"
-            url = f"{env.phoenix_endpoint}/v1/projects/{project}/spans"
+            project = backend["project_name"]
+            endpoint = backend["endpoint"]
+            api_key = backend.get("api_key", "")
+            url = f"{endpoint}/v1/projects/{project}/spans"
             body = _json.dumps(span_dict).encode("utf-8")
             headers = {"Content-Type": "application/json"}
-            if env.api_key:
-                headers["Authorization"] = f"Bearer {env.api_key}"
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
             req = urllib.request.Request(url, data=body, headers=headers, method="POST")
             try:
                 with urllib.request.urlopen(req, timeout=10) as resp:
@@ -250,12 +299,30 @@ def send_span(span_dict: dict) -> bool:
                 error(f"Phoenix send failed: {e}")
                 return False
         elif target == "arize":
+            project = backend["project_name"]
+            endpoint = backend.get("endpoint", "otlp.arize.com:443")
+            api_key = backend["api_key"]
+            space_id = backend.get("space_id", "")
+
+            # Inject arize.project.name into span attributes (required by Arize)
+            payload = _inject_arize_project_name(span_dict, project)
+
+            # Normalize endpoint to HTTPS URL for HTTP/JSON transport
+            if endpoint.startswith("http://") or endpoint.startswith("https://"):
+                url = f"{endpoint.rstrip('/')}/v1/traces"
+            else:
+                url = f"https://{endpoint}/v1/traces"
+
+            body = _json.dumps(payload).encode("utf-8")
+            headers = {
+                "Content-Type": "application/json",
+                "authorization": f"Bearer {api_key}",
+                "space_id": space_id,
+            }
+            req = urllib.request.Request(url, data=body, headers=headers, method="POST")
             try:
-                from core.send_arize import send_to_arize
-                return send_to_arize(span_dict)
-            except ImportError:
-                error("send_arize not available (missing opentelemetry-proto/grpcio)")
-                return False
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    return 200 <= resp.status < 300
             except Exception as e:
                 error(f"Arize send failed: {e}")
                 return False

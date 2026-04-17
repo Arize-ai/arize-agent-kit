@@ -98,6 +98,13 @@ def prompt_backend() -> tuple[str, dict]:
         sys.exit(1)
 
 
+def prompt_project_name(default: str) -> str:
+    """Prompt for project name. Returns default if blank."""
+    print("")
+    name = input(f"Project name [{default}]: ").strip()
+    return name if name else default
+
+
 def prompt_user_id() -> str:
     """Optional user ID prompt. Returns "" if skipped."""
     print("")

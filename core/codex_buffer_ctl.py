@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Collector lifecycle management: start, stop, status, ensure.
+"""Codex buffer service lifecycle management: start, stop, status, ensure.
 
-Replaces collector_ctl.sh with a cross-platform Python implementation.
-All paths come from core.constants — never hardcoded here.
+Manages the Codex-specific HTTP buffer process that holds native OTLP log
+events between hook invocations.  All paths come from core.constants.
 """
 
 import os
@@ -15,32 +15,34 @@ import urllib.request
 from pathlib import Path
 
 from core.constants import (
-    COLLECTOR_BIN,
-    COLLECTOR_LOG_FILE,
+    CODEX_BUFFER_BIN,
+    CODEX_BUFFER_LOG_FILE,
     CONFIG_FILE,
-    DEFAULT_COLLECTOR_HOST,
-    DEFAULT_COLLECTOR_PORT,
+    DEFAULT_BUFFER_HOST,
+    DEFAULT_BUFFER_PORT,
     LOG_DIR,
     PID_DIR,
-    PID_FILE,
+    CODEX_BUFFER_PID_FILE,
 )
 from core.config import load_config, get_value
 
 
 def _log(msg: str) -> None:
     """Log a message to stderr (never stdout)."""
-    sys.stderr.write(f"[arize] {msg}\n")
+    sys.stderr.write(f"[arize-codex-buffer] {msg}\n")
     sys.stderr.flush()
+
 
 def _is_windows():
     """Check if the operating system is Windows."""
     return os.name == "nt"
 
+
 def _is_process_alive(pid: int) -> bool:
     """Check whether a process with the given PID is alive."""
     if pid <= 0:
         # Guard: PID 0 is the kernel/idle process, negative PIDs target
-        # process groups on Unix. Neither is a valid collector PID.
+        # process groups on Unix. Neither is a valid buffer PID.
         return False
 
     if _is_windows():
@@ -78,21 +80,22 @@ def _resolve_host_port() -> tuple:
     """Return (host, port) from config.yaml, falling back to defaults."""
     try:
         cfg = load_config(str(CONFIG_FILE))
-        host = get_value(cfg, "collector.host")
-        port = get_value(cfg, "collector.port")
+        # Try buffer.* first, fall back to collector.*
+        host = get_value(cfg, "buffer.host") or get_value(cfg, "collector.host")
+        port = get_value(cfg, "buffer.port") or get_value(cfg, "collector.port")
     except Exception:
         host = None
         port = None
 
     if not host:
-        host = DEFAULT_COLLECTOR_HOST
+        host = DEFAULT_BUFFER_HOST
     if not port:
-        port = DEFAULT_COLLECTOR_PORT
+        port = DEFAULT_BUFFER_PORT
     return (str(host), int(port))
 
 
 def _health_check(host: str, port: int, timeout: float = 2.0) -> bool:
-    """Return True if the collector health endpoint responds OK."""
+    """Return True if the buffer health endpoint responds OK."""
     try:
         url = f"http://{host}:{port}/health"
         urllib.request.urlopen(url, timeout=timeout)
@@ -101,48 +104,46 @@ def _health_check(host: str, port: int, timeout: float = 2.0) -> bool:
         return False
 
 
-def collector_status() -> tuple:
-    """Check collector status.
+def buffer_status() -> tuple:
+    """Check buffer service status.
 
     Returns:
         ("running", pid, "host:port") or ("stopped", None, None)
     """
-    if not PID_FILE.is_file():
-        return ("stopped", None, None)
-
-    try:
-        pid_text = PID_FILE.read_text().strip()
-        pid = int(pid_text)
-    except (ValueError, OSError):
-        # Non-numeric or unreadable PID file — remove it
-        try:
-            PID_FILE.unlink()
-        except OSError:
-            pass
-        return ("stopped", None, None)
-
-    if not _is_process_alive(pid):
-        # Stale PID file — clean up
-        try:
-            PID_FILE.unlink()
-        except OSError:
-            pass
-        return ("stopped", None, None)
-
     host, port = _resolve_host_port()
     addr = f"{host}:{port}"
 
-    # Health check — but process is alive, so give benefit of the doubt either way
-    _health_check(host, port, timeout=2.0)
-    return ("running", pid, addr)
+    # Try PID file first
+    if CODEX_BUFFER_PID_FILE.is_file():
+        try:
+            pid_text = CODEX_BUFFER_PID_FILE.read_text().strip()
+            pid = int(pid_text)
+        except (ValueError, OSError):
+            pid = None
+
+        if pid and _is_process_alive(pid):
+            return ("running", pid, addr)
+
+        # Stale PID file — clean up
+        try:
+            CODEX_BUFFER_PID_FILE.unlink()
+        except OSError:
+            pass
+
+    # No valid PID file — fall back to health check (buffer may have been
+    # started by the proxy or another process without writing a PID file)
+    if _health_check(host, port, timeout=2.0):
+        return ("running", None, addr)
+
+    return ("stopped", None, None)
 
 
-def collector_start() -> bool:
-    """Start the collector if not already running.
+def buffer_start() -> bool:
+    """Start the buffer service if not already running.
 
-    Returns True if the collector is running after this call, False on failure.
+    Returns True if the buffer is running after this call, False on failure.
     """
-    status, _, _ = collector_status()
+    status, _, _ = buffer_status()
     if status == "running":
         return True
 
@@ -151,19 +152,19 @@ def collector_start() -> bool:
         _log(f"ERROR: No config.yaml found at {CONFIG_FILE}")
         return False
 
-    # Find collector runtime
-    collector_py = Path(__file__).parent / "collector.py"
-    if COLLECTOR_BIN.is_file() and os.access(COLLECTOR_BIN, os.X_OK):
-        cmd = [str(COLLECTOR_BIN)]
-    elif collector_py.is_file():
-        cmd = [sys.executable, str(collector_py)]
+    # Find buffer runtime
+    buffer_py = Path(__file__).parent / "codex_buffer.py"
+    if CODEX_BUFFER_BIN.is_file() and os.access(CODEX_BUFFER_BIN, os.X_OK):
+        cmd = [str(CODEX_BUFFER_BIN)]
+    elif buffer_py.is_file():
+        cmd = [sys.executable, str(buffer_py)]
     else:
-        _log(f"Collector runtime not found at {COLLECTOR_BIN} or {collector_py}")
+        _log(f"Buffer runtime not found at {CODEX_BUFFER_BIN} or {buffer_py}")
         return False
 
     host, port = _resolve_host_port()
 
-    # Fast health check first — catches running collector even without PID file
+    # Fast health check first — catches running buffer even without PID file
     if _health_check(host, port, timeout=2.0):
         return True
 
@@ -174,7 +175,7 @@ def collector_start() -> bool:
         # Port is open but health check failed — something else owns it
         _log(
             f"ERROR: Port {port} is already in use by another process. "
-            f"Set collector.port in {CONFIG_FILE} to use a different port"
+            f"Set buffer.port in {CONFIG_FILE} to use a different port"
         )
         return False
     except (ConnectionRefusedError, socket.timeout, OSError):
@@ -185,7 +186,7 @@ def collector_start() -> bool:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     # Launch process
-    log_fd = open(COLLECTOR_LOG_FILE, "a")
+    log_fd = open(CODEX_BUFFER_LOG_FILE, "a")
     try:
         if _is_windows():
             proc = subprocess.Popen(
@@ -204,7 +205,7 @@ def collector_start() -> bool:
                 start_new_session=True,
             )
     except Exception as e:
-        _log(f"Failed to launch collector: {e}")
+        _log(f"Failed to launch buffer: {e}")
         log_fd.close()
         return False
     log_fd.close()
@@ -219,24 +220,24 @@ def collector_start() -> bool:
     if _is_process_alive(proc.pid):
         return True  # benefit of the doubt
     else:
-        _log("Failed to start collector (process exited)")
+        _log("Failed to start buffer (process exited)")
         return False
 
 
-def collector_stop() -> str:
-    """Stop the collector.
+def buffer_stop() -> str:
+    """Stop the buffer service.
 
     Returns "stopped".
     """
-    if not PID_FILE.is_file():
+    if not CODEX_BUFFER_PID_FILE.is_file():
         return "stopped"
 
     try:
-        pid_text = PID_FILE.read_text().strip()
+        pid_text = CODEX_BUFFER_PID_FILE.read_text().strip()
         pid = int(pid_text)
     except (ValueError, OSError):
         try:
-            PID_FILE.unlink()
+            CODEX_BUFFER_PID_FILE.unlink()
         except OSError:
             pass
         return "stopped"
@@ -265,54 +266,54 @@ def collector_stop() -> str:
 
     # Remove PID file regardless
     try:
-        PID_FILE.unlink()
+        CODEX_BUFFER_PID_FILE.unlink()
     except OSError:
         pass
 
     return "stopped"
 
 
-def collector_ensure() -> None:
+def buffer_ensure() -> None:
     """Silent idempotent start. Never raises. Suitable for hooks."""
     try:
-        if collector_status()[0] == "running":
+        if buffer_status()[0] == "running":
             return
-        collector_start()
+        buffer_start()
     except Exception:
         pass
 
 
 def main() -> None:
-    """CLI entrypoint for arize-collector-ctl."""
+    """CLI entrypoint for arize-codex-buffer."""
     if len(sys.argv) < 2 or sys.argv[1] not in ("start", "stop", "status"):
         sys.stderr.write(
-            "usage: arize-collector-ctl <start|stop|status>\n"
+            "usage: arize-codex-buffer <start|stop|status>\n"
         )
         sys.exit(1)
 
     command = sys.argv[1]
 
     if command == "status":
-        status, pid, addr = collector_status()
+        status, pid, addr = buffer_status()
         if status == "running":
             print(f"running (PID {pid}, {addr})")
         else:
             print("stopped")
 
     elif command == "start":
-        ok = collector_start()
+        ok = buffer_start()
         if ok:
-            status, pid, addr = collector_status()
+            status, pid, addr = buffer_status()
             if status == "running":
                 print(f"running (PID {pid}, {addr})")
             else:
                 print("started")
         else:
-            print("failed to start collector")
+            print("failed to start buffer")
             sys.exit(1)
 
     elif command == "stop":
-        result = collector_stop()
+        result = buffer_stop()
         print(result)
 
 

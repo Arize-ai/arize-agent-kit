@@ -2,8 +2,8 @@
 """Tests for doc-fixes task.
 
 Validates:
-- COLLECTOR_ARCHITECTURE.md exists and has required content
-- All COLLECTOR_ARCHITECTURE.md links resolve to a real file
+- TRACING_ARCHITECTURE.md exists and has required content
+- All TRACING_ARCHITECTURE.md links resolve to a real file
 - No references to deleted scripts/setup.py remain
 - Harness READMEs reference CLI entry points for setup
 - Directory structure sections are updated (no hooks/*.sh, no scripts/)
@@ -16,11 +16,11 @@ import pytest
 
 REPO_ROOT = Path(__file__).parent.parent
 
-# docs/COLLECTOR_ARCHITECTURE.md is reference documentation (lives in docs/)
-COLLECTOR_ARCH_PATH = REPO_ROOT / "docs" / "COLLECTOR_ARCHITECTURE.md"
+# docs/TRACING_ARCHITECTURE.md is reference documentation (lives in docs/)
+TRACING_ARCH_PATH = REPO_ROOT / "docs" / "TRACING_ARCHITECTURE.md"
 
-# Files that reference COLLECTOR_ARCHITECTURE.md
-COLLECTOR_ARCH_REFERRERS = [
+# Files that reference TRACING_ARCHITECTURE.md
+TRACING_ARCH_REFERRERS = [
     "README.md",
     "DEVELOPMENT.md",
     "claude-code-tracing/README.md",
@@ -29,82 +29,82 @@ COLLECTOR_ARCH_REFERRERS = [
 ]
 
 
-class TestCollectorArchitectureExists:
-    """docs/COLLECTOR_ARCHITECTURE.md must exist and be well-formed."""
+class TestTracingArchitectureExists:
+    """docs/TRACING_ARCHITECTURE.md must exist and be well-formed."""
 
     def test_file_exists(self):
-        assert COLLECTOR_ARCH_PATH.exists(), "docs/COLLECTOR_ARCHITECTURE.md does not exist"
+        assert TRACING_ARCH_PATH.exists(), "docs/TRACING_ARCHITECTURE.md does not exist"
 
     def test_file_not_empty(self):
-        content = COLLECTOR_ARCH_PATH.read_text()
-        assert len(content.strip()) > 100, "COLLECTOR_ARCHITECTURE.md is too short"
+        content = TRACING_ARCH_PATH.read_text()
+        assert len(content.strip()) > 100, "TRACING_ARCHITECTURE.md is too short"
 
     def test_under_150_lines(self):
-        lines = COLLECTOR_ARCH_PATH.read_text().splitlines()
-        assert len(lines) <= 150, f"COLLECTOR_ARCHITECTURE.md is {len(lines)} lines, should be <=150"
+        lines = TRACING_ARCH_PATH.read_text().splitlines()
+        assert len(lines) <= 150, f"TRACING_ARCHITECTURE.md is {len(lines)} lines, should be <=150"
 
     def test_has_title(self):
-        content = COLLECTOR_ARCH_PATH.read_text()
+        content = TRACING_ARCH_PATH.read_text()
         assert content.startswith("# "), "Should start with a markdown heading"
 
-    def test_covers_what_collector_does(self):
-        content = COLLECTOR_ARCH_PATH.read_text().lower()
-        assert "http" in content and "span" in content, "Should describe HTTP server and spans"
+    def test_covers_what_it_does(self):
+        content = TRACING_ARCH_PATH.read_text().lower()
+        assert "http" in content and "span" in content, "Should describe HTTP and spans"
 
     def test_covers_start_stop(self):
-        content = COLLECTOR_ARCH_PATH.read_text()
-        assert "collector_ctl" in content or "collector-ctl" in content, \
-            "Should reference collector_ctl for lifecycle management"
+        content = TRACING_ARCH_PATH.read_text()
+        assert "codex_buffer_ctl" in content or "codex-buffer" in content, \
+            "Should reference codex_buffer_ctl for lifecycle management"
 
     def test_covers_config_path(self):
-        content = COLLECTOR_ARCH_PATH.read_text()
+        content = TRACING_ARCH_PATH.read_text()
         assert "config.yaml" in content, "Should reference config.yaml"
 
     def test_covers_api_endpoints(self):
-        content = COLLECTOR_ARCH_PATH.read_text()
-        assert "/v1/spans" in content, "Should document /v1/spans endpoint"
+        content = TRACING_ARCH_PATH.read_text()
+        assert "/v1/logs" in content, "Should document /v1/logs endpoint"
         assert "/health" in content, "Should document /health endpoint"
         assert "/drain/" in content, "Should document /drain endpoint"
 
     def test_covers_pid_file(self):
-        content = COLLECTOR_ARCH_PATH.read_text()
-        assert "collector.pid" in content, "Should document PID file location"
+        content = TRACING_ARCH_PATH.read_text()
+        assert "codex-buffer.pid" in content, "Should document PID file location"
 
     def test_covers_log_file(self):
-        content = COLLECTOR_ARCH_PATH.read_text()
-        assert "collector.log" in content, "Should document log file location"
+        content = TRACING_ARCH_PATH.read_text()
+        assert "codex-buffer.log" in content, "Should document log file location"
 
     def test_mentions_phoenix_and_arize(self):
-        content = COLLECTOR_ARCH_PATH.read_text().lower()
+        content = TRACING_ARCH_PATH.read_text().lower()
         assert "phoenix" in content, "Should mention Phoenix backend"
         assert "arize" in content, "Should mention Arize backend"
 
 
-class TestCollectorArchitectureLinksResolve:
-    """All links to COLLECTOR_ARCHITECTURE.md in the repo must resolve."""
+class TestTracingArchitectureLinksResolve:
+    """All links to TRACING_ARCHITECTURE.md in the repo must resolve."""
 
-    @pytest.mark.parametrize("referrer", COLLECTOR_ARCH_REFERRERS)
-    def test_referrer_links_to_collector_arch(self, referrer):
-        """Each known referrer should contain a link to COLLECTOR_ARCHITECTURE.md."""
+    @pytest.mark.parametrize("referrer", TRACING_ARCH_REFERRERS)
+    def test_referrer_links_to_tracing_arch(self, referrer):
+        """Each known referrer should contain a link to TRACING_ARCHITECTURE.md."""
         path = REPO_ROOT / referrer
         if not path.exists():
             pytest.skip(f"{referrer} does not exist")
         content = path.read_text()
-        assert "COLLECTOR_ARCHITECTURE.md" in content, \
-            f"{referrer} should reference COLLECTOR_ARCHITECTURE.md"
+        assert "TRACING_ARCHITECTURE.md" in content, \
+            f"{referrer} should reference TRACING_ARCHITECTURE.md"
 
-    @pytest.mark.parametrize("referrer", COLLECTOR_ARCH_REFERRERS)
-    def test_collector_arch_link_resolves(self, referrer):
+    @pytest.mark.parametrize("referrer", TRACING_ARCH_REFERRERS)
+    def test_tracing_arch_link_resolves(self, referrer):
         """The relative link from each referrer should resolve to the actual file."""
         path = REPO_ROOT / referrer
         if not path.exists():
             pytest.skip(f"{referrer} does not exist")
         content = path.read_text()
-        # Extract markdown links: [text](path/to/COLLECTOR_ARCHITECTURE.md)
+        # Extract markdown links: [text](path/to/TRACING_ARCHITECTURE.md)
         # Use [^)]+ to avoid matching across nested parentheses
-        link_pattern = re.compile(r'\[[^\]]*\]\(([^)]*COLLECTOR_ARCHITECTURE\.md)\)')
+        link_pattern = re.compile(r'\[[^\]]*\]\(([^)]*TRACING_ARCHITECTURE\.md)\)')
         matches = link_pattern.findall(content)
-        assert matches, f"{referrer} has no markdown link to COLLECTOR_ARCHITECTURE.md"
+        assert matches, f"{referrer} has no markdown link to TRACING_ARCHITECTURE.md"
         for link in matches:
             resolved = (path.parent / link).resolve()
             assert resolved.exists(), \
@@ -181,7 +181,7 @@ class TestNoDeletedBashScriptReferences:
     ALL_DOCS = [
         "README.md",
         "DEVELOPMENT.md",
-        "docs/COLLECTOR_ARCHITECTURE.md",
+        "docs/TRACING_ARCHITECTURE.md",
         "claude-code-tracing/README.md",
         "codex-tracing/README.md",
         "cursor-tracing/README.md",
@@ -209,13 +209,13 @@ class TestNoDeletedBashScriptReferences:
             f"{doc} still has 'python scripts/setup.py' invocation"
 
 
-class TestCollectorArchitectureSourceFiles:
-    """docs/COLLECTOR_ARCHITECTURE.md should reference the correct source files."""
+class TestTracingArchitectureSourceFiles:
+    """docs/TRACING_ARCHITECTURE.md should reference the correct source files."""
 
-    def test_references_collector_py(self):
-        content = COLLECTOR_ARCH_PATH.read_text()
-        assert "core/collector.py" in content
+    def test_references_codex_buffer_py(self):
+        content = TRACING_ARCH_PATH.read_text()
+        assert "core/codex_buffer.py" in content
 
-    def test_references_collector_ctl_py(self):
-        content = COLLECTOR_ARCH_PATH.read_text()
-        assert "core/collector_ctl.py" in content
+    def test_references_codex_buffer_ctl_py(self):
+        content = TRACING_ARCH_PATH.read_text()
+        assert "core/codex_buffer_ctl.py" in content

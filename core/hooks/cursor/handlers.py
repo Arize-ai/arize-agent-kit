@@ -15,12 +15,10 @@ from core.common import (
     build_span,
     env,
     error,
-    get_target,
     get_timestamp_ms,
     log,
     send_span,
 )
-from core.collector_ctl import collector_ensure
 from core.hooks.cursor.adapter import (
     SERVICE_NAME,
     SCOPE_NAME,
@@ -33,7 +31,7 @@ from core.hooks.cursor.adapter import (
     state_pop,
     state_push,
     trace_id_from_generation,
-    truncate_attr,
+
 )
 
 
@@ -82,18 +80,6 @@ def _dispatch(event: str, input_json: dict) -> None:
     if not env.trace_enabled:
         return
 
-    # Ensure collector is running before dispatching
-    collector_ensure()
-
-    # Early exit: no backend configured and collector unreachable
-    target = get_target()
-    if target == "none" and not env.direct_send:
-        try:
-            urllib.request.urlopen(f"{env.collector_url}/health", timeout=1)
-        except Exception:
-            log("No backend configured and collector not reachable, skipping")
-            return
-
     trace_id = trace_id_from_generation(gen_id) if gen_id else ""
     now_ms = get_timestamp_ms()
 
@@ -124,39 +110,44 @@ def _dispatch(event: str, input_json: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _handle_before_submit_prompt(input_json, conversation_id, gen_id, trace_id, now_ms):
-    """Root span for the turn. Replaces bash lines 75-105."""
+    """Root span for the turn — deferred until afterAgentResponse so it gets output.value."""
     sid = span_id_16()
     gen_root_span_save(gen_id, sid)
 
-    prompt = truncate_attr(_jq_str(input_json, "prompt", "input", "text"))
-    model = _jq_str(input_json, "model_name", "model")
+    prompt = (_jq_str(input_json, "prompt", "input", "text"))
+    model = _jq_str(input_json, "model", "model_name")
 
-    attrs = {
-        "openinference.span.kind": "CHAIN",
-        "input.value": prompt,
-        "session.id": conversation_id,
-    }
-    if model:
-        attrs["llm.model_name"] = model
-
-    span = build_span(
-        "User Prompt", "CHAIN", sid, trace_id, "",
-        now_ms, now_ms, attrs, SERVICE_NAME, SCOPE_NAME,
-    )
-    send_span(span)
-    log(f"beforeSubmitPrompt: root span {sid} (trace={trace_id})")
+    # Save root span state — sent by afterAgentResponse with output + timing
+    state_push(f"root_{sanitize(gen_id)}", {
+        "span_id": sid,
+        "trace_id": trace_id,
+        "conversation_id": conversation_id,
+        "start_ms": now_ms,
+        "prompt": prompt,
+        "model": model,
+    })
+    log(f"beforeSubmitPrompt: deferred root span {sid} (trace={trace_id})")
 
 
 def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, now_ms):
-    """LLM response span. Replaces bash lines 110-133."""
+    """LLM child span + send deferred root span with input+output."""
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
-    response = truncate_attr(_jq_str(input_json, "response", "output", "text"))
-    model = _jq_str(input_json, "model_name", "model")
+    # "text" is the documented field; fall back to "response"/"output" for compat
+    response = (_jq_str(input_json, "text", "response", "output"))
+    # "model" is a base field on all hook events
+    model = _jq_str(input_json, "model", "model_name")
 
+    # Read prompt from deferred root state
+    safe_gen = sanitize(gen_id) if gen_id else ""
+    root_state = state_pop(f"root_{safe_gen}") if safe_gen else None
+    prompt = root_state.get("prompt", "") if root_state else ""
+
+    # Send LLM child span with input + output + model
     attrs = {
         "openinference.span.kind": "LLM",
+        "input.value": prompt,
         "output.value": response,
         "session.id": conversation_id,
     }
@@ -168,7 +159,28 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
         now_ms, now_ms, attrs, SERVICE_NAME, SCOPE_NAME,
     )
     send_span(span)
-    log(f"afterAgentResponse: span {sid}")
+    log(f"afterAgentResponse: child span {sid}")
+
+    # Send deferred root span with input + output
+    if root_state:
+        root_attrs = {
+            "openinference.span.kind": "CHAIN",
+            "input.value": prompt,
+            "output.value": response,
+            "session.id": root_state.get("conversation_id", conversation_id),
+        }
+        root_model = model or root_state.get("model", "")
+        if root_model:
+            root_attrs["llm.model_name"] = root_model
+
+        root_span = build_span(
+            "User Prompt", "CHAIN",
+            root_state["span_id"], root_state.get("trace_id", trace_id), "",
+            root_state.get("start_ms", now_ms), now_ms, root_attrs,
+            SERVICE_NAME, SCOPE_NAME,
+        )
+        send_span(root_span)
+        log(f"afterAgentResponse: sent deferred root span {root_state['span_id']}")
 
 
 def _handle_after_agent_thought(input_json, conversation_id, gen_id, trace_id, now_ms):
@@ -176,7 +188,7 @@ def _handle_after_agent_thought(input_json, conversation_id, gen_id, trace_id, n
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
-    thought = truncate_attr(_jq_str(input_json, "thought", "thinking", "text"))
+    thought = (_jq_str(input_json, "thought", "thinking", "text"))
 
     attrs = {
         "openinference.span.kind": "CHAIN",
@@ -229,8 +241,7 @@ def _handle_after_shell_execution(input_json, conversation_id, gen_id, trace_id,
     if after_cmd:
         command = after_cmd
 
-    output = truncate_attr(_jq_str(input_json, "output", "stdout", "result"))
-    command = truncate_attr(command)
+    output = (_jq_str(input_json, "output", "stdout", "result"))
     exit_code = _jq_str(input_json, "exit_code", "exitCode")
 
     attrs = {
@@ -295,8 +306,7 @@ def _handle_after_mcp_execution(input_json, conversation_id, gen_id, trace_id, n
         tool_name = after_tool
     tool_name = tool_name or "unknown"
 
-    result = truncate_attr(_jq_str(input_json, "result", "output", "result_json"))
-    tool_input = truncate_attr(tool_input)
+    result = (_jq_str(input_json, "result", "output", "result_json"))
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -319,7 +329,7 @@ def _handle_before_read_file(input_json, conversation_id, gen_id, trace_id, now_
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
-    file_path = truncate_attr(_jq_str(input_json, "file_path", "filePath", "path"))
+    file_path = (_jq_str(input_json, "file_path", "filePath", "path"))
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -344,7 +354,6 @@ def _handle_after_file_edit(input_json, conversation_id, gen_id, trace_id, now_m
     file_path = _jq_str(input_json, "file_path", "filePath", "path")
     edits = _jq_str(input_json, "edits", "changes", "diff")
     input_val = f"{file_path}: {edits}" if edits else file_path
-    input_val = truncate_attr(input_val)
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -366,7 +375,7 @@ def _handle_before_tab_file_read(input_json, conversation_id, gen_id, trace_id, 
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
-    file_path = truncate_attr(_jq_str(input_json, "file_path", "filePath", "path"))
+    file_path = (_jq_str(input_json, "file_path", "filePath", "path"))
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -391,7 +400,6 @@ def _handle_after_tab_file_edit(input_json, conversation_id, gen_id, trace_id, n
     file_path = _jq_str(input_json, "file_path", "filePath", "path")
     edits = _jq_str(input_json, "edits", "changes", "diff")
     input_val = f"{file_path}: {edits}" if edits else file_path
-    input_val = truncate_attr(input_val)
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -409,7 +417,7 @@ def _handle_after_tab_file_edit(input_json, conversation_id, gen_id, trace_id, n
 
 
 def _handle_stop(input_json, conversation_id, gen_id, trace_id, now_ms):
-    """CHAIN span + generation cleanup. Replaces bash lines 435-462."""
+    """Stop span + generation cleanup."""
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 

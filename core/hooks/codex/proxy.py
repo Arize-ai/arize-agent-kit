@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Codex proxy: ensures collector is running, then execs the real codex binary.
+"""Codex proxy: ensures buffer service is running, then execs the real codex binary.
 
 Replaces codex-tracing/scripts/codex_proxy.sh. Registered as the
 ``arize-codex-proxy`` CLI entry point so the installer can symlink or alias
@@ -85,17 +85,17 @@ def _quick_health_check(host: str = "127.0.0.1", port: int = 4318) -> bool:
 
 
 def main() -> None:
-    """Codex proxy entry point.  Ensures collector running, then execs real codex."""
-    # 1. Load env file & ensure collector (matches bash lines 12-24)
+    """Codex proxy entry point.  Ensures buffer service running, then execs real codex."""
+    # 1. Load env file & ensure buffer service (matches bash lines 12-24)
     try:
         env_file = os.path.join(os.path.expanduser("~"), ".codex", "arize-env.sh")
         if os.path.isfile(env_file):
             _load_env_file(env_file)
 
-        # Fast path: if collector is already healthy, skip heavy imports
+        # Fast path: if buffer service is already healthy, skip heavy imports
         if not _quick_health_check():
-            from core.collector_ctl import collector_ensure  # noqa: E402
-            collector_ensure()
+            from core.codex_buffer_ctl import buffer_ensure  # noqa: E402
+            buffer_ensure()
     except Exception:
         pass  # Never prevent codex from starting
 

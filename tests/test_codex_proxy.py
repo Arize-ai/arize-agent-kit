@@ -151,8 +151,8 @@ class TestLoadEnvFile:
 class TestMain:
     """Tests for the main() entry point."""
 
-    def test_load_env_before_collector_ensure(self, tmp_path):
-        """Env file is loaded before collector_ensure is called."""
+    def test_load_env_before_buffer_ensure(self, tmp_path):
+        """Env file is loaded before buffer_ensure is called."""
         call_order = []
 
         env_file = tmp_path / ".codex" / "arize-env.sh"
@@ -166,7 +166,7 @@ class TestMain:
             original_load(path)
 
         def fake_ensure():
-            call_order.append("collector_ensure")
+            call_order.append("buffer_ensure")
 
         # Create a fake codex binary so main() can find it
         bin_dir = tmp_path / "bin"
@@ -178,15 +178,15 @@ class TestMain:
         with mock.patch("os.path.expanduser", return_value=str(tmp_path)), \
              mock.patch("core.hooks.codex.proxy._load_env_file", side_effect=tracking_load), \
              mock.patch("core.hooks.codex.proxy._quick_health_check", return_value=False), \
-             mock.patch("core.collector_ctl.collector_ensure", side_effect=fake_ensure), \
+             mock.patch("core.codex_buffer_ctl.buffer_ensure", side_effect=fake_ensure), \
              mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=str(codex)), \
              mock.patch("os.execvp"):
             main()
 
-        assert call_order == ["load_env", "collector_ensure"]
+        assert call_order == ["load_env", "buffer_ensure"]
 
-    def test_collector_ensure_failure_still_execs(self, tmp_path):
-        """If collector_ensure raises, the real codex is still exec'd."""
+    def test_buffer_ensure_failure_still_execs(self, tmp_path):
+        """If buffer_ensure raises, the real codex is still exec'd."""
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
         codex = bin_dir / "codex"
@@ -194,7 +194,7 @@ class TestMain:
         codex.chmod(codex.stat().st_mode | stat.S_IEXEC)
 
         with mock.patch("core.hooks.codex.proxy._quick_health_check", return_value=False), \
-             mock.patch("core.collector_ctl.collector_ensure", side_effect=RuntimeError("boom")), \
+             mock.patch("core.codex_buffer_ctl.buffer_ensure", side_effect=RuntimeError("boom")), \
              mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=str(codex)), \
              mock.patch("os.execvp") as mock_exec:
             main()
@@ -204,7 +204,7 @@ class TestMain:
 
     def test_no_codex_found_exits_1(self):
         """When no real codex is found, exit with code 1."""
-        with mock.patch("core.collector_ctl.collector_ensure"), \
+        with mock.patch("core.codex_buffer_ctl.buffer_ensure"), \
              mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=None), \
              pytest.raises(SystemExit) as exc_info:
             main()
@@ -219,7 +219,7 @@ class TestMain:
         codex.write_text("#!/bin/sh\nexit 0\n")
         codex.chmod(codex.stat().st_mode | stat.S_IEXEC)
 
-        with mock.patch("core.collector_ctl.collector_ensure"), \
+        with mock.patch("core.codex_buffer_ctl.buffer_ensure"), \
              mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=codex), \
              mock.patch("os.execvp") as mock_exec:
             # Default home won't have .codex/arize-env.sh

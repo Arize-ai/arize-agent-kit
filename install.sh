@@ -8,8 +8,8 @@
 #   curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- update
 #   curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- uninstall
 #
-# Installs the arize-agent-kit repo, sets up the shared background
-# collector/exporter, and configures tracing for the specified harness.
+# Installs the arize-agent-kit repo, sets up a shared venv and config,
+# and configures tracing for the specified harness.
 # Idempotent — safe to run multiple times.
 
 set -euo pipefail
@@ -22,16 +22,23 @@ INSTALL_BRANCH="${ARIZE_INSTALL_BRANCH:-main}"
 TARBALL_URL="https://github.com/Arize-ai/arize-agent-kit/archive/refs/heads/${INSTALL_BRANCH}.tar.gz"
 INSTALL_DIR="${HOME}/.arize/harness"
 
-# Shared collector layout
+# Shared runtime layout
 CONFIG_FILE="${INSTALL_DIR}/config.yaml"
 BIN_DIR="${INSTALL_DIR}/bin"
-COLLECTOR_BIN="${BIN_DIR}/arize-collector"
 PID_DIR="${INSTALL_DIR}/run"
-PID_FILE="${PID_DIR}/collector.pid"
 LOG_DIR="${INSTALL_DIR}/logs"
-COLLECTOR_LOG_FILE="${LOG_DIR}/collector.log"
 VENV_DIR="${INSTALL_DIR}/venv"
 STATE_BASE_DIR="${INSTALL_DIR}/state"
+
+# Codex buffer service
+BUFFER_BIN="${BIN_DIR}/arize-codex-buffer"
+BUFFER_PID_FILE="${PID_DIR}/codex-buffer.pid"
+BUFFER_LOG_FILE="${LOG_DIR}/codex-buffer.log"
+
+# Legacy collector paths (for cleanup of existing installs)
+COLLECTOR_BIN="${BIN_DIR}/arize-collector"
+PID_FILE="${PID_DIR}/collector.pid"
+COLLECTOR_LOG_FILE="${LOG_DIR}/collector.log"
 
 # Hook entry point names are defined in the Python heredoc in setup_claude()
 # (matches pyproject.toml [project.scripts])
@@ -315,13 +322,13 @@ setup_venv() {
         # arize-agent-kit, leaving ~/.claude/settings.json pointing at missing hook scripts.
         if "$vp" -c "$check_cmd" 2>/dev/null \
             && "$vp" -c "import core" 2>/dev/null \
-            && [[ -x "${VENV_DIR}/bin/arize-collector-ctl" ]]; then
-            info "Collector venv already has required packages"
+            && [[ -x "${VENV_DIR}/bin/arize-codex-buffer" ]]; then
+            info "Venv already has required packages"
             return 0
         fi
     fi
 
-    info "Creating collector venv..."
+    info "Creating venv..."
     if ! "$python_cmd" -m venv "$VENV_DIR" 2>/dev/null; then
         err "Failed to create venv with $python_cmd"
         err "You may need to install the venv module: apt install python3-venv (Debian/Ubuntu)"
@@ -332,20 +339,13 @@ setup_venv() {
     pip=$(venv_pip) || { err "pip not found in venv"; return 1; }
 
     # Install the package (core + pyyaml + CLI entry points)
-    info "Installing arize-agent-kit into collector venv..."
+    info "Installing arize-agent-kit into venv..."
     if ! "$pip" install --quiet "$INSTALL_DIR" 2>/dev/null; then
         err "Failed to install arize-agent-kit package"
         return 1
     fi
 
-    # Install Arize AX extras if needed
-    if [[ "$backend_target" == "arize" ]]; then
-        info "Installing Arize AX dependencies (opentelemetry-proto, grpcio)..."
-        "$pip" install --quiet opentelemetry-proto grpcio 2>/dev/null || \
-            warn "Failed to install Arize AX dependencies — gRPC export may not work"
-    fi
-
-    info "Collector venv ready at ${VENV_DIR}"
+    info "Venv ready at ${VENV_DIR}"
 }
 
 # ---------------------------------------------------------------------------
@@ -354,26 +354,62 @@ setup_venv() {
 write_config() {
     local backend_target="$1"
     local harness_name="$2"
-    local collector_port="$3"
-    local phoenix_endpoint="$4"
-    local phoenix_api_key="$5"
-    local arize_api_key="$6"
-    local arize_space_id="$7"
-    local arize_endpoint="$8"
+    local phoenix_endpoint="$3"
+    local phoenix_api_key="$4"
+    local arize_api_key="$5"
+    local arize_space_id="$6"
+    local arize_endpoint="$7"
+    local project_name="${8:-$harness_name}"
+    local per_harness="${9:-false}"
 
-    # If config already exists and venv has yaml, just add harness entry
+    # If config already exists and venv has yaml, just add/update harness entry
     local vp
     vp=$(venv_python 2>/dev/null) || true
     if [[ -f "$CONFIG_FILE" && -n "$vp" && -n "$harness_name" ]]; then
-        if "$vp" -c "
+        if _CFG_FILE="$CONFIG_FILE" \
+           _HARNESS="$harness_name" \
+           _PROJECT="$project_name" \
+           _PER_HARNESS="$per_harness" \
+           _BACKEND="$backend_target" \
+           _PHOENIX_EP="$phoenix_endpoint" \
+           _PHOENIX_KEY="$phoenix_api_key" \
+           _ARIZE_EP="$arize_endpoint" \
+           _ARIZE_KEY="$arize_api_key" \
+           _ARIZE_SPACE="$arize_space_id" \
+           "$vp" -c '
 import yaml, os
-with open('${CONFIG_FILE}') as f:
+
+config_file = os.environ["_CFG_FILE"]
+harness_name = os.environ["_HARNESS"]
+project_name = os.environ["_PROJECT"]
+per_harness = os.environ.get("_PER_HARNESS") == "true"
+
+with open(config_file) as f:
     config = yaml.safe_load(f) or {}
-config.setdefault('harnesses', {})['${harness_name}'] = {'project_name': '${harness_name}'}
-fd = os.open('${CONFIG_FILE}', os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-with os.fdopen(fd, 'w') as f:
+
+harness_entry = config.setdefault("harnesses", {}).setdefault(harness_name, {})
+harness_entry["project_name"] = project_name
+
+if per_harness:
+    backend_target = os.environ["_BACKEND"]
+    harness_backend = harness_entry.setdefault("backend", {})
+    harness_backend["target"] = backend_target
+    if backend_target == "phoenix":
+        harness_backend["phoenix"] = {
+            "endpoint": os.environ["_PHOENIX_EP"],
+            "api_key": os.environ["_PHOENIX_KEY"],
+        }
+    elif backend_target == "arize":
+        harness_backend["arize"] = {
+            "endpoint": os.environ["_ARIZE_EP"],
+            "api_key": os.environ["_ARIZE_KEY"],
+            "space_id": os.environ["_ARIZE_SPACE"],
+        }
+
+fd = os.open(config_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as f:
     yaml.safe_dump(config, f, default_flow_style=False, sort_keys=False)
-" 2>/dev/null; then
+' 2>/dev/null; then
             info "Added harness '${harness_name}' to ${CONFIG_FILE}"
             return 0
         fi
@@ -384,15 +420,35 @@ with os.fdopen(fd, 'w') as f:
 
     local harnesses_yaml="harnesses: {}"
     if [[ -n "$harness_name" ]]; then
-        harnesses_yaml="harnesses:
+        if [[ "$per_harness" == true ]]; then
+            if [[ "$backend_target" == "phoenix" ]]; then
+                harnesses_yaml="harnesses:
   ${harness_name}:
-    project_name: \"${harness_name}\""
+    project_name: \"${project_name}\"
+    backend:
+      target: \"phoenix\"
+      phoenix:
+        endpoint: \"${phoenix_endpoint}\"
+        api_key: \"${phoenix_api_key}\""
+            else
+                harnesses_yaml="harnesses:
+  ${harness_name}:
+    project_name: \"${project_name}\"
+    backend:
+      target: \"arize\"
+      arize:
+        endpoint: \"${arize_endpoint}\"
+        api_key: \"${arize_api_key}\"
+        space_id: \"${arize_space_id}\""
+            fi
+        else
+            harnesses_yaml="harnesses:
+  ${harness_name}:
+    project_name: \"${project_name}\""
+        fi
     fi
 
     cat > "$CONFIG_FILE" <<CFGEOF
-collector:
-  host: "127.0.0.1"
-  port: ${collector_port}
 backend:
   target: "${backend_target}"
   phoenix:
@@ -409,86 +465,95 @@ CFGEOF
 }
 
 # ---------------------------------------------------------------------------
-# Collector lifecycle
+# Codex buffer service lifecycle
 # ---------------------------------------------------------------------------
 health_check() {
     local port="${1:-4318}"
     curl -sf --max-time 2 "http://127.0.0.1:${port}/health" >/dev/null 2>&1
 }
 
-stop_collector() {
-    [[ -f "$PID_FILE" ]] || return 0
+_stop_pid_file() {
+    local pid_file="$1"
+    local label="$2"
+    [[ -f "$pid_file" ]] || return 0
     local pid
-    pid=$(cat "$PID_FILE" 2>/dev/null) || { rm -f "$PID_FILE"; return 0; }
-    [[ "$pid" =~ ^[0-9]+$ ]] || { rm -f "$PID_FILE"; return 0; }
+    pid=$(cat "$pid_file" 2>/dev/null) || { rm -f "$pid_file"; return 0; }
+    [[ "$pid" =~ ^[0-9]+$ ]] || { rm -f "$pid_file"; return 0; }
 
     if kill -0 "$pid" 2>/dev/null; then
-        info "Stopping shared collector (PID ${pid})..."
+        info "Stopping ${label} (PID ${pid})..."
         kill "$pid" 2>/dev/null || true
-        # Wait for graceful shutdown (up to 5 seconds)
         local attempts=0
         while kill -0 "$pid" 2>/dev/null && [[ $attempts -lt 50 ]]; do
             sleep 0.1
             attempts=$((attempts + 1))
         done
         if kill -0 "$pid" 2>/dev/null; then
-            warn "Collector did not exit gracefully — sending SIGKILL"
+            warn "${label} did not exit gracefully — sending SIGKILL"
             kill -9 "$pid" 2>/dev/null || true
         fi
     fi
-    rm -f "$PID_FILE"
+    rm -f "$pid_file"
 }
 
-start_collector() {
-    local collector_port="4318"
+stop_codex_buffer() {
+    # Stop legacy collector PID (handles upgrades from old installs)
+    _stop_pid_file "$PID_FILE" "legacy collector"
+    # Stop new buffer service PID
+    _stop_pid_file "$BUFFER_PID_FILE" "buffer service"
+}
+
+start_codex_buffer() {
+    local buffer_port="4318"
+    # Legacy installs may still have collector.port in config
     local cfg_port
     cfg_port=$(cfg_get "collector.port") || true
-    [[ -n "$cfg_port" ]] && collector_port="$cfg_port"
+    [[ -n "$cfg_port" ]] && buffer_port="$cfg_port"
 
     # Check if already running
-    if health_check "$collector_port"; then
-        info "Shared collector is already running"
+    if health_check "$buffer_port"; then
+        info "Codex buffer service is already running"
         return 0
     fi
 
     # Clean stale PID file
-    if [[ -f "$PID_FILE" ]]; then
+    if [[ -f "$BUFFER_PID_FILE" ]]; then
         local old_pid
-        old_pid=$(cat "$PID_FILE" 2>/dev/null) || true
+        old_pid=$(cat "$BUFFER_PID_FILE" 2>/dev/null) || true
         if [[ -n "$old_pid" ]] && ! kill -0 "$old_pid" 2>/dev/null; then
-            rm -f "$PID_FILE"
+            rm -f "$BUFFER_PID_FILE"
         fi
     fi
 
     # Try the venv entry point first
     local ctl
-    ctl=$(venv_bin "arize-collector-ctl")
+    ctl=$(venv_bin "arize-codex-buffer")
     if [[ -f "$ctl" ]]; then
         if "$ctl" start >/dev/null 2>&1; then
-            info "Shared collector started (listening on 127.0.0.1:${collector_port})"
+            info "Codex buffer service started (listening on 127.0.0.1:${buffer_port})"
             return 0
         fi
     fi
 
-    # Fallback: launch collector.py directly
-    local collector_py="${INSTALL_DIR}/core/collector.py"
+    # Fallback: launch codex_buffer.py directly
+    local buffer_py="${INSTALL_DIR}/core/codex_buffer.py"
     local vp
     vp=$(venv_python 2>/dev/null) || true
-    if [[ -z "$vp" || ! -f "$collector_py" ]]; then
-        warn "Could not find collector runtime — collector will not start"
+    if [[ -z "$vp" || ! -f "$buffer_py" ]]; then
+        warn "Could not find buffer service runtime — buffer service will not start"
         return 1
     fi
 
     mkdir -p "$PID_DIR" "$LOG_DIR"
-    info "Starting shared collector..."
-    nohup "$vp" "$collector_py" >> "$COLLECTOR_LOG_FILE" 2>&1 &
+    info "Starting Codex buffer service..."
+    nohup "$vp" "$buffer_py" >> "$BUFFER_LOG_FILE" 2>&1 &
     local bg_pid=$!
 
     # Wait for health (up to 3 seconds)
     local attempts=0
     while [[ $attempts -lt 30 ]]; do
-        if health_check "$collector_port"; then
-            info "Shared collector started (listening on 127.0.0.1:${collector_port})"
+        if health_check "$buffer_port"; then
+            info "Codex buffer service started (listening on 127.0.0.1:${buffer_port})"
             return 0
         fi
         sleep 0.1
@@ -496,50 +561,53 @@ start_collector() {
     done
 
     if kill -0 "$bg_pid" 2>/dev/null; then
-        warn "Collector did not become healthy within 3 seconds"
-        warn "Check logs at ${COLLECTOR_LOG_FILE} for details"
+        warn "Buffer service did not become healthy within 3 seconds"
+        warn "Check logs at ${BUFFER_LOG_FILE} for details"
         return 0
     fi
 
-    warn "Failed to start collector (process exited)"
+    warn "Failed to start buffer service (process exited)"
     return 1
 }
 
 # ---------------------------------------------------------------------------
-# Collector launcher script
+# Codex buffer launcher script
 # ---------------------------------------------------------------------------
-write_collector_launcher() {
+write_buffer_launcher() {
     local python_cmd="$1"
     mkdir -p "$BIN_DIR"
 
     local launcher_python
     launcher_python=$(venv_python 2>/dev/null) || launcher_python="$python_cmd"
-    local collector_src="${INSTALL_DIR}/core/collector.py"
+    local buffer_src="${INSTALL_DIR}/core/codex_buffer.py"
 
-    cat > "$COLLECTOR_BIN" <<BINEOF
+    cat > "$BUFFER_BIN" <<BINEOF
 #!${launcher_python}
-# Arize Agent Kit — shared collector launcher
+# Arize Agent Kit — Codex buffer service launcher
 # Auto-generated by install.sh. Do not edit manually.
 import runpy, sys
-sys.argv[0] = '${collector_src}'
-runpy.run_path('${collector_src}', run_name="__main__")
+sys.argv[0] = '${buffer_src}'
+runpy.run_path('${buffer_src}', run_name="__main__")
 BINEOF
-    chmod +x "$COLLECTOR_BIN"
-    info "Installed collector launcher at ${COLLECTOR_BIN}"
+    chmod +x "$BUFFER_BIN"
+    info "Installed buffer launcher at ${BUFFER_BIN}"
 }
 
 # ---------------------------------------------------------------------------
 # Backend credential collection
 # ---------------------------------------------------------------------------
 collect_backend_credentials() {
+    local harness_name="${1:-}"
+
     # Defaults — set as globals so caller can read them
     CRED_PHOENIX_ENDPOINT="http://localhost:6006"
     CRED_PHOENIX_API_KEY=""
     CRED_ARIZE_API_KEY=""
     CRED_ARIZE_SPACE_ID=""
     CRED_ARIZE_ENDPOINT="otlp.arize.com:443"
-    CRED_COLLECTOR_PORT=4318
+    CRED_BUFFER_PORT=4318
     CRED_BACKEND_TARGET=""
+    CRED_PER_HARNESS=false
 
     # Detect from environment
     if [[ -n "${ARIZE_API_KEY:-}" && -n "${ARIZE_SPACE_ID:-}" ]]; then
@@ -551,6 +619,24 @@ collect_backend_credentials() {
         CRED_BACKEND_TARGET="phoenix"
         CRED_PHOENIX_ENDPOINT="$PHOENIX_ENDPOINT"
         [[ -n "${PHOENIX_API_KEY:-}" ]] && CRED_PHOENIX_API_KEY="$PHOENIX_API_KEY"
+    fi
+
+    # If global backend already configured, offer reuse
+    local existing_backend=""
+    existing_backend=$(cfg_get "backend.target") || true
+    if [[ -n "$existing_backend" && -n "$_tty_in" && -z "$CRED_BACKEND_TARGET" ]]; then
+        echo ""
+        info "Existing backend: ${existing_backend}"
+        local override
+        read -rp "  Use different backend for ${harness_name}? [y/N]: " override < "$_tty_in"
+        if [[ "$override" =~ ^[Yy] ]]; then
+            CRED_PER_HARNESS=true
+            # Fall through to interactive prompt below
+        else
+            CRED_PER_HARNESS=false
+            CRED_BACKEND_TARGET="$existing_backend"
+            return 0
+        fi
     fi
 
     # Interactive prompt if not detected
@@ -595,14 +681,17 @@ collect_backend_credentials() {
                 ;;
         esac
 
-        echo ""
-        local port_str
-        read -rp "  Collector port [${CRED_COLLECTOR_PORT}]: " port_str < "$_tty_in"
-        if [[ -n "$port_str" ]]; then
-            if [[ "$port_str" =~ ^[0-9]+$ ]]; then
-                CRED_COLLECTOR_PORT="$port_str"
-            else
-                warn "Invalid port '${port_str}', using default ${CRED_COLLECTOR_PORT}"
+        # Buffer port prompt only for Codex
+        if [[ "$harness_name" == "codex" ]]; then
+            echo ""
+            local port_str
+            read -rp "  Buffer service port [${CRED_BUFFER_PORT}]: " port_str < "$_tty_in"
+            if [[ -n "$port_str" ]]; then
+                if [[ "$port_str" =~ ^[0-9]+$ ]]; then
+                    CRED_BUFFER_PORT="$port_str"
+                else
+                    warn "Invalid port '${port_str}', using default ${CRED_BUFFER_PORT}"
+                fi
             fi
         fi
     fi
@@ -622,12 +711,24 @@ collect_backend_credentials() {
     fi
 }
 
+collect_project_name() {
+    local harness_name="$1"
+    local default_name="$harness_name"
+    CRED_PROJECT_NAME="$default_name"
+
+    if [[ -n "$_tty_in" ]]; then
+        local name
+        read -rp "  Set project name (default: ${default_name}): " name < "$_tty_in"
+        if [[ -n "$name" ]]; then CRED_PROJECT_NAME="$name"; fi
+    fi
+}
+
 # ---------------------------------------------------------------------------
-# Shared collector setup (orchestrates venv, config, launcher, start)
+# Shared runtime setup (orchestrates venv, config, and optionally buffer service)
 # ---------------------------------------------------------------------------
-setup_shared_collector() {
+setup_shared_runtime() {
     local harness_name="${1:-}"
-    header "Setting up shared background collector"
+    header "Setting up shared runtime"
 
     mkdir -p "$BIN_DIR" "$PID_DIR" "$LOG_DIR"
 
@@ -646,35 +747,40 @@ setup_shared_collector() {
         fi
     fi
 
-    if [[ -n "$existing_backend" ]]; then
-        CRED_BACKEND_TARGET="$existing_backend"
+    # Always call collect_backend_credentials so the user gets the
+    # per-harness override prompt when a global backend already exists.
+    collect_backend_credentials "$harness_name"
+
+    if [[ -n "$existing_backend" && "$CRED_PER_HARNESS" != true ]]; then
         info "Existing backend config found (${existing_backend}) — adding harness entry"
         if [[ -n "$harness_name" ]]; then
             defer_harness_merge=true
         fi
-    else
-        collect_backend_credentials
     fi
+
+    # Collect project name for this harness
+    collect_project_name "$harness_name"
 
     # Find Python
     local python_cmd
     python_cmd=$(find_python) || {
         warn "No Python 3.9+ interpreter found"
-        warn "Install Python 3 and re-run the installer to start the collector"
+        warn "Install Python 3 and re-run the installer"
         if [[ -z "$existing_backend" ]]; then
-            write_config "$CRED_BACKEND_TARGET" "$harness_name" "$CRED_COLLECTOR_PORT" \
+            write_config "$CRED_BACKEND_TARGET" "$harness_name" \
                 "$CRED_PHOENIX_ENDPOINT" "$CRED_PHOENIX_API_KEY" \
-                "$CRED_ARIZE_API_KEY" "$CRED_ARIZE_SPACE_ID" "$CRED_ARIZE_ENDPOINT"
+                "$CRED_ARIZE_API_KEY" "$CRED_ARIZE_SPACE_ID" "$CRED_ARIZE_ENDPOINT" \
+                "$CRED_PROJECT_NAME" "$CRED_PER_HARNESS"
         fi
         return 0
     }
     info "Found Python: ${python_cmd} ($("$python_cmd" --version 2>&1))"
 
-    local collector_src="${INSTALL_DIR}/core/collector.py"
+    local buffer_src="${INSTALL_DIR}/core/codex_buffer.py"
     local pyproject="${INSTALL_DIR}/pyproject.toml"
 
     # Venv + package install are required for Claude/Codex/Cursor hooks even when the
-    # collector module is absent from this checkout.
+    # buffer module is absent from this checkout.
     if [[ -f "$pyproject" ]]; then
         setup_venv "$python_cmd" "$CRED_BACKEND_TARGET" || {
             warn "Venv setup failed — hooks and config CLI may not work"
@@ -685,30 +791,51 @@ setup_shared_collector() {
     fi
 
     # Write/update config
-    if [[ -n "$existing_backend" ]]; then
-        # Deferred harness merge (now that venv with pyyaml exists)
-        if [[ "$defer_harness_merge" == true ]]; then
-            local vp
-            vp=$(venv_python 2>/dev/null) || true
-            if [[ -n "$vp" ]]; then
-                cfg_set "harnesses.${harness_name}.project_name" "${harness_name}"
-                info "Added harness '${harness_name}' to ${CONFIG_FILE}"
-            else
-                warn "Could not add harness '${harness_name}' to config — venv not available"
+    if [[ "$defer_harness_merge" == true ]]; then
+        # Existing global config — merge harness entry (now that venv with pyyaml exists)
+        local vp
+        vp=$(venv_python 2>/dev/null) || true
+        if [[ -n "$vp" ]]; then
+            cfg_set "harnesses.${harness_name}.project_name" "${CRED_PROJECT_NAME}"
+            info "Added harness '${harness_name}' to ${CONFIG_FILE}"
+        else
+            warn "Could not add harness '${harness_name}' to config — venv not available"
+        fi
+    elif [[ "$CRED_PER_HARNESS" == true && -n "$existing_backend" ]]; then
+        # User chose per-harness override — write per-harness backend block
+        local vp
+        vp=$(venv_python 2>/dev/null) || true
+        if [[ -n "$vp" ]]; then
+            cfg_set "harnesses.${harness_name}.project_name" "${CRED_PROJECT_NAME}"
+            cfg_set "harnesses.${harness_name}.backend.target" "${CRED_BACKEND_TARGET}"
+            if [[ "$CRED_BACKEND_TARGET" == "phoenix" ]]; then
+                cfg_set "harnesses.${harness_name}.backend.phoenix.endpoint" "${CRED_PHOENIX_ENDPOINT}"
+                cfg_set "harnesses.${harness_name}.backend.phoenix.api_key" "${CRED_PHOENIX_API_KEY}"
+            elif [[ "$CRED_BACKEND_TARGET" == "arize" ]]; then
+                cfg_set "harnesses.${harness_name}.backend.arize.endpoint" "${CRED_ARIZE_ENDPOINT}"
+                cfg_set "harnesses.${harness_name}.backend.arize.api_key" "${CRED_ARIZE_API_KEY}"
+                cfg_set "harnesses.${harness_name}.backend.arize.space_id" "${CRED_ARIZE_SPACE_ID}"
             fi
+            info "Added harness '${harness_name}' with per-harness backend to ${CONFIG_FILE}"
+        else
+            warn "Could not add harness '${harness_name}' to config — venv not available"
         fi
     else
-        write_config "$CRED_BACKEND_TARGET" "$harness_name" "${CRED_COLLECTOR_PORT:-4318}" \
+        write_config "$CRED_BACKEND_TARGET" "$harness_name" \
             "${CRED_PHOENIX_ENDPOINT:-http://localhost:6006}" "${CRED_PHOENIX_API_KEY:-}" \
-            "${CRED_ARIZE_API_KEY:-}" "${CRED_ARIZE_SPACE_ID:-}" "${CRED_ARIZE_ENDPOINT:-otlp.arize.com:443}"
+            "${CRED_ARIZE_API_KEY:-}" "${CRED_ARIZE_SPACE_ID:-}" "${CRED_ARIZE_ENDPOINT:-otlp.arize.com:443}" \
+            "${CRED_PROJECT_NAME}" "${CRED_PER_HARNESS:-false}"
     fi
 
-    if [[ -f "$collector_src" ]]; then
-        write_collector_launcher "$python_cmd"
-        start_collector
-    else
-        warn "Collector source not found at ${collector_src} — collector will not start"
-        warn "Use a checkout that includes core/collector.py, or reinstall with --branch / ARIZE_INSTALL_BRANCH"
+    # Only start buffer service for Codex
+    if [[ "$harness_name" == "codex" ]]; then
+        if [[ -f "$buffer_src" ]]; then
+            write_buffer_launcher "$python_cmd"
+            start_codex_buffer
+        else
+            warn "Buffer source not found at ${buffer_src} — buffer service will not start"
+            warn "Use a checkout that includes core/codex_buffer.py, or reinstall with --branch / ARIZE_INSTALL_BRANCH"
+        fi
     fi
 }
 
@@ -748,23 +875,28 @@ setup_claude() {
         exit 1
     fi
 
-    "$vp" -c "
-import json, os, sys
+    _PLUGIN_DIR="$plugin_dir" \
+    _SETTINGS_FILE="$settings_file" \
+    _VENV_BIN_DIR="$venv_bin_dir" \
+    _PROJECT_NAME="$CRED_PROJECT_NAME" \
+    "$vp" -c '
+import json, os
 
-plugin_dir = '${plugin_dir}'
-settings_file = '${settings_file}'
-venv_bin_dir = '${venv_bin_dir}'
+plugin_dir = os.environ["_PLUGIN_DIR"]
+settings_file = os.environ["_SETTINGS_FILE"]
+venv_bin_dir = os.environ["_VENV_BIN_DIR"]
+project_name = os.environ["_PROJECT_NAME"]
 
 CLAUDE_HOOK_EVENTS = {
-    'SessionStart': 'arize-hook-session-start',
-    'UserPromptSubmit': 'arize-hook-user-prompt-submit',
-    'PreToolUse': 'arize-hook-pre-tool-use',
-    'PostToolUse': 'arize-hook-post-tool-use',
-    'Stop': 'arize-hook-stop',
-    'SubagentStop': 'arize-hook-subagent-stop',
-    'Notification': 'arize-hook-notification',
-    'PermissionRequest': 'arize-hook-permission-request',
-    'SessionEnd': 'arize-hook-session-end',
+    "SessionStart": "arize-hook-session-start",
+    "UserPromptSubmit": "arize-hook-user-prompt-submit",
+    "PreToolUse": "arize-hook-pre-tool-use",
+    "PostToolUse": "arize-hook-post-tool-use",
+    "Stop": "arize-hook-stop",
+    "SubagentStop": "arize-hook-subagent-stop",
+    "Notification": "arize-hook-notification",
+    "PermissionRequest": "arize-hook-permission-request",
+    "SessionEnd": "arize-hook-session-end",
 }
 
 # Load existing settings
@@ -778,32 +910,38 @@ else:
     settings = {}
 
 # Add plugin reference
-plugins = settings.setdefault('plugins', [])
+plugins = settings.setdefault("plugins", [])
 has_plugin = any(
     (isinstance(p, str) and p == plugin_dir)
-    or (isinstance(p, dict) and p.get('path') == plugin_dir)
+    or (isinstance(p, dict) and p.get("path") == plugin_dir)
     for p in plugins
 )
 if not has_plugin:
-    plugins.append({'type': 'local', 'path': plugin_dir})
+    plugins.append({"type": "local", "path": plugin_dir})
+
+# Ensure ARIZE_PROJECT_NAME is set in env block so hooks always have a default
+env_block = settings.setdefault("env", {})
+if not env_block.get("ARIZE_PROJECT_NAME"):
+    env_block["ARIZE_PROJECT_NAME"] = project_name
+env_block.setdefault("ARIZE_TRACE_ENABLED", "true")
 
 # Write hooks — use venv entry point paths
-hooks = settings.setdefault('hooks', {})
+hooks = settings.setdefault("hooks", {})
 for event, entry_point in CLAUDE_HOOK_EVENTS.items():
     hook_cmd = os.path.join(venv_bin_dir, entry_point)
     event_hooks = hooks.setdefault(event, [])
     already = any(
-        h.get('command', '') == hook_cmd
+        h.get("command", "") == hook_cmd
         for entry in event_hooks
-        for h in entry.get('hooks', [])
+        for h in entry.get("hooks", [])
     )
     if not already:
-        event_hooks.append({'hooks': [{'type': 'command', 'command': hook_cmd}]})
+        event_hooks.append({"hooks": [{"type": "command", "command": hook_cmd}]})
 
-with open(settings_file, 'w') as f:
+with open(settings_file, "w") as f:
     json.dump(settings, f, indent=2)
-    f.write('\n')
-"
+    f.write("\n")
+'
 
     info "Registered tracing hooks in ${settings_file}"
 
@@ -822,16 +960,7 @@ with open(settings_file, 'w') as f:
     echo ""
     echo -e "  ${BOLD}Tracing:${NC}"
     echo ""
-    if [[ -f "${INSTALL_DIR}/core/collector.py" ]]; then
-        echo "    The shared background collector was started (or is already running) and"
-        echo "    will export spans to your configured backend."
-    else
-        echo "    Collector source was not in this checkout — start it after a full install:"
-        echo "      arize-collector-ctl start"
-        echo "    (Hooks still send spans if the collector is running.)"
-    fi
-    echo ""
-    echo "    View collector logs:     tail -f ${COLLECTOR_LOG_FILE}"
+    echo "    Spans are sent directly to your configured backend."
     echo ""
     info "Setup complete! Test with: ARIZE_DRY_RUN=true claude"
 }
@@ -902,10 +1031,6 @@ with open(hooks_file, 'w') as f:
 
     info "Registered Arize hooks in ${hooks_file}"
 
-    local collector_port
-    collector_port=$(cfg_get "collector.port") || true
-    [[ -z "$collector_port" ]] && collector_port=4318
-
     echo ""
     echo -e "  ${BOLD}Cursor tracing setup complete!${NC}"
     echo ""
@@ -914,6 +1039,7 @@ with open(hooks_file, 'w') as f:
     echo "    - Cursor hooks.json at ${hooks_file}"
     echo "      (12 hook events routing to ${hook_cmd})"
     echo "    - State directory at ${state_dir}"
+    echo "    - Spans are sent directly to your configured backend"
     echo ""
     echo -e "  ${BOLD}Next steps:${NC}"
     echo ""
@@ -998,36 +1124,29 @@ setup_codex() {
         info "Added notify hook to config.toml"
     fi
 
-    # --- 2. Write env file template ---
-    if [[ ! -f "$env_file" ]]; then
-        cat > "$env_file" <<'ENVEOF'
-# Arize Codex tracing environment
-# Source this file in your shell profile or export vars before running codex.
-#
-# Uncomment and set the variables for your backend:
-
-# Common
-export ARIZE_TRACE_ENABLED=true
-# export ARIZE_PROJECT_NAME=codex
-# export ARIZE_USER_ID=
-
-# Phoenix (self-hosted)
-# export PHOENIX_ENDPOINT=http://localhost:6006
-
-# Arize AX (cloud)
-# export ARIZE_API_KEY=
-# export ARIZE_SPACE_ID=
-ENVEOF
-        chmod 600 "$env_file"
-        info "Created env file template at ${env_file}"
-    else
-        info "Env file already exists at ${env_file}"
-    fi
+    # --- 2. Write env file with project name and any collected credentials ---
+    {
+        echo "# Arize Codex tracing environment (auto-generated by install.sh)"
+        echo "export ARIZE_TRACE_ENABLED=true"
+        echo "export ARIZE_PROJECT_NAME=\"${CRED_PROJECT_NAME}\""
+        # Only write credential vars if non-empty (avoids overriding config.yaml)
+        [[ -n "$CRED_PHOENIX_ENDPOINT" && "$CRED_BACKEND_TARGET" == "phoenix" ]] && \
+            echo "export PHOENIX_ENDPOINT=\"${CRED_PHOENIX_ENDPOINT}\""
+        [[ -n "$CRED_PHOENIX_API_KEY" ]] && echo "export PHOENIX_API_KEY=\"${CRED_PHOENIX_API_KEY}\""
+        [[ -n "$CRED_ARIZE_API_KEY" ]] && echo "export ARIZE_API_KEY=\"${CRED_ARIZE_API_KEY}\""
+        [[ -n "$CRED_ARIZE_SPACE_ID" ]] && echo "export ARIZE_SPACE_ID=\"${CRED_ARIZE_SPACE_ID}\""
+        [[ -n "$CRED_ARIZE_ENDPOINT" && "$CRED_BACKEND_TARGET" == "arize" ]] && \
+            echo "export ARIZE_OTLP_ENDPOINT=\"${CRED_ARIZE_ENDPOINT}\""
+        true  # ensure block exits 0 for set -e
+    } > "$env_file"
+    chmod 600 "$env_file"
+    info "Wrote env file to ${env_file}"
 
     # --- 3. Configure OTLP exporter in config.toml ---
-    local collector_port
-    collector_port=$(cfg_get "collector.port") || true
-    [[ -z "$collector_port" ]] && collector_port=4318
+    local buffer_port
+    # Legacy installs may still have collector.port in config
+    buffer_port=$(cfg_get "collector.port") || true
+    [[ -z "$buffer_port" ]] && buffer_port=4318
 
     # Remove old [otel] section if present
     if grep -q '^\[otel' "$codex_config" 2>/dev/null; then
@@ -1045,16 +1164,20 @@ ENVEOF
         sed -i.tmp '/# Arize shared collector/d' "$codex_config"
         rm -f "${codex_config}.tmp"
     fi
+    if grep -q "# Arize Codex buffer service" "$codex_config" 2>/dev/null; then
+        sed -i.tmp '/# Arize Codex buffer service/d' "$codex_config"
+        rm -f "${codex_config}.tmp"
+    fi
 
     cat >> "$codex_config" <<OTELEOF
 
-# Arize shared collector -- captures Codex events for rich span trees
+# Arize Codex buffer service -- captures Codex events for rich span trees
 [otel]
 [otel.exporter.otlp-http]
-endpoint = "http://127.0.0.1:${collector_port}/v1/logs"
+endpoint = "http://127.0.0.1:${buffer_port}/v1/logs"
 protocol = "json"
 OTELEOF
-    info "Added [otel] exporter pointing to shared collector (port ${collector_port})"
+    info "Added [otel] exporter pointing to Codex buffer service (port ${buffer_port})"
 
     # --- 4. Install codex proxy wrapper ---
     local proxy_dir="${HOME}/.local/bin"
@@ -1075,7 +1198,7 @@ OTELEOF
 
         if [[ -f "$proxy_template" ]]; then
             local ctl_cmd
-            ctl_cmd=$(venv_bin "arize-collector-ctl")
+            ctl_cmd=$(venv_bin "arize-codex-buffer")
             sed \
                 -e "s|__REAL_CODEX__|${real_codex_bin}|g" \
                 -e "s|__ARIZE_ENV_FILE__|${env_file}|g" \
@@ -1140,14 +1263,14 @@ PROXYEOF
     echo -e "  ${BOLD}What was configured:${NC}"
     echo ""
     echo "    - Notify hook in ~/.codex/config.toml"
-    echo "    - OTLP exporter in ~/.codex/config.toml (port ${collector_port})"
+    echo "    - OTLP exporter in ~/.codex/config.toml (buffer service port ${buffer_port})"
     if [[ -n "$real_codex_bin" ]]; then
         echo "    - Codex proxy wrapper at ${proxy_path}"
         echo "      (real codex: ${real_codex_bin})"
     fi
     echo "    - Env file template at ${env_file}"
     echo ""
-    echo "    View collector logs:     tail -f ${COLLECTOR_LOG_FILE}"
+    echo "    View buffer service logs: tail -f ${BUFFER_LOG_FILE}"
     echo ""
     info "Setup complete! Test with: ARIZE_DRY_RUN=true codex"
 }
@@ -1200,7 +1323,7 @@ update_install() {
         exit 1
     fi
 
-    stop_collector
+    stop_codex_buffer
 
     if [[ -d "${INSTALL_DIR}/.git" ]]; then
         if ! git_sync_harness_repo "$branch"; then
@@ -1214,27 +1337,34 @@ update_install() {
         install_repo "$branch" "$tarball_url"
     fi
 
-    # Re-install package and restart
-    local collector_src="${INSTALL_DIR}/core/collector.py"
-    if [[ -f "$collector_src" ]]; then
-        local python_cmd
-        python_cmd=$(venv_python 2>/dev/null) || python_cmd=$(find_python 2>/dev/null) || true
-        if [[ -n "$python_cmd" ]]; then
-            # Re-install package to pick up changes
-            local pip
-            pip=$(venv_pip 2>/dev/null) || true
-            if [[ -n "$pip" ]]; then
-                info "Reinstalling package..."
-                "$pip" install --quiet "$INSTALL_DIR" 2>/dev/null || warn "Package reinstall failed"
-            fi
-            write_collector_launcher "$python_cmd"
-        else
-            warn "No Python found — collector will not start"
-            return 0
+    # Re-install package
+    local python_cmd
+    python_cmd=$(venv_python 2>/dev/null) || python_cmd=$(find_python 2>/dev/null) || true
+    if [[ -n "$python_cmd" ]]; then
+        local pip
+        pip=$(venv_pip 2>/dev/null) || true
+        if [[ -n "$pip" ]]; then
+            info "Reinstalling package..."
+            "$pip" install --quiet "$INSTALL_DIR" 2>/dev/null || warn "Package reinstall failed"
+        fi
+    else
+        warn "No Python found"
+    fi
+
+    # Only restart buffer service if Codex is configured
+    local codex_configured
+    codex_configured=$(cfg_get "harnesses.codex.project_name") || true
+    if [[ -n "$codex_configured" ]]; then
+        local buffer_src="${INSTALL_DIR}/core/codex_buffer.py"
+        if [[ -f "$buffer_src" && -n "$python_cmd" ]]; then
+            write_buffer_launcher "$python_cmd"
+            start_codex_buffer
         fi
     fi
 
-    start_collector
+    # Clean up legacy collector artifacts
+    rm -f "$COLLECTOR_BIN" "$PID_FILE" "$COLLECTOR_LOG_FILE"
+
     info "Update complete! Re-run 'install.sh claude', 'install.sh codex', or 'install.sh cursor' to reconfigure harness settings."
 }
 
@@ -1378,7 +1508,7 @@ _uninstall_codex() {
         sed -i.tmp '/^notify.*arize/d' "$codex_config"
         rm -f "${codex_config}.tmp"
 
-        # Remove [otel] sections pointing at localhost collector
+        # Remove [otel] sections pointing at localhost buffer service
         if grep -q '^\[otel' "$codex_config" 2>/dev/null; then
             awk '
                 BEGIN { skip=0 }
@@ -1387,8 +1517,8 @@ _uninstall_codex() {
                 !skip { print }
             ' "$codex_config" > "${codex_config}.tmp" && mv "${codex_config}.tmp" "$codex_config"
         fi
-        # Remove Arize shared collector comment
-        sed -i.tmp '/# Arize shared collector/d' "$codex_config"
+        # Remove Arize shared collector / buffer service comments
+        sed -i.tmp '/# Arize shared collector/d; /# Arize Codex buffer service/d' "$codex_config"
         rm -f "${codex_config}.tmp"
         info "Cleaned up config.toml"
     fi
@@ -1488,9 +1618,9 @@ else:
 do_uninstall() {
     header "Uninstalling arize-agent-kit"
 
-    # Stop collector
-    info "Stopping shared collector..."
-    stop_collector
+    # Stop buffer service and any legacy collector
+    info "Stopping background services..."
+    stop_codex_buffer
 
     # Clean up each harness
     if [[ -d "${INSTALL_DIR}/codex-tracing" ]] || [[ -d "${HOME}/.codex" ]]; then
@@ -1504,10 +1634,11 @@ do_uninstall() {
     info "Checking Claude tracing configuration..."
     cleanup_claude_config
 
-    # Remove shared runtime
-    info "Removing shared collector runtime..."
+    # Remove shared runtime (buffer service + legacy collector artifacts)
+    info "Removing shared runtime..."
+    rm -f "$BUFFER_BIN" "$BUFFER_PID_FILE" "$BUFFER_LOG_FILE"
     rm -f "$COLLECTOR_BIN" "$PID_FILE" "$COLLECTOR_LOG_FILE"
-    [[ -d "$VENV_DIR" ]] && rm -rf "$VENV_DIR" && info "Removed collector venv"
+    [[ -d "$VENV_DIR" ]] && rm -rf "$VENV_DIR" && info "Removed venv"
 
     # Remove empty directories
     rmdir "$BIN_DIR" 2>/dev/null || true
@@ -1592,19 +1723,19 @@ main() {
     case "$cmd" in
         claude)
             install_repo
-            setup_shared_collector "claude-code"
+            setup_shared_runtime "claude-code"
             setup_claude
             [[ "$with_skills" == true ]] && install_skills "claude-code"
             ;;
         codex)
             install_repo
-            setup_shared_collector "codex"
+            setup_shared_runtime "codex"
             setup_codex
             [[ "$with_skills" == true ]] && install_skills "codex"
             ;;
         cursor)
             install_repo
-            setup_shared_collector "cursor"
+            setup_shared_runtime "cursor"
             setup_cursor
             [[ "$with_skills" == true ]] && install_skills "cursor"
             ;;
