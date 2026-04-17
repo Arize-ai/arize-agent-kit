@@ -1,20 +1,16 @@
 # GitHub Copilot Tracing
 
-Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for **GitHub Copilot** sessions. Supports both **VS Code Copilot** (8 hook events with full transcript parsing) and **Copilot CLI** (6 hook events with deferred turns). Every prompt, tool use, agent response, subagent lifecycle, and stop event is captured as a span and exported to [Arize AX](https://arize.com) or [Phoenix](https://github.com/Arize-ai/phoenix).
-
-## Implementation Status
-
-> **Note:** This README documents the planned Copilot tracing integration. The hook handlers (`core/hooks/copilot/`), setup script (`core/setup/copilot.py`), CLI entry points (`arize-hook-copilot-*`), and `install.sh copilot` support are being added in subsequent changes. The plugin directory and documentation are provided first to define the interface contract.
+Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for **GitHub Copilot** sessions. Supports both **VS Code Copilot** (6 hook events with full transcript parsing) and **Copilot CLI** (6 hook events with deferred turns). Every prompt, tool use, agent response, subagent stop, and error event is captured as a span and exported to [Arize AX](https://arize.com) or [Phoenix](https://github.com/Arize-ai/phoenix).
 
 ## Features
 
-- **Dual-mode support**: VS Code Copilot (8 events) and Copilot CLI (6 events) from a single handler
+- **Dual-mode support**: VS Code Copilot and Copilot CLI (6 events each) from a single handler
 - Automatic mode detection — no configuration needed to switch between VS Code and CLI
 - Separate CLI entry points per hook event for clean registration
 - Direct span export to Phoenix (REST) or Arize AX (HTTP) — no background process needed
 - Per-harness backend credential overrides via `harnesses.copilot.backend` in config
 - VS Code mode: full input/output/token capture via transcript parsing at `Stop`
-- VS Code mode: subagent lifecycle tracking (`SubagentStart`/`SubagentStop`)
+- VS Code mode: subagent completion tracking via `SubagentStop`
 - CLI mode: deferred turn completion — spans sent at next `userPromptSubmitted` or `sessionEnd`
 - `ARIZE_USER_ID` support for team-level span attribution
 - Cross-platform: works on macOS, Linux, and Windows (Python 3.9+)
@@ -39,9 +35,7 @@ VS Code Copilot
                                      ├─ UserPromptSubmit    → user prompt span
                                      ├─ PreToolUse          → tool start span + permission response
                                      ├─ PostToolUse         → tool result span
-                                     ├─ SubagentStart       → subagent init span
                                      ├─ SubagentStop        → subagent completion span
-                                     ├─ PreCompact          → context compaction span
                                      └─ Stop                → parse transcript → full I/O + tokens
                                             │
                                             └─ send_span() ──► Phoenix (REST)
@@ -68,31 +62,30 @@ Copilot CLI
 
 ### Automated installer (recommended)
 
-Once Copilot support is fully implemented, the installer will accept `copilot` as a harness argument:
-
 ```bash
 curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- copilot
 ```
 
-The installer will:
-1. Create a virtualenv at `~/.arize/harness/venv`
-2. Install `arize-agent-kit` and CLI entry points
-3. Run the Copilot setup script
-4. Guide you through backend configuration
-
-### Pip install
+Or run locally:
 
 ```bash
-pip install arize-agent-kit
-python -m core.install copilot
+./install.sh copilot
 ```
 
-### Manual
+The installer:
+1. Creates a virtualenv at `~/.arize/harness/venv`
+2. Installs `arize-agent-kit` and CLI entry points
+3. Writes both VS Code (`copilot-tracing.json`) and CLI (`hooks.json`) hook files into `.github/hooks/`
+4. Prompts for backend credentials and project name, writing them to `~/.arize/harness/config.yaml`
+
+### Manual setup
 
 ```bash
 pip install arize-agent-kit
 arize-setup-copilot
 ```
+
+Then register hooks manually — see [Activating Hooks](#activating-hooks) below.
 
 ## Configuration
 
@@ -144,7 +137,7 @@ VS Code uses individual JSON files in `.github/hooks/` for each hook event. If y
 }
 ```
 
-Register all 8 events by creating a file for each: `session-start.json`, `user-prompt.json`, `pre-tool.json`, `post-tool.json`, `stop.json`, `subagent-start.json`, `subagent-stop.json`, `pre-compact.json`.
+Register all 6 VS Code events by creating a file for each: `session-start.json`, `user-prompt.json`, `pre-tool.json`, `post-tool.json`, `stop.json`, `subagent-stop.json`.
 
 > **Note:** VS Code auto-converts CLI camelCase event names to PascalCase. Each event maps to its own CLI entry point.
 
@@ -189,9 +182,7 @@ Copilot CLI uses a single `.github/hooks/hooks.json` file with version 1 format:
 | `PreToolUse` / `preToolUse` | Both | Tool: {name} | TOOL | Tool invocation start; **must print permission response to stdout** |
 | `PostToolUse` / `postToolUse` | Both | Tool: {name} | TOOL | Tool result; VS Code uses `tool_response`, CLI uses `toolResult.textResultForLlm` |
 | `Stop` | VS Code only | Agent Stop | LLM | Per-turn completion with `transcript_path` — parses full input/output/tokens |
-| `SubagentStart` | VS Code only | Subagent: {id} | CHAIN | Subagent lifecycle start with `agent_id` and `agent_type` |
-| `SubagentStop` | VS Code only | Subagent: {id} | CHAIN | Subagent lifecycle end with completion status |
-| `PreCompact` | VS Code only | Context Compact | CHAIN | Context window compaction triggered by `trigger` field |
+| `SubagentStop` | VS Code only | Subagent: {id} | CHAIN | Subagent completion with `agent_id` and `agent_type` |
 | `errorOccurred` | CLI only | Error | CHAIN | Error event with `message`, `name`, and `stack` |
 | `sessionEnd` | CLI only | Session End | CHAIN | Session termination; flushes deferred turn; includes `reason` |
 
@@ -216,7 +207,7 @@ All other handlers print `{"continue": true}` in VS Code mode and nothing in CLI
 The handler automatically detects VS Code vs CLI by checking for VS Code-specific base fields:
 
 ```python
-def _is_vscode(input_json: dict) -> bool:
+def is_vscode_mode(input_json: dict) -> bool:
     return bool(input_json.get("sessionId") or input_json.get("hookEventName"))
 ```
 
@@ -258,7 +249,7 @@ Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.
 | **Spans missing output/tokens** | Verify `Stop` hook is registered and `transcript_path` is present in the payload. Transcript parsing is required for full I/O capture |
 | **Hooks not firing** | Verify `.github/hooks/*.json` files exist in your project root and the `command` paths are correct (absolute path to venv binary) |
 | **PreToolUse blocking tools** | Check that the handler prints the correct permission JSON to stdout. Verify with: `echo '{"hookEventName":"PreToolUse","tool_name":"test"}' \| arize-hook-copilot-pre-tool` |
-| **Subagent spans missing** | `SubagentStart`/`SubagentStop` are VS Code only. Verify both hooks are registered in `.github/hooks/` |
+| **Subagent spans missing** | `SubagentStop` is VS Code only. Verify the hook is registered in `.github/hooks/subagent-stop.json` |
 
 ### Copilot CLI
 
@@ -285,15 +276,15 @@ copilot-tracing/
   README.md
 ```
 
-Setup will be provided by the `arize-setup-copilot` CLI entry point (defined in `core/setup/copilot.py`, not yet implemented).
+Setup is provided by the `arize-setup-copilot` CLI entry point (defined in [core/setup/copilot.py](../core/setup/copilot.py)).
 
-Hook logic will live in `core/` at the repository root (installed as a Python package):
+Hook logic lives in `core/` at the repository root (installed as a Python package):
 
 ```
 core/
   hooks/copilot/
     adapter.py       Copilot-specific session resolution, dual-mode detection
-    handlers.py      Per-event handler functions for all 8 VS Code + 6 CLI events
+    handlers.py      Per-event handler functions for all 6 VS Code + 6 CLI events
   common.py          Shared: span building, direct send, state, logging, IDs
   config.py          YAML config helper
   constants.py       Single source of truth for all paths
@@ -310,9 +301,7 @@ Each hook event has a dedicated CLI entry point:
 | `arize-hook-copilot-pre-tool` | `PreToolUse` | `preToolUse` |
 | `arize-hook-copilot-post-tool` | `PostToolUse` | `postToolUse` |
 | `arize-hook-copilot-stop` | `Stop` | -- |
-| `arize-hook-copilot-subagent-start` | `SubagentStart` | -- |
 | `arize-hook-copilot-subagent-stop` | `SubagentStop` | -- |
-| `arize-hook-copilot-pre-compact` | `PreCompact` | -- |
 | `arize-hook-copilot-error` | -- | `errorOccurred` |
 | `arize-hook-copilot-session-end` | -- | `sessionEnd` |
 
