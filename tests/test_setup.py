@@ -12,6 +12,13 @@ import pytest
 import yaml
 
 
+@pytest.fixture(autouse=True)
+def _isolate_cwd(tmp_path, monkeypatch):
+    """Run every test under tmp_path so cwd-relative writes (e.g. .github/hooks
+    from copilot install) don't leak into the project directory."""
+    monkeypatch.chdir(tmp_path)
+
+
 def _patched_path_class(tmp_path):
     """Create a Path subclass that redirects home() and relative .claude/ to tmp_path."""
     _real_path = Path
