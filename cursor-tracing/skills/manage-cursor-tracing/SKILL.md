@@ -1,5 +1,5 @@
 ---
-name: setup-cursor-tracing
+name: manage-cursor-tracing
 description: Set up and configure Arize tracing for Cursor IDE sessions. Use when users want to set up tracing, configure Arize AX or Phoenix for Cursor, enable/disable tracing, or troubleshoot tracing issues. Triggers on "set up cursor tracing", "configure Arize for Cursor", "configure Phoenix for Cursor", "enable cursor tracing", "setup-cursor-tracing", or any request about connecting Cursor to Arize or Phoenix for observability.
 ---
 

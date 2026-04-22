@@ -1,5 +1,5 @@
 ---
-name: setup-claude-code-tracing
+name: manage-claude-code-tracing
 description: Set up and configure Arize tracing for Claude Code sessions or Agent SDK applications. Use when users want to set up tracing, configure Arize AX or Phoenix, create a new Arize project, get an API key, enable/disable tracing, or troubleshoot tracing issues. Triggers on "set up tracing", "configure Arize", "configure Phoenix", "enable tracing", "setup-claude-code-tracing", "create Arize project", "get Arize API key", "agent sdk tracing", or any request about connecting Claude Code or the Agent SDK to Arize or Phoenix for observability.
 ---
 
