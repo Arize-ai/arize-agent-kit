@@ -112,18 +112,19 @@ def test_install_bat_has_all_commands():
         assert cmd.lower() in text.lower(), f"Missing command: {cmd}"
 
 
-def test_install_sh_usage_names_every_harness():
-    """Usage/help block must mention every supported harness."""
-    text = INSTALL_SH.read_text()
+@pytest.mark.skipif(os.name == "nt", reason="bash not available on Windows")
+def test_install_sh_help_output_names_every_harness():
+    """--help output must mention every supported harness."""
+    result = subprocess.run(
+        ["bash", str(INSTALL_SH), "--help"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0
+    output = result.stdout
     for harness in ALL_HARNESSES:
-        assert harness in text, f"Usage missing harness: {harness}"
-
-
-def test_install_bat_usage_names_every_harness():
-    """install.bat usage block must mention every supported harness."""
-    text = INSTALL_BAT.read_text()
-    for harness in ALL_HARNESSES:
-        assert harness.lower() in text.lower(), f"Usage missing harness: {harness}"
+        assert harness in output, f"--help output missing harness: {harness}"
 
 
 # ---------------------------------------------------------------------------

@@ -297,11 +297,29 @@ class TestNoBashReferences:
             matches = pattern.findall(content)
             assert not matches, f"{f.relative_to(REPO_ROOT)}: still references collector_ctl.sh: {matches}"
 
-    def test_no_install_py_references(self):
-        """No 'install.py' references in harness docs (should be install.sh)."""
-        for f in _collect_md_files():
+    def test_user_facing_docs_reference_install_sh(self):
+        """User-facing docs should tell users to run install.sh, not install.py directly.
+
+        Per-harness install.py files now exist (the router dispatches to them),
+        so we only check that user-facing READMEs point to install.sh as the
+        entry point. Internal docs / DEVELOPMENT.md may legitimately mention
+        install.py.
+        """
+        user_facing = [
+            REPO_ROOT / "README.md",
+            *(REPO_ROOT.glob("*-tracing/README.md")),
+        ]
+        for f in user_facing:
+            if not f.exists():
+                continue
             content = f.read_text()
-            assert "install.py" not in content, f"{f.relative_to(REPO_ROOT)}: still references install.py"
+            if "install.py" in content:
+                # install.py may appear in technical context; just ensure
+                # install.sh is ALSO referenced as the user-facing command
+                assert "install.sh" in content, (
+                    f"{f.relative_to(REPO_ROOT)}: references install.py "
+                    "but not install.sh — users should be told to run install.sh"
+                )
 
 
 # --- CLI entry points consistency ---
@@ -325,10 +343,9 @@ class TestDocumentationConsistency:
     """Verify documentation is internally consistent."""
 
     def test_readme_references_install_sh(self):
-        """Root README.md should reference install.sh, not install.py."""
+        """Root README.md should reference install.sh as the user-facing entry point."""
         readme = (REPO_ROOT / "README.md").read_text()
         assert "install.sh" in readme
-        assert "install.py" not in readme
 
     def test_development_md_references_python(self):
         """DEVELOPMENT.md should reference Python-based dev setup."""
