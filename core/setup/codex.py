@@ -1,16 +1,54 @@
 #!/usr/bin/env python3
 """Arize Codex Tracing Plugin - Interactive Setup.
 
-Replaces codex-tracing/scripts/setup.sh.
 Writes config.yaml, ~/.codex/arize-env.sh, and ~/.codex/config.toml.
+
+The ``arize-setup-codex`` entry point calls ``main()`` here, which runs the
+legacy interactive wizard.  The new ``codex-tracing/install.py`` module
+provides the decomposed ``install()`` / ``uninstall()`` API used by the
+shell router.  ``install()`` and ``uninstall()`` below delegate to it.
 """
 
+import importlib.util
 import os
 import sys
 from pathlib import Path
 
 from core.config import get_value, load_config, save_config, set_value
 from core.setup import err, info, print_color, prompt_backend, prompt_project_name, prompt_user_id, write_config
+
+
+# ---------------------------------------------------------------------------
+# Delegation to codex-tracing/install.py
+# ---------------------------------------------------------------------------
+
+def _load_codex_install():
+    """Import codex-tracing/install.py by file path (hyphenated dir)."""
+    install_py = Path(__file__).resolve().parent.parent / "codex-tracing" / "install.py"
+    spec = importlib.util.spec_from_file_location("codex_tracing_install", install_py)
+    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
+_codex_mod = None
+
+
+def _get_codex_mod():
+    global _codex_mod
+    if _codex_mod is None:
+        _codex_mod = _load_codex_install()
+    return _codex_mod
+
+
+def install(with_skills: bool = False) -> None:
+    """Delegate to codex-tracing/install.py install()."""
+    _get_codex_mod().install(with_skills=with_skills)
+
+
+def uninstall() -> None:
+    """Delegate to codex-tracing/install.py uninstall()."""
+    _get_codex_mod().uninstall()
 
 
 def _write_env_file(env_path: Path, target: str, credentials: dict, project_name: str = "codex") -> None:
