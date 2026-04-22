@@ -160,6 +160,25 @@ harness_dir() {
     esac
 }
 
+install_harness() {
+    local cmd="$1" skills="$2"
+    local dir; dir=$(harness_dir "$cmd") || { err "Unknown harness: ${cmd}"; usage; exit 1; }
+    header "Installing ${cmd} tracing"
+    local python_cmd; python_cmd=$(find_python) || { err "No Python 3.9+ found"; exit 1; }
+    info "Found Python: ${python_cmd} ($("$python_cmd" --version 2>&1))"
+    install_repo
+    setup_venv "$python_cmd"
+    local vp; vp=$(venv_python) || { err "Venv python not found after setup"; exit 1; }
+    local install_py="${INSTALL_DIR}/${dir}/install.py"
+    [[ -f "$install_py" ]] || { err "Harness install script not found: ${install_py}"; exit 1; }
+    if [[ "$skills" == true ]]; then
+        "$vp" "$install_py" install --with-skills
+    else
+        "$vp" "$install_py" install
+    fi
+    info "Setup complete!"
+}
+
 usage() {
     cat <<'EOF'
 
