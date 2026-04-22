@@ -225,18 +225,16 @@ def _codex_toml_remove(path: Path, notify_cmd: str, otel_endpoint: str) -> None:
         changed = True
 
     # Remove otel exporter only if it points at our endpoint
-    otel = data.get("otel", {})
-    exporter = otel.get("exporter", {})
-    otlp_http = exporter.get("otlp-http", {})
-    if isinstance(otlp_http, dict) and otlp_http.get("endpoint") == otel_endpoint:
-        del exporter["otlp-http"]
-        changed = True
-        # Clean up empty parents
-        if not exporter:
-            if "exporter" in otel:
-                del otel["exporter"]
-        if "otel" in data and not data["otel"]:
-            del data["otel"]
+    if "otel" in data and "exporter" in data["otel"] and "otlp-http" in data["otel"]["exporter"]:
+        otlp_http = data["otel"]["exporter"]["otlp-http"]
+        if isinstance(otlp_http, dict) and otlp_http.get("endpoint") == otel_endpoint:
+            del data["otel"]["exporter"]["otlp-http"]
+            changed = True
+            # Clean up empty parents
+            if not data["otel"]["exporter"]:
+                del data["otel"]["exporter"]
+            if not data["otel"]:
+                del data["otel"]
 
     if changed:
         _toml_write(data, path)
@@ -274,7 +272,7 @@ def _is_our_env_file(path: Path) -> bool:
         return False
     try:
         text = path.read_text()
-        lines = [l for l in text.strip().splitlines() if l.strip()]
+        lines = [ln for ln in text.strip().splitlines() if ln.strip()]
         if len(lines) > 10:
             return False
         return all(re.match(r"^export ARIZE_", l) for l in lines)

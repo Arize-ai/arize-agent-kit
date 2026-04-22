@@ -209,6 +209,12 @@ class TestInstall:
         env_text = (fake_home / ".codex" / "arize-env.sh").read_text()
         assert "export ARIZE_USER_ID=test-user" in env_text
 
+    def test_install_with_skills_calls_symlink(self, fake_home, mock_buffer, mock_prompts):
+        """install(with_skills=True) calls symlink_skills."""
+        with patch.object(codex_install, "symlink_skills") as m_symlink:
+            codex_install.install(with_skills=True)
+            m_symlink.assert_called_once_with("codex")
+
     def test_install_reuses_existing_backend(self, fake_home, mock_buffer, mock_prompts):
         """Install reuses existing backend config instead of prompting."""
         config_file = fake_home / ".arize" / "harness" / "config.yaml"
