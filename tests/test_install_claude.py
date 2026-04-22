@@ -72,14 +72,24 @@ def _fake_stdout():
     )()
 
 
-def _mock_prompts(monkeypatch):
+PHOENIX_BACKEND = ("phoenix", {"endpoint": "http://localhost:6006", "api_key": ""})
+ARIZE_BACKEND = (
+    "arize",
+    {"endpoint": "otlp.arize.com:443", "api_key": "test-key", "space_id": "test-space"},
+)
+
+
+def _mock_prompts(monkeypatch, backend=None):
     """Patch prompt functions on the install module (where they're bound after import)."""
     import install as claude_install
+
+    if backend is None:
+        backend = PHOENIX_BACKEND
 
     monkeypatch.setattr(
         claude_install,
         "prompt_backend",
-        lambda: ("phoenix", {"endpoint": "http://localhost:6006", "api_key": ""}),
+        lambda: backend,
     )
     monkeypatch.setattr(claude_install, "prompt_project_name", lambda default: default)
     monkeypatch.setattr(claude_install, "prompt_user_id", lambda: "")
@@ -89,11 +99,19 @@ def _mock_prompts(monkeypatch):
 class TestFreshInstall:
     """Fresh install with no existing config."""
 
-    def test_fresh_install_creates_config_and_hooks(self, fake_home, monkeypatch):
+    @pytest.mark.parametrize(
+        "backend,expected_target",
+        [
+            (PHOENIX_BACKEND, "phoenix"),
+            (ARIZE_BACKEND, "arize"),
+        ],
+        ids=["phoenix", "arize"],
+    )
+    def test_fresh_install_creates_config_and_hooks(self, fake_home, monkeypatch, backend, expected_target):
         """With no existing config, install() prompts and writes config.yaml + settings.json."""
         import install as claude_install
 
-        _mock_prompts(monkeypatch)
+        _mock_prompts(monkeypatch, backend=backend)
 
         claude_install.install(with_skills=False)
 
@@ -101,7 +119,7 @@ class TestFreshInstall:
         config_file = fake_home / ".arize" / "harness" / "config.yaml"
         assert config_file.exists()
         config = yaml.safe_load(config_file.read_text())
-        assert config["backend"]["target"] == "phoenix"
+        assert config["backend"]["target"] == expected_target
         assert config["harnesses"]["claude-code"]["project_name"] == "claude-code"
 
         # Check settings.json has plugin + 9 hook events

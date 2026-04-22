@@ -140,34 +140,35 @@ def _unregister_claude_hooks() -> None:
     plugin_dir = str(harness_dir("claude-code"))
 
     # Remove our plugin entries
-    plugins = settings.get("plugins", [])
-    settings["plugins"] = [
-        p
-        for p in plugins
-        if not (
-            (isinstance(p, str) and p == plugin_dir)
-            or (isinstance(p, dict) and p.get("path") == plugin_dir)
-        )
-    ]
-    if not settings["plugins"]:
-        del settings["plugins"]
+    if "plugins" in settings:
+        settings["plugins"] = [
+            p
+            for p in settings["plugins"]
+            if not (
+                (isinstance(p, str) and p == plugin_dir)
+                or (isinstance(p, dict) and p.get("path") == plugin_dir)
+            )
+        ]
+        if not settings["plugins"]:
+            del settings["plugins"]
 
     # Remove our hook entries
-    our_commands = {str(venv_bin(ep)) for ep in HOOK_EVENTS.values()}
-    hooks = settings.get("hooks", {})
-    for event in list(hooks.keys()):
-        event_hooks = hooks[event]
-        filtered = [
-            entry
-            for entry in event_hooks
-            if not all(h.get("command", "") in our_commands for h in entry.get("hooks", []))
-        ]
-        if filtered:
-            hooks[event] = filtered
-        else:
-            del hooks[event]
-    if not hooks and "hooks" in settings:
-        del settings["hooks"]
+    if "hooks" in settings:
+        our_commands = {str(venv_bin(ep)) for ep in HOOK_EVENTS.values()}
+        hooks = settings["hooks"]
+        for event in list(hooks.keys()):
+            event_hooks = hooks[event]
+            filtered = [
+                entry
+                for entry in event_hooks
+                if not all(h.get("command", "") in our_commands for h in entry.get("hooks", []))
+            ]
+            if filtered:
+                hooks[event] = filtered
+            else:
+                del hooks[event]
+        if not hooks:
+            del settings["hooks"]
 
     if dry_run():
         info(f"would remove Claude hooks from {SETTINGS_FILE}")

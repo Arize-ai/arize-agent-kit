@@ -436,21 +436,36 @@ class TestClaudeSetup:
                 main()
             assert exc_info.value.code == 1
 
-    def test_run_phoenix_flow(self, tmp_path, monkeypatch):
-        """Full Claude _run() flow for Phoenix backend writes settings.json and config.yaml."""
-        settings_path = tmp_path / ".claude" / "settings.local.json"
-        config_path = str(tmp_path / "config.yaml")
-
+    def _setup_install_env(self, tmp_path, monkeypatch):
+        """Set up the environment so _run() → install() can resolve all paths."""
         import core.config
+        import core.setup as setup_mod
 
-        monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
+        install_dir = tmp_path / ".arize" / "harness"
+        config_path = install_dir / "config.yaml"
 
-        # Patch path resolution in _run: choice "1" → local settings
-        monkeypatch.setattr("core.setup.claude.Path", _patched_path_class(tmp_path))
+        monkeypatch.setattr(setup_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.setattr(setup_mod, "VENV_DIR", install_dir / "venv")
+        monkeypatch.setattr(setup_mod, "CONFIG_FILE", config_path)
+        monkeypatch.setattr(setup_mod, "BIN_DIR", install_dir / "bin")
+        monkeypatch.setattr(setup_mod, "RUN_DIR", install_dir / "run")
+        monkeypatch.setattr(setup_mod, "LOG_DIR", install_dir / "logs")
+        monkeypatch.setattr(setup_mod, "STATE_DIR", install_dir / "state")
+        monkeypatch.setattr(core.config, "CONFIG_FILE", str(config_path))
 
-        # Inputs: scope=1, backend=1 (Phoenix), endpoint=default, project_name=default, user_id=""
-        inputs = iter(["1", "1", "", "", ""])
-        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+        # Create the harness plugin dir so harness_dir() resolves
+        plugin_dir = install_dir / "claude-code-tracing"
+        plugin_dir.mkdir(parents=True, exist_ok=True)
+
+        # Patch SETTINGS_FILE in install module
+        settings_file = tmp_path / ".claude" / "settings.json"
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-code-tracing"))
+        import install as claude_install
+        import constants as claude_constants
+
+        monkeypatch.setattr(claude_install, "SETTINGS_FILE", settings_file)
+        monkeypatch.setattr(claude_constants, "SETTINGS_FILE", settings_file)
+
         monkeypatch.setattr(
             "sys.stdout",
             type(
@@ -464,58 +479,51 @@ class TestClaudeSetup:
             )(),
         )
 
+        return config_path, settings_file
+
+    def test_run_phoenix_flow(self, tmp_path, monkeypatch):
+        """Full Claude _run() flow for Phoenix backend writes settings.json and config.yaml."""
+        config_path, settings_file = self._setup_install_env(tmp_path, monkeypatch)
+
+        # Inputs: backend=1 (Phoenix), endpoint=default, project_name=default, user_id=""
+        inputs = iter(["1", "", "", ""])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
         from core.setup.claude import _run
 
         _run()
 
-        # settings.json should have Phoenix env vars
-        result = json.loads(settings_path.read_text())
-        assert result["env"]["PHOENIX_ENDPOINT"] == "http://localhost:6006"
-        assert result["env"]["ARIZE_TRACE_ENABLED"] == "true"
-
-        # config.yaml should also be written for the collector
-        config = yaml.safe_load(Path(config_path).read_text())
+        # config.yaml should be written for the collector
+        config = yaml.safe_load(config_path.read_text())
         assert config["backend"]["target"] == "phoenix"
         assert config["harnesses"]["claude-code"]["project_name"] == "claude-code"
 
+        # settings.json should have hooks and env vars
+        result = json.loads(settings_file.read_text())
+        assert result["env"]["ARIZE_TRACE_ENABLED"] == "true"
+        assert result["env"]["ARIZE_PROJECT_NAME"] == "claude-code"
+        assert len(result.get("hooks", {})) == 9
+
     def test_run_arize_flow(self, tmp_path, monkeypatch):
         """Full Claude _run() flow for Arize AX backend."""
-        settings_path = tmp_path / ".claude" / "settings.local.json"
-        config_path = str(tmp_path / "config.yaml")
+        config_path, settings_file = self._setup_install_env(tmp_path, monkeypatch)
 
-        import core.config
-
-        monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
-        monkeypatch.setattr("core.setup.claude.Path", _patched_path_class(tmp_path))
-
-        # Inputs: scope=1, backend=2, api_key, space_id, otlp_endpoint=default, project_name=default, user_id="alice"
-        inputs = iter(["1", "2", "my-key", "my-space", "", "", "alice"])
+        # Inputs: backend=2, api_key, space_id, otlp_endpoint=default, project_name=default, user_id="alice"
+        inputs = iter(["2", "my-key", "my-space", "", "", "alice"])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
-        monkeypatch.setattr(
-            "sys.stdout",
-            type(
-                "FakeOut",
-                (),
-                {
-                    "isatty": lambda self: False,
-                    "write": lambda self, s: None,
-                    "flush": lambda self: None,
-                },
-            )(),
-        )
 
         from core.setup.claude import _run
 
         _run()
 
-        result = json.loads(settings_path.read_text())
-        assert result["env"]["ARIZE_API_KEY"] == "my-key"
-        assert result["env"]["ARIZE_SPACE_ID"] == "my-space"
-        assert result["env"]["ARIZE_OTLP_ENDPOINT"] == "otlp.arize.com:443"
-        assert result["env"]["ARIZE_USER_ID"] == "alice"
-
-        config = yaml.safe_load(Path(config_path).read_text())
+        # config.yaml should be written for the collector
+        config = yaml.safe_load(config_path.read_text())
         assert config["backend"]["target"] == "arize"
+
+        # settings.json should have hooks and env vars
+        result = json.loads(settings_file.read_text())
+        assert result["env"]["ARIZE_TRACE_ENABLED"] == "true"
+        assert len(result.get("hooks", {})) == 9
         assert config["user_id"] == "alice"
 
 
