@@ -65,14 +65,33 @@ exit /b %ERRORLEVEL%
 REM --- cmd_update ---
 :cmd_update
 if not exist "%INSTALL_DIR%" ( echo [arize] Not installed at %INSTALL_DIR% >&2 & exit /b 1 )
+call :find_python
+if "%FOUND_PYTHON%"=="" ( echo [arize] Error: Python 3.9+ is required >&2 & exit /b 1 )
+set "_UPDATE_NEED_VENV=0"
 if exist "%INSTALL_DIR%\.git" (
     echo [arize] Pulling latest changes...
     git -C "%INSTALL_DIR%" pull --ff-only >nul 2>&1
-    if !ERRORLEVEL! neq 0 ( echo [arize] Pull failed — re-cloning & rmdir /s /q "%INSTALL_DIR%" 2>nul & call :find_python & call :bootstrap_repo )
+    if !ERRORLEVEL! neq 0 (
+        echo [arize] Pull failed — re-cloning
+        rmdir /s /q "%INSTALL_DIR%" 2>nul
+        call :bootstrap_repo
+        if !ERRORLEVEL! neq 0 exit /b 1
+        set "_UPDATE_NEED_VENV=1"
+    )
 ) else (
-    rmdir /s /q "%INSTALL_DIR%" 2>nul & call :find_python & call :bootstrap_repo
+    rmdir /s /q "%INSTALL_DIR%" 2>nul
+    call :bootstrap_repo
+    if !ERRORLEVEL! neq 0 exit /b 1
+    set "_UPDATE_NEED_VENV=1"
 )
-if exist "%VENV_PIP%" ( echo [arize] Reinstalling package... & "%VENV_PIP%" install --quiet "%INSTALL_DIR%" >nul 2>&1 )
+REM Re-create venv if it was wiped along with INSTALL_DIR
+if "!_UPDATE_NEED_VENV!"=="1" (
+    call :setup_venv
+    if !ERRORLEVEL! neq 0 exit /b 1
+) else if exist "%VENV_PIP%" (
+    echo [arize] Reinstalling package...
+    "%VENV_PIP%" install --quiet "%INSTALL_DIR%" >nul 2>&1
+)
 if exist "%VENV_PYTHON%" (
     for /f "usebackq delims=" %%H in (`"%VENV_PYTHON%" -c "from core.setup import list_installed_harnesses; [print(h) for h in list_installed_harnesses()]" 2^>nul`) do (
         call :resolve_dir "%%H"
@@ -113,10 +132,12 @@ REM ===================================================================
 REM --- find_python: locate Python >= 3.9 (try py -3, python3, python, then known paths) ---
 :find_python
 set "FOUND_PYTHON="
-for %%P in (py python3 python) do (
+REM Try py -3 first (Windows Python Launcher — ensures Python 3)
+where py >nul 2>&1 && ( py -3 -c "import sys; assert sys.version_info >= (3, 9)" >nul 2>&1 && ( set "FOUND_PYTHON=py -3" & goto :eof ) )
+REM Then python3 and python on PATH
+for %%P in (python3 python) do (
     where %%P >nul 2>&1 && ( %%P -c "import sys; assert sys.version_info >= (3, 9)" >nul 2>&1 && ( set "FOUND_PYTHON=%%P" & goto :eof ) )
 )
-where py >nul 2>&1 && ( py -3 -c "import sys; assert sys.version_info >= (3, 9)" >nul 2>&1 && ( set "FOUND_PYTHON=py -3" & goto :eof ) )
 for %%V in (313 312 311 310 39) do (
     for %%D in ("%LOCALAPPDATA%\Programs\Python\Python%%V\python.exe" "C:\Python%%V\python.exe") do (
         if exist %%~D ( %%~D -c "import sys; assert sys.version_info >= (3, 9)" >nul 2>&1 && ( set "FOUND_PYTHON=%%~D" & goto :eof ) )
@@ -155,6 +176,7 @@ if !ERRORLEVEL! neq 0 (
     mkdir "!TMPDIR!" 2>nul
     powershell -NoProfile -Command "& { $gz=[IO.File]::OpenRead('%TMPZIP%'); $d=New-Object IO.Compression.GZipStream($gz,[IO.Compression.CompressionMode]::Decompress); $f=[IO.File]::Create('!TMPDIR!\a.tar'); $d.CopyTo($f); $f.Close(); $d.Close(); $gz.Close() }" >nul 2>&1
     tar xf "!TMPDIR!\a.tar" --strip-components=1 -C "%INSTALL_DIR%" >nul 2>&1
+    if !ERRORLEVEL! neq 0 ( rmdir /s /q "!TMPDIR!" 2>nul & del "%TMPZIP%" 2>nul & echo [arize] Extraction failed >&2 & exit /b 1 )
     rmdir /s /q "!TMPDIR!" 2>nul
 )
 del "%TMPZIP%" 2>nul
