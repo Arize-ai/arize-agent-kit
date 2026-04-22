@@ -367,21 +367,21 @@ class TestDocumentationConsistency:
 
     def test_cursor_skill_references_cli_entry_points(self):
         """Cursor SKILL.md should use CLI entry points for hooks."""
-        skill = (REPO_ROOT / "cursor-tracing" / "skills" / "setup-cursor-tracing" / "SKILL.md").read_text()
+        skill = (REPO_ROOT / "cursor-tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
         assert "arize-hook-cursor" in skill
         assert "send_span()" in skill
         assert "hook-handler.sh" not in skill
 
     def test_codex_skill_references_cli_entry_points(self):
         """Codex SKILL.md should use CLI entry points."""
-        skill = (REPO_ROOT / "codex-tracing" / "skills" / "setup-codex-tracing" / "SKILL.md").read_text()
+        skill = (REPO_ROOT / "codex-tracing" / "skills" / "manage-codex-tracing" / "SKILL.md").read_text()
         assert "arize-hook-codex-notify" in skill
         assert "arize-codex-buffer" in skill
         assert "notify.sh" not in skill
 
     def test_claude_skill_references_cli_entry_points(self):
         """Claude SKILL.md should use CLI entry points."""
-        skill = (REPO_ROOT / "claude-code-tracing" / "skills" / "setup-claude-code-tracing" / "SKILL.md").read_text()
+        skill = (REPO_ROOT / "claude-code-tracing" / "skills" / "manage-claude-code-tracing" / "SKILL.md").read_text()
         assert "send_span()" in skill
         assert "collector_ctl.sh" not in skill
 
@@ -401,7 +401,7 @@ class TestCodexHookReference:
 
     def test_codex_skill_notify_command(self):
         """Codex SKILL.md notify hook should use the CLI entry point."""
-        skill = (REPO_ROOT / "codex-tracing" / "skills" / "setup-codex-tracing" / "SKILL.md").read_text()
+        skill = (REPO_ROOT / "codex-tracing" / "skills" / "manage-codex-tracing" / "SKILL.md").read_text()
         assert "arize-hook-codex-notify" in skill
 
 
@@ -419,7 +419,7 @@ class TestCursorHookReference:
 
     def test_cursor_skill_hook_command(self):
         """Cursor SKILL.md should show arize-hook-cursor for all 12 events."""
-        skill = (REPO_ROOT / "cursor-tracing" / "skills" / "setup-cursor-tracing" / "SKILL.md").read_text()
+        skill = (REPO_ROOT / "cursor-tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
         # All events should reference the same entry point
         events = [
             "beforeSubmitPrompt",

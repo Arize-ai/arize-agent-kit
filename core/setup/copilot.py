@@ -27,7 +27,7 @@ from core.setup import info, print_color, prompt_backend, prompt_project_name, p
 
 def _load_installer():
     """Lazily import copilot-tracing/install.py (hyphenated dir)."""
-    install_py = Path(__file__).resolve().parent.parent / "copilot-tracing" / "install.py"
+    install_py = Path(__file__).resolve().parent.parent.parent / "copilot-tracing" / "install.py"
     spec = importlib.util.spec_from_file_location("_copilot_install", install_py)
     mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
