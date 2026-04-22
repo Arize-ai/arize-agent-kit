@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 """Arize Claude Code Plugin - Interactive Setup.
 
-Replaces claude-code-tracing/scripts/setup.sh.
-Writes env vars to ~/.claude/settings.json or .claude/settings.local.json.
+Entry point for ``arize-setup-claude``.  The heavy lifting now lives in
+``claude-code-tracing/install.py``; this module is kept for backwards
+compatibility with the existing entry point and for helper functions used
+by tests.
 """
+
+from __future__ import annotations
 
 import json
 import sys
 from pathlib import Path
 
 from core.setup import err, info, print_color, prompt_backend, prompt_project_name, prompt_user_id, write_config
+
+# ---------------------------------------------------------------------------
+# Helper functions preserved for existing tests (test_setup.py::TestClaudeSetup)
+# ---------------------------------------------------------------------------
 
 
 def _ensure_settings_file(settings_path: Path) -> None:
@@ -64,6 +72,11 @@ def _check_existing_configuration(settings_path: Path) -> bool:
         print("")
 
     return True
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 
 def main() -> None:
