@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 from pathlib import Path
 from typing import Optional
@@ -15,7 +14,7 @@ except ImportError:
     sys.stderr.write("error: PyYAML not installed. Install it in the collector venv.\n")
     sys.exit(1)
 
-from core.config import delete_value, get_value, load_config, save_config, set_value
+from core.config import delete_value, load_config, save_config, set_value
 
 # ---------------------------------------------------------------------------
 # Shared path constants
