@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Shared setup utilities for all harness setup wizards."""
 
+from __future__ import annotations
+
 import os
+import shutil
 import sys
+from pathlib import Path
 from typing import Optional
 
 try:
@@ -11,7 +15,27 @@ except ImportError:
     sys.stderr.write("error: PyYAML not installed. Install it in the collector venv.\n")
     sys.exit(1)
 
-from core.config import load_config, save_config, set_value
+from core.config import delete_value, get_value, load_config, save_config, set_value
+
+# ---------------------------------------------------------------------------
+# Shared path constants
+# ---------------------------------------------------------------------------
+
+INSTALL_DIR = Path.home() / ".arize" / "harness"
+VENV_DIR = INSTALL_DIR / "venv"
+CONFIG_FILE = INSTALL_DIR / "config.yaml"
+BIN_DIR = INSTALL_DIR / "bin"
+RUN_DIR = INSTALL_DIR / "run"
+LOG_DIR = INSTALL_DIR / "logs"
+STATE_DIR = INSTALL_DIR / "state"
+
+# Legacy collector artefacts to clean up
+_LEGACY_ARTEFACTS = ("bin/arize-collector", "run/collector.pid", "logs/collector.log")
+
+
+# ---------------------------------------------------------------------------
+# Output helpers (unchanged)
+# ---------------------------------------------------------------------------
 
 
 def print_color(msg: str, color: str = "") -> None:
@@ -45,6 +69,11 @@ def err(msg: str) -> None:
         sys.stderr.write(f"\033[0;31m[arize]\033[0m {msg}\n")
     else:
         sys.stderr.write(f"[arize] {msg}\n")
+
+
+# ---------------------------------------------------------------------------
+# Interactive prompts (unchanged)
+# ---------------------------------------------------------------------------
 
 
 def prompt_backend() -> tuple[str, dict]:
@@ -174,3 +203,202 @@ def write_config(
         set_value(config, "user_id", user_id)
 
     save_config(config, config_path)
+
+
+# ---------------------------------------------------------------------------
+# New shared helpers
+# ---------------------------------------------------------------------------
+
+
+def dry_run() -> bool:
+    """True when ARIZE_DRY_RUN env var is set to a truthy value ('1','true','yes')."""
+    return os.environ.get("ARIZE_DRY_RUN", "").lower() in ("1", "true", "yes")
+
+
+def ensure_shared_runtime() -> None:
+    """Create ~/.arize/harness/{bin,run,logs,state} if missing. Idempotent.
+
+    Also removes any legacy collector artefacts (bin/arize-collector,
+    run/collector.pid, logs/collector.log) left over from pre-buffer-service
+    installs.
+    """
+    install_dir = INSTALL_DIR
+    subdirs = [BIN_DIR, RUN_DIR, LOG_DIR, STATE_DIR]
+
+    for d in subdirs:
+        if not d.exists():
+            if dry_run():
+                info(f"would create {d}")
+            else:
+                d.mkdir(parents=True, exist_ok=True)
+
+    # Remove legacy collector artefacts
+    for rel in _LEGACY_ARTEFACTS:
+        legacy = install_dir / rel
+        if legacy.exists():
+            if dry_run():
+                info(f"would remove legacy artefact {legacy}")
+            else:
+                legacy.unlink()
+
+
+def venv_bin(name: str) -> Path:
+    """Return the full path to a venv binary.
+
+    On POSIX: VENV_DIR/bin/<name>. On Windows: VENV_DIR/Scripts/<name>.exe.
+    Does NOT verify the file exists.
+    """
+    if os.name == "nt":
+        return VENV_DIR / "Scripts" / f"{name}.exe"
+    return VENV_DIR / "bin" / name
+
+
+def merge_harness_entry(
+    name: str,
+    project_name: str,
+    per_harness_backend: dict | None = None,
+) -> None:
+    """Read config.yaml, add/update harnesses.<name>, write back with 0o600.
+
+    If the file doesn't exist yet, create a minimal one with just the harness
+    entry (no backend block).
+    """
+    config_path = str(CONFIG_FILE)
+    config = load_config(config_path)
+
+    if not config:
+        config = {"harnesses": {}}
+
+    set_value(config, f"harnesses.{name}.project_name", project_name)
+
+    if per_harness_backend is not None:
+        set_value(config, f"harnesses.{name}.backend", per_harness_backend)
+
+    if dry_run():
+        info(f"would write harness entry '{name}' to {config_path}")
+        return
+
+    save_config(config, config_path)
+
+
+def remove_harness_entry(name: str) -> None:
+    """Read config.yaml, remove harnesses.<name> if present, write back.
+
+    No-op if the file doesn't exist or the key isn't present.
+    """
+    config_path = str(CONFIG_FILE)
+    config = load_config(config_path)
+
+    if not config:
+        return
+
+    harnesses = config.get("harnesses")
+    if not isinstance(harnesses, dict) or name not in harnesses:
+        return
+
+    if dry_run():
+        info(f"would remove harness entry '{name}' from {config_path}")
+        return
+
+    delete_value(config, f"harnesses.{name}")
+    save_config(config, config_path)
+
+
+def list_installed_harnesses() -> list[str]:
+    """Return the list of keys under harnesses.* in config.yaml.
+
+    Returns empty list if config is missing.
+    """
+    config_path = str(CONFIG_FILE)
+    config = load_config(config_path)
+
+    if not config:
+        return []
+
+    harnesses = config.get("harnesses")
+    if not isinstance(harnesses, dict):
+        return []
+
+    return list(harnesses.keys())
+
+
+def harness_dir(harness: str) -> Path:
+    """Return the absolute path of <install-dir>/<harness>-tracing/.
+
+    Prefers ~/.arize/harness/<harness>-tracing, falls back to
+    ~/.arize/harness/plugins/<harness>-tracing (legacy plugin layout).
+    """
+    primary = INSTALL_DIR / f"{harness}-tracing"
+    if primary.is_dir():
+        return primary
+
+    legacy = INSTALL_DIR / "plugins" / f"{harness}-tracing"
+    if legacy.is_dir():
+        return legacy
+
+    # Default to primary even if it doesn't exist yet
+    return primary
+
+
+def symlink_skills(harness: str, target_dir: Path | None = None) -> None:
+    """Symlink <install-dir>/<harness>-tracing/skills/* into target_dir/.agents/skills/.
+
+    target_dir defaults to the current working directory. Idempotent (skip
+    existing links pointing at the right target). Does nothing if the harness
+    has no skills/ directory.
+    """
+    hdir = harness_dir(harness)
+    skills_src = hdir / "skills"
+
+    if not skills_src.is_dir():
+        return
+
+    if target_dir is None:
+        target_dir = Path.cwd()
+
+    dest = target_dir / ".agents" / "skills"
+
+    if dry_run():
+        for item in skills_src.iterdir():
+            info(f"would symlink {dest / item.name} -> {item}")
+        return
+
+    dest.mkdir(parents=True, exist_ok=True)
+
+    for item in skills_src.iterdir():
+        link = dest / item.name
+        if link.is_symlink():
+            if link.resolve() == item.resolve():
+                continue  # already correct
+            link.unlink()
+        elif link.exists():
+            continue  # regular file — don't overwrite
+        link.symlink_to(item)
+
+
+def unlink_skills(harness: str, target_dir: Path | None = None) -> None:
+    """Remove symlinks created by symlink_skills() for <harness>.
+
+    Only removes symlinks, never regular files. Idempotent.
+    """
+    hdir = harness_dir(harness)
+    skills_src = hdir / "skills"
+
+    if not skills_src.is_dir():
+        return
+
+    if target_dir is None:
+        target_dir = Path.cwd()
+
+    dest = target_dir / ".agents" / "skills"
+
+    if not dest.is_dir():
+        return
+
+    for item in skills_src.iterdir():
+        link = dest / item.name
+        if link.is_symlink():
+            if dry_run():
+                info(f"would unlink {link}")
+            else:
+                link.unlink()
