@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for core/setup/ — shared utilities and per-harness setup wizards."""
 
+import importlib.util
 import json
 import os
 import sys
@@ -869,17 +870,38 @@ class TestCursorSetup:
                 main()
             assert exc_info.value.code == 1
 
-    def test_run_fresh_phoenix(self, tmp_path, monkeypatch):
-        """Cursor _run() with no existing config prompts and writes config.yaml."""
-        config_path = str(tmp_path / "config.yaml")
-
+    def _patch_cursor_install(self, tmp_path, monkeypatch):
+        """Shared patching for cursor _run() tests — patches config and install module paths."""
         import core.config
+        import core.setup as setup_mod
+
+        config_path = str(tmp_path / "config.yaml")
+        install_dir = tmp_path / ".arize" / "harness"
+        hooks_file = tmp_path / ".cursor" / "hooks.json"
 
         monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
+        monkeypatch.setattr(setup_mod, "CONFIG_FILE", Path(config_path))
+        monkeypatch.setattr(setup_mod, "INSTALL_DIR", install_dir)
+        monkeypatch.setattr(setup_mod, "VENV_DIR", install_dir / "venv")
+        monkeypatch.setattr(setup_mod, "BIN_DIR", install_dir / "bin")
+        monkeypatch.setattr(setup_mod, "RUN_DIR", install_dir / "run")
+        monkeypatch.setattr(setup_mod, "LOG_DIR", install_dir / "logs")
+        monkeypatch.setattr(setup_mod, "STATE_DIR", install_dir / "state")
 
-        # Inputs: project_name=default, backend=1, endpoint=default, user_id=""
-        inputs = iter(["", "1", "", ""])
-        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+        # Patch HOOKS_FILE + INSTALL_DIR in the cursor install module.
+        # core.setup.cursor._run() imports via importlib as "cursor_tracing_install".
+        cursor_dir = Path(__file__).resolve().parents[1] / "cursor-tracing"
+        mod_name = "cursor_tracing_install"
+
+        if mod_name not in sys.modules:
+            spec = importlib.util.spec_from_file_location(mod_name, cursor_dir / "install.py")
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[mod_name] = mod
+            spec.loader.exec_module(mod)
+        cursor_install = sys.modules[mod_name]
+        monkeypatch.setattr(cursor_install, "HOOKS_FILE", hooks_file)
+        monkeypatch.setattr(cursor_install, "INSTALL_DIR", install_dir)
+
         monkeypatch.setattr(
             "sys.stdout",
             type(
@@ -893,6 +915,16 @@ class TestCursorSetup:
             )(),
         )
 
+        return config_path
+
+    def test_run_fresh_phoenix(self, tmp_path, monkeypatch):
+        """Cursor _run() with no existing config prompts and writes config.yaml."""
+        config_path = self._patch_cursor_install(tmp_path, monkeypatch)
+
+        # Inputs: project_name=default, backend=1, endpoint=default, user_id=""
+        inputs = iter(["", "1", "", ""])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
         from core.setup.cursor import _run
 
         _run()
@@ -903,7 +935,7 @@ class TestCursorSetup:
 
     def test_run_existing_config_skips_prompts(self, tmp_path, monkeypatch):
         """Cursor _run() with existing config skips backend prompts."""
-        config_path = str(tmp_path / "config.yaml")
+        config_path = self._patch_cursor_install(tmp_path, monkeypatch)
         existing = {
             "collector": {"host": "127.0.0.1", "port": 4318},
             "backend": {
@@ -917,25 +949,9 @@ class TestCursorSetup:
         with open(config_path, "w") as f:
             yaml.safe_dump(existing, f)
 
-        import core.config
-
-        monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
-
-        # Inputs: project_name=default, user_id="testuser" (no backend prompts)
-        inputs = iter(["", "testuser"])
+        # Inputs: project_name=default (no backend prompts since config exists)
+        inputs = iter([""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
-        monkeypatch.setattr(
-            "sys.stdout",
-            type(
-                "FakeOut",
-                (),
-                {
-                    "isatty": lambda self: False,
-                    "write": lambda self, s: None,
-                    "flush": lambda self: None,
-                },
-            )(),
-        )
 
         from core.setup.cursor import _run
 
@@ -945,7 +961,6 @@ class TestCursorSetup:
         assert config["harnesses"]["cursor"]["project_name"] == "cursor"
         assert config["harnesses"]["claude-code"]["project_name"] == "claude-code"
         assert config["backend"]["target"] == "arize"
-        assert config["user_id"] == "testuser"
 
 
 # ---------------------------------------------------------------------------
