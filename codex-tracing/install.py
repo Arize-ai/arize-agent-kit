@@ -1,0 +1,401 @@
+#!/usr/bin/env python3
+"""Codex harness install / uninstall module.
+
+Self-contained module that handles:
+- Writing ~/.codex/arize-env.sh (env file)
+- Updating ~/.codex/config.toml (TOML config with notify + otel exporter)
+- Starting/stopping the codex buffer service
+- Managing the shared config.yaml harness entry
+- Symlinking skills
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import os
+import re
+import sys
+from pathlib import Path
+
+# Load constants from the same directory (codex-tracing/ has a hyphen,
+# so it cannot be imported as a regular package).
+_constants_path = Path(__file__).parent / "constants.py"
+_spec = importlib.util.spec_from_file_location("codex_tracing_constants", _constants_path)
+_constants = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
+_spec.loader.exec_module(_constants)  # type: ignore[union-attr]
+
+HARNESS_NAME: str = _constants.HARNESS_NAME
+CODEX_CONFIG_DIR: Path = _constants.CODEX_CONFIG_DIR
+CODEX_CONFIG_FILE: Path = _constants.CODEX_CONFIG_FILE
+CODEX_ENV_FILE: Path = _constants.CODEX_ENV_FILE
+NOTIFY_BIN_NAME: str = _constants.NOTIFY_BIN_NAME
+BUFFER_PORT: int = _constants.BUFFER_PORT
+OTEL_ENDPOINT: str = _constants.OTEL_ENDPOINT
+
+from core.codex_buffer_ctl import buffer_start, buffer_status, buffer_stop
+from core.config import get_value, load_config
+from core.setup import (
+    CONFIG_FILE,
+    dry_run,
+    ensure_shared_runtime,
+    info,
+    merge_harness_entry,
+    prompt_backend,
+    prompt_project_name,
+    prompt_user_id,
+    remove_harness_entry,
+    symlink_skills,
+    unlink_skills,
+    venv_bin,
+    write_config,
+)
+
+# Try to import tomllib (3.11+), then tomli, then fall back to None
+_tomllib = None
+try:
+    import tomllib as _tomllib  # type: ignore[no-redef]
+except ImportError:
+    try:
+        import tomli as _tomllib  # type: ignore[no-redef]
+    except ImportError:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# TOML helpers
+# ---------------------------------------------------------------------------
+
+
+def _toml_load(path: Path) -> dict:
+    """Load a TOML file into a dict. Falls back to line-based parsing."""
+    if not path.is_file():
+        return {}
+    if _tomllib is not None:
+        return _tomllib.loads(path.read_text())
+    # Minimal line-based fallback for 3.9/3.10 without tomli
+    return _toml_line_parse(path.read_text())
+
+
+def _toml_line_parse(text: str) -> dict:
+    """Minimal TOML parser — handles flat keys and sections for our use case."""
+    result: dict = {}
+    current_section: dict = result
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Section header
+        m = re.match(r"^\[([^\]]+)\]$", line)
+        if m:
+            keys = [k.strip() for k in m.group(1).split(".")]
+            current_section = result
+            for k in keys:
+                if k not in current_section:
+                    current_section[k] = {}
+                current_section = current_section[k]
+            continue
+        # Key = value
+        m = re.match(r'^([^=]+?)\s*=\s*(.+)$', line)
+        if m:
+            key = m.group(1).strip()
+            val_raw = m.group(2).strip()
+            # Handle array values like ["cmd"]
+            if val_raw.startswith("["):
+                items = []
+                for item in re.findall(r'"([^"]*)"', val_raw):
+                    items.append(item)
+                current_section[key] = items
+            elif (val_raw.startswith('"') and val_raw.endswith('"')) or (
+                val_raw.startswith("'") and val_raw.endswith("'")
+            ):
+                current_section[key] = val_raw[1:-1]
+            elif val_raw.lower() in ("true", "false"):
+                current_section[key] = val_raw.lower() == "true"
+            else:
+                try:
+                    current_section[key] = int(val_raw)
+                except ValueError:
+                    current_section[key] = val_raw
+    return result
+
+
+def _toml_write(data: dict, path: Path) -> None:
+    """Write a dict as TOML. Hand-rolled — no tomli-w dependency."""
+    lines: list[str] = []
+    _toml_write_section(data, [], lines)
+    path.write_text("\n".join(lines) + "\n")
+
+
+def _toml_write_section(data: dict, prefix: list[str], lines: list[str]) -> None:
+    """Recursively write TOML sections."""
+    # Write scalar/array keys first
+    for key, val in data.items():
+        if isinstance(val, dict):
+            continue
+        _toml_write_value(key, val, lines)
+
+    # Then nested sections
+    for key, val in data.items():
+        if not isinstance(val, dict):
+            continue
+        section_path = prefix + [key]
+        # Check if this section has direct scalar values
+        has_scalars = any(not isinstance(v, dict) for v in val.values())
+        if has_scalars or not val:
+            if lines and lines[-1] != "":
+                lines.append("")
+            lines.append(f"[{'.'.join(section_path)}]")
+        _toml_write_section(val, section_path, lines)
+
+
+def _toml_write_value(key: str, val: object, lines: list[str]) -> None:
+    """Write a single TOML key-value pair."""
+    if isinstance(val, list):
+        items = ", ".join(f'"{v}"' for v in val)
+        lines.append(f"{key} = [{items}]")
+    elif isinstance(val, bool):
+        lines.append(f"{key} = {'true' if val else 'false'}")
+    elif isinstance(val, int):
+        lines.append(f"{key} = {val}")
+    elif isinstance(val, str):
+        lines.append(f'{key} = "{val}"')
+    else:
+        lines.append(f'{key} = "{val}"')
+
+
+# ---------------------------------------------------------------------------
+# Codex TOML config management
+# ---------------------------------------------------------------------------
+
+
+def _codex_toml_add(path: Path, notify_cmd: str, otel_endpoint: str) -> None:
+    """Add notify command and otel exporter to codex config.toml. Idempotent."""
+    if dry_run():
+        info(f"would update {path} with notify and otel exporter")
+        return
+
+    data = _toml_load(path)
+
+    # Set notify — array of commands
+    existing_notify = data.get("notify", [])
+    if not isinstance(existing_notify, list):
+        existing_notify = [existing_notify] if existing_notify else []
+    if notify_cmd not in existing_notify:
+        existing_notify.append(notify_cmd)
+    data["notify"] = existing_notify
+
+    # Set otel exporter
+    if "otel" not in data:
+        data["otel"] = {}
+    otel = data["otel"]
+    if "exporter" not in otel:
+        otel["exporter"] = {}
+    otel["exporter"]["otlp-http"] = {
+        "endpoint": otel_endpoint,
+        "protocol": "json",
+    }
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _toml_write(data, path)
+
+
+def _codex_toml_remove(path: Path, notify_cmd: str, otel_endpoint: str) -> None:
+    """Remove our notify command and otel exporter from codex config.toml. Idempotent."""
+    if not path.is_file():
+        return
+
+    if dry_run():
+        info(f"would revert {path}: remove notify={notify_cmd} and otel exporter")
+        return
+
+    data = _toml_load(path)
+    changed = False
+
+    # Remove our notify entry only if it matches
+    existing_notify = data.get("notify", [])
+    if isinstance(existing_notify, list) and notify_cmd in existing_notify:
+        existing_notify.remove(notify_cmd)
+        if existing_notify:
+            data["notify"] = existing_notify
+        else:
+            del data["notify"]
+        changed = True
+    elif isinstance(existing_notify, str) and existing_notify == notify_cmd:
+        del data["notify"]
+        changed = True
+
+    # Remove otel exporter only if it points at our endpoint
+    otel = data.get("otel", {})
+    exporter = otel.get("exporter", {})
+    otlp_http = exporter.get("otlp-http", {})
+    if isinstance(otlp_http, dict) and otlp_http.get("endpoint") == otel_endpoint:
+        del exporter["otlp-http"]
+        changed = True
+        # Clean up empty parents
+        if not exporter:
+            if "exporter" in otel:
+                del otel["exporter"]
+        if "otel" in data and not data["otel"]:
+            del data["otel"]
+
+    if changed:
+        _toml_write(data, path)
+
+
+# ---------------------------------------------------------------------------
+# Env file management
+# ---------------------------------------------------------------------------
+
+
+def _write_env_file(path: Path, user_id: str = "") -> None:
+    """Write the codex env file with ARIZE env exports."""
+    if dry_run():
+        info(f"would write env file {path}")
+        return
+
+    lines = [
+        "export ARIZE_TRACE_ENABLED=true",
+        f"export ARIZE_CODEX_BUFFER_PORT={BUFFER_PORT}",
+    ]
+    if user_id:
+        lines.append(f"export ARIZE_USER_ID={user_id}")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def _is_our_env_file(path: Path) -> bool:
+    """Check if the env file is one we wrote (safe heuristic)."""
+    if not path.is_file():
+        return False
+    try:
+        text = path.read_text()
+        lines = [l for l in text.strip().splitlines() if l.strip()]
+        if len(lines) > 10:
+            return False
+        return all(re.match(r"^export ARIZE_", l) for l in lines)
+    except OSError:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Install / Uninstall
+# ---------------------------------------------------------------------------
+
+
+def install(with_skills: bool = False) -> None:
+    """Install codex tracing harness."""
+    # 1. Ensure shared runtime directories
+    ensure_shared_runtime()
+
+    # 2. Prompt for credentials if needed; write harness entry
+    config = load_config(str(CONFIG_FILE))
+    existing_backend = get_value(config, "backend.target")
+
+    project_name = prompt_project_name("codex")
+
+    if existing_backend:
+        info(f"Reusing existing backend: {existing_backend}")
+        merge_harness_entry(HARNESS_NAME, project_name)
+    else:
+        target, credentials = prompt_backend()
+        write_config(target, credentials, HARNESS_NAME, project_name)
+        info("Wrote backend config to config.yaml")
+
+    # 3. Ensure codex config dir exists
+    if not dry_run():
+        CODEX_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    else:
+        info(f"would create {CODEX_CONFIG_DIR}")
+
+    # 4. Write env file
+    user_id = prompt_user_id()
+    _write_env_file(CODEX_ENV_FILE, user_id=user_id)
+    info(f"Wrote env file: {CODEX_ENV_FILE}")
+
+    # 5. Update codex config.toml
+    notify_cmd = str(venv_bin(NOTIFY_BIN_NAME))
+    _codex_toml_add(CODEX_CONFIG_FILE, notify_cmd, OTEL_ENDPOINT)
+    info(f"Updated TOML config: {CODEX_CONFIG_FILE}")
+
+    # 6. Start buffer service
+    status, _, _ = buffer_status()
+    if status == "running":
+        info("Buffer service already running — skipping start")
+    elif not dry_run():
+        ok = buffer_start()
+        if ok:
+            info("Buffer service started")
+        else:
+            info("Warning: buffer service failed to start (you can start it later)")
+    else:
+        info("would start buffer service")
+
+    # 7. Symlink skills
+    if with_skills:
+        symlink_skills(HARNESS_NAME)
+        info("Symlinked skills")
+
+    info("Codex tracing installed successfully")
+
+
+def uninstall() -> None:
+    """Uninstall codex tracing harness."""
+    # 1. Stop buffer service
+    if not dry_run():
+        buffer_stop()
+        info("Stopped buffer service")
+    else:
+        info("would stop buffer service")
+
+    # 2. Revert codex config.toml
+    notify_cmd = str(venv_bin(NOTIFY_BIN_NAME))
+    _codex_toml_remove(CODEX_CONFIG_FILE, notify_cmd, OTEL_ENDPOINT)
+    info(f"Reverted TOML config: {CODEX_CONFIG_FILE}")
+
+    # 3. Remove env file if it's ours
+    if CODEX_ENV_FILE.is_file():
+        if _is_our_env_file(CODEX_ENV_FILE):
+            if dry_run():
+                info(f"would remove {CODEX_ENV_FILE}")
+            else:
+                CODEX_ENV_FILE.unlink()
+                info(f"Removed env file: {CODEX_ENV_FILE}")
+        else:
+            info(f"Skipping {CODEX_ENV_FILE} — does not look like our file")
+
+    # 4. Remove harness entry
+    remove_harness_entry(HARNESS_NAME)
+    info("Removed codex harness entry from config.yaml")
+
+    # 5. Unlink skills
+    unlink_skills(HARNESS_NAME)
+    info("Unlinked skills")
+
+    info("Codex tracing uninstalled")
+
+
+# ---------------------------------------------------------------------------
+# CLI dispatch
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2 or sys.argv[1] not in ("install", "uninstall"):
+        print(f"usage: {sys.argv[0]} <install|uninstall> [--with-skills]", file=sys.stderr)
+        sys.exit(1)
+
+    action = sys.argv[1]
+    flags = sys.argv[2:]
+
+    try:
+        if action == "install":
+            install(with_skills="--with-skills" in flags)
+        else:
+            uninstall()
+    except (KeyboardInterrupt, EOFError):
+        print("\nCancelled.")
+        sys.exit(1)

@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Arize Codex Tracing Plugin - Interactive Setup.
 
-Replaces codex-tracing/scripts/setup.sh.
 Writes config.yaml, ~/.codex/arize-env.sh, and ~/.codex/config.toml.
+
+The ``arize-setup-codex`` entry point calls ``main()`` here, which runs the
+legacy interactive wizard.  The new ``codex-tracing/install.py`` module
+provides the decomposed ``install()`` / ``uninstall()`` API used by the
+shell router.
 """
 
 import os
