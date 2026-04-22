@@ -392,6 +392,9 @@ class TestTomlAddRemove:
         codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
         data = codex_install._toml_load(p)
         assert data["notify"] == ["/venv/bin/hook"]
+        # Verify otel section wasn't duplicated either
+        assert data["otel"]["exporter"]["otlp-http"]["endpoint"] == "http://127.0.0.1:4318/v1/logs"
+        assert data["otel"]["exporter"]["otlp-http"]["protocol"] == "json"
 
     def test_add_preserves_existing_notify(self, tmp_path):
         """Adding appends to existing notify list from another tool."""
@@ -490,6 +493,9 @@ class TestTomlEdgeCases:
         codex_install._toml_write({"notify": []}, p)
         text = p.read_text()
         assert "notify = []" in text
+        # Verify roundtrip: parsing the written empty array back
+        data = codex_install._toml_line_parse(text)
+        assert data["notify"] == []
 
     def test_comments_ignored_in_parse(self):
         text = '# comment\nkey = "val"\n'
@@ -545,17 +551,21 @@ class TestCoreSetupDelegation:
 
     def test_install_delegates(self, fake_home, mock_buffer, mock_prompts):
         """core.setup.codex.install() delegates to codex-tracing install."""
-        from core.setup.codex import install as setup_install
+        import core.setup.codex as setup_codex
 
-        with patch.object(codex_install, "install") as mock_install:
-            # core.setup.codex loads its own copy; we need to patch the module it loads
-            # Instead, just verify the delegation function exists and is callable
-            assert callable(setup_install)
+        mock_mod = MagicMock()
+        with patch.object(setup_codex, "_get_codex_mod", return_value=mock_mod):
+            setup_codex.install(with_skills=True)
+            mock_mod.install.assert_called_once_with(with_skills=True)
 
     def test_uninstall_delegates(self, fake_home, mock_buffer):
         """core.setup.codex.uninstall() delegates to codex-tracing install."""
-        from core.setup.codex import uninstall as setup_uninstall
-        assert callable(setup_uninstall)
+        import core.setup.codex as setup_codex
+
+        mock_mod = MagicMock()
+        with patch.object(setup_codex, "_get_codex_mod", return_value=mock_mod):
+            setup_codex.uninstall()
+            mock_mod.uninstall.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -563,30 +573,37 @@ class TestCoreSetupDelegation:
 # ---------------------------------------------------------------------------
 
 class TestCLIDispatch:
-    """Tests for the __main__ dispatch block."""
+    """Tests for cli_main() dispatch logic."""
 
-    def test_cli_install(self, fake_home, mock_buffer, mock_prompts, monkeypatch):
-        """CLI 'install' action calls install()."""
+    def test_cli_install(self, fake_home, mock_buffer, mock_prompts):
+        """cli_main(['prog', 'install']) calls install(with_skills=False)."""
         with patch.object(codex_install, "install") as m:
-            monkeypatch.setattr("sys.argv", ["install.py", "install"])
-            # Simulate __main__ dispatch
-            action = "install"
-            flags = []
-            codex_install.install(with_skills="--with-skills" in flags)
+            codex_install.cli_main(["install.py", "install"])
             m.assert_called_once_with(with_skills=False)
 
-    def test_cli_install_with_skills(self, fake_home, mock_buffer, mock_prompts, monkeypatch):
-        """CLI 'install --with-skills' passes the flag."""
+    def test_cli_install_with_skills(self, fake_home, mock_buffer, mock_prompts):
+        """cli_main(['prog', 'install', '--with-skills']) passes the flag."""
         with patch.object(codex_install, "install") as m:
-            flags = ["--with-skills"]
-            codex_install.install(with_skills="--with-skills" in flags)
+            codex_install.cli_main(["install.py", "install", "--with-skills"])
             m.assert_called_once_with(with_skills=True)
 
-    def test_cli_uninstall(self, fake_home, mock_buffer, monkeypatch):
-        """CLI 'uninstall' action calls uninstall()."""
+    def test_cli_uninstall(self, fake_home, mock_buffer):
+        """cli_main(['prog', 'uninstall']) calls uninstall()."""
         with patch.object(codex_install, "uninstall") as m:
-            codex_install.uninstall()
+            codex_install.cli_main(["install.py", "uninstall"])
             m.assert_called_once()
+
+    def test_cli_invalid_action_exits(self):
+        """cli_main with invalid action exits with code 1."""
+        with pytest.raises(SystemExit) as exc_info:
+            codex_install.cli_main(["install.py", "bogus"])
+        assert exc_info.value.code == 1
+
+    def test_cli_no_args_exits(self):
+        """cli_main with no action exits with code 1."""
+        with pytest.raises(SystemExit) as exc_info:
+            codex_install.cli_main(["install.py"])
+        assert exc_info.value.code == 1
 
 
 # ---------------------------------------------------------------------------
@@ -609,9 +626,7 @@ class TestBufferInteraction:
         mock_buffer["start"].assert_called_once()
         # Should not raise — install continues
 
-    def test_uninstall_calls_buffer_stop(self, fake_home, mock_buffer, mock_prompts):
+    def test_uninstall_calls_buffer_stop(self, fake_home, mock_buffer):
         """Uninstall always calls buffer_stop."""
-        codex_install.install()
-        mock_buffer["stop"].reset_mock()
         codex_install.uninstall()
         mock_buffer["stop"].assert_called_once()
