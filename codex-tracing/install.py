@@ -381,19 +381,27 @@ def uninstall() -> None:
 # CLI dispatch
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2 or sys.argv[1] not in ("install", "uninstall"):
-        print(f"usage: {sys.argv[0]} <install|uninstall> [--with-skills]", file=sys.stderr)
+
+def cli_main(argv: list[str] | None = None) -> None:
+    """Parse argv and dispatch to install/uninstall."""
+    if argv is None:
+        argv = sys.argv
+    if len(argv) < 2 or argv[1] not in ("install", "uninstall"):
+        print(f"usage: {argv[0]} <install|uninstall> [--with-skills]", file=sys.stderr)
         sys.exit(1)
 
-    action = sys.argv[1]
-    flags = sys.argv[2:]
+    action = argv[1]
+    flags = argv[2:]
 
+    if action == "install":
+        install(with_skills="--with-skills" in flags)
+    else:
+        uninstall()
+
+
+if __name__ == "__main__":
     try:
-        if action == "install":
-            install(with_skills="--with-skills" in flags)
-        else:
-            uninstall()
+        cli_main()
     except (KeyboardInterrupt, EOFError):
         print("\nCancelled.")
         sys.exit(1)

@@ -367,3 +367,266 @@ class TestEnvFileHeuristic:
     def test_missing_file(self, tmp_path):
         p = tmp_path / "nonexistent"
         assert codex_install._is_our_env_file(p) is False
+
+
+# ---------------------------------------------------------------------------
+# Additional TOML helper unit tests
+# ---------------------------------------------------------------------------
+
+class TestTomlAddRemove:
+    """Unit tests for _codex_toml_add and _codex_toml_remove."""
+
+    def test_add_to_empty_file(self, tmp_path):
+        """Adding to a non-existent file creates it with notify + otel."""
+        p = tmp_path / "config.toml"
+        codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
+        data = codex_install._toml_load(p)
+        assert data["notify"] == ["/venv/bin/hook"]
+        assert data["otel"]["exporter"]["otlp-http"]["endpoint"] == "http://127.0.0.1:4318/v1/logs"
+        assert data["otel"]["exporter"]["otlp-http"]["protocol"] == "json"
+
+    def test_add_idempotent(self, tmp_path):
+        """Calling _codex_toml_add twice doesn't duplicate entries."""
+        p = tmp_path / "config.toml"
+        codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
+        codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
+        data = codex_install._toml_load(p)
+        assert data["notify"] == ["/venv/bin/hook"]
+        # Verify otel section wasn't duplicated either
+        assert data["otel"]["exporter"]["otlp-http"]["endpoint"] == "http://127.0.0.1:4318/v1/logs"
+        assert data["otel"]["exporter"]["otlp-http"]["protocol"] == "json"
+
+    def test_add_preserves_existing_notify(self, tmp_path):
+        """Adding appends to existing notify list from another tool."""
+        p = tmp_path / "config.toml"
+        p.write_text('notify = ["/usr/bin/other-hook"]\n')
+        codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
+        data = codex_install._toml_load(p)
+        assert data["notify"] == ["/usr/bin/other-hook", "/venv/bin/hook"]
+
+    def test_add_preserves_unrelated_sections(self, tmp_path):
+        """Adding preserves unrelated TOML sections like [model]."""
+        p = tmp_path / "config.toml"
+        p.write_text('[model]\nname = "gpt-4"\n')
+        codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
+        data = codex_install._toml_load(p)
+        assert data["model"]["name"] == "gpt-4"
+        assert data["notify"] == ["/venv/bin/hook"]
+
+    def test_remove_only_our_notify(self, tmp_path):
+        """Remove only removes our notify, leaves others."""
+        p = tmp_path / "config.toml"
+        codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
+        # Add another notify
+        data = codex_install._toml_load(p)
+        data["notify"].append("/usr/bin/other")
+        codex_install._toml_write(data, p)
+
+        codex_install._codex_toml_remove(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
+        remaining = codex_install._toml_load(p)
+        assert remaining["notify"] == ["/usr/bin/other"]
+        assert "otel" not in remaining
+
+    def test_remove_nonexistent_file_is_noop(self, tmp_path):
+        """Removing from a non-existent file is a safe no-op."""
+        p = tmp_path / "nonexistent.toml"
+        codex_install._codex_toml_remove(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
+        assert not p.exists()
+
+    def test_remove_non_matching_endpoint_preserves_otel(self, tmp_path):
+        """If otel exporter points at a different endpoint, it's preserved."""
+        p = tmp_path / "config.toml"
+        data = {
+            "otel": {
+                "exporter": {
+                    "otlp-http": {
+                        "endpoint": "http://other-host:9999/v1/logs",
+                        "protocol": "json",
+                    }
+                }
+            }
+        }
+        codex_install._toml_write(data, p)
+        codex_install._codex_toml_remove(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
+        remaining = codex_install._toml_load(p)
+        assert remaining["otel"]["exporter"]["otlp-http"]["endpoint"] == "http://other-host:9999/v1/logs"
+
+    def test_add_dry_run_no_write(self, tmp_path, monkeypatch):
+        """In dry-run mode, _codex_toml_add does not write the file."""
+        monkeypatch.setenv("ARIZE_DRY_RUN", "true")
+        p = tmp_path / "config.toml"
+        codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
+        assert not p.exists()
+
+    def test_remove_dry_run_no_write(self, tmp_path, monkeypatch):
+        """In dry-run mode, _codex_toml_remove does not modify the file."""
+        p = tmp_path / "config.toml"
+        codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
+        original = p.read_text()
+        monkeypatch.setenv("ARIZE_DRY_RUN", "true")
+        codex_install._codex_toml_remove(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
+        assert p.read_text() == original
+
+
+# ---------------------------------------------------------------------------
+# TOML edge case tests
+# ---------------------------------------------------------------------------
+
+class TestTomlEdgeCases:
+    """Edge cases for TOML parser/writer."""
+
+    def test_boolean_roundtrip(self, tmp_path):
+        p = tmp_path / "test.toml"
+        codex_install._toml_write({"flag": True, "other": False}, p)
+        data = codex_install._toml_line_parse(p.read_text())
+        assert data["flag"] is True
+        assert data["other"] is False
+
+    def test_integer_roundtrip(self, tmp_path):
+        p = tmp_path / "test.toml"
+        codex_install._toml_write({"port": 4318}, p)
+        data = codex_install._toml_line_parse(p.read_text())
+        assert data["port"] == 4318
+
+    def test_empty_array(self, tmp_path):
+        p = tmp_path / "test.toml"
+        codex_install._toml_write({"notify": []}, p)
+        text = p.read_text()
+        assert "notify = []" in text
+        # Verify roundtrip: parsing the written empty array back
+        data = codex_install._toml_line_parse(text)
+        assert data["notify"] == []
+
+    def test_comments_ignored_in_parse(self):
+        text = '# comment\nkey = "val"\n'
+        data = codex_install._toml_line_parse(text)
+        assert data["key"] == "val"
+
+
+# ---------------------------------------------------------------------------
+# Write env file tests
+# ---------------------------------------------------------------------------
+
+class TestWriteEnvFile:
+    """Tests for _write_env_file."""
+
+    def test_env_file_permissions(self, tmp_path):
+        """Env file should be chmod 600."""
+        p = tmp_path / "env.sh"
+        codex_install._write_env_file(p)
+        mode = oct(p.stat().st_mode & 0o777)
+        assert mode == "0o600"
+
+    def test_env_file_without_user_id(self, tmp_path):
+        p = tmp_path / "env.sh"
+        codex_install._write_env_file(p)
+        text = p.read_text()
+        assert "ARIZE_USER_ID" not in text
+        assert "ARIZE_TRACE_ENABLED=true" in text
+
+    def test_env_file_with_user_id(self, tmp_path):
+        p = tmp_path / "env.sh"
+        codex_install._write_env_file(p, user_id="alice")
+        text = p.read_text()
+        assert "export ARIZE_USER_ID=alice" in text
+
+    def test_env_file_creates_parent_dirs(self, tmp_path):
+        p = tmp_path / "subdir" / "env.sh"
+        codex_install._write_env_file(p)
+        assert p.is_file()
+
+    def test_env_file_dry_run(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ARIZE_DRY_RUN", "true")
+        p = tmp_path / "env.sh"
+        codex_install._write_env_file(p)
+        assert not p.exists()
+
+
+# ---------------------------------------------------------------------------
+# core/setup/codex.py delegation tests
+# ---------------------------------------------------------------------------
+
+class TestCoreSetupDelegation:
+    """Test that core/setup/codex.py delegates to codex-tracing/install.py."""
+
+    def test_install_delegates(self, fake_home, mock_buffer, mock_prompts):
+        """core.setup.codex.install() delegates to codex-tracing install."""
+        import core.setup.codex as setup_codex
+
+        mock_mod = MagicMock()
+        with patch.object(setup_codex, "_get_codex_mod", return_value=mock_mod):
+            setup_codex.install(with_skills=True)
+            mock_mod.install.assert_called_once_with(with_skills=True)
+
+    def test_uninstall_delegates(self, fake_home, mock_buffer):
+        """core.setup.codex.uninstall() delegates to codex-tracing install."""
+        import core.setup.codex as setup_codex
+
+        mock_mod = MagicMock()
+        with patch.object(setup_codex, "_get_codex_mod", return_value=mock_mod):
+            setup_codex.uninstall()
+            mock_mod.uninstall.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# CLI __main__ dispatch tests
+# ---------------------------------------------------------------------------
+
+class TestCLIDispatch:
+    """Tests for cli_main() dispatch logic."""
+
+    def test_cli_install(self, fake_home, mock_buffer, mock_prompts):
+        """cli_main(['prog', 'install']) calls install(with_skills=False)."""
+        with patch.object(codex_install, "install") as m:
+            codex_install.cli_main(["install.py", "install"])
+            m.assert_called_once_with(with_skills=False)
+
+    def test_cli_install_with_skills(self, fake_home, mock_buffer, mock_prompts):
+        """cli_main(['prog', 'install', '--with-skills']) passes the flag."""
+        with patch.object(codex_install, "install") as m:
+            codex_install.cli_main(["install.py", "install", "--with-skills"])
+            m.assert_called_once_with(with_skills=True)
+
+    def test_cli_uninstall(self, fake_home, mock_buffer):
+        """cli_main(['prog', 'uninstall']) calls uninstall()."""
+        with patch.object(codex_install, "uninstall") as m:
+            codex_install.cli_main(["install.py", "uninstall"])
+            m.assert_called_once()
+
+    def test_cli_invalid_action_exits(self):
+        """cli_main with invalid action exits with code 1."""
+        with pytest.raises(SystemExit) as exc_info:
+            codex_install.cli_main(["install.py", "bogus"])
+        assert exc_info.value.code == 1
+
+    def test_cli_no_args_exits(self):
+        """cli_main with no action exits with code 1."""
+        with pytest.raises(SystemExit) as exc_info:
+            codex_install.cli_main(["install.py"])
+        assert exc_info.value.code == 1
+
+
+# ---------------------------------------------------------------------------
+# Buffer service interaction tests
+# ---------------------------------------------------------------------------
+
+class TestBufferInteraction:
+    """Tests for buffer service control during install/uninstall."""
+
+    def test_buffer_already_running_skips_start(self, fake_home, mock_buffer, mock_prompts):
+        """If buffer is already running, install() skips buffer_start."""
+        mock_buffer["status"].return_value = ("running", 1234, "127.0.0.1:4318")
+        codex_install.install()
+        mock_buffer["start"].assert_not_called()
+
+    def test_buffer_start_failure_doesnt_crash(self, fake_home, mock_buffer, mock_prompts):
+        """If buffer_start returns False, install continues with a warning."""
+        mock_buffer["start"].return_value = False
+        codex_install.install()
+        mock_buffer["start"].assert_called_once()
+        # Should not raise — install continues
+
+    def test_uninstall_calls_buffer_stop(self, fake_home, mock_buffer):
+        """Uninstall always calls buffer_stop."""
+        codex_install.uninstall()
+        mock_buffer["stop"].assert_called_once()
