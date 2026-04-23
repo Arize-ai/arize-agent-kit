@@ -45,14 +45,15 @@ def fake_install(tmp_path, monkeypatch):
 
 @pytest.fixture
 def populated_config(fake_install):
-    """Write a config.yaml with a backend block and one harness entry."""
+    """Write a config.yaml with one harness entry in the flat schema."""
     config = {
-        "backend": {
-            "target": "phoenix",
-            "phoenix": {"endpoint": "http://localhost:6006", "api_key": ""},
-        },
         "harnesses": {
-            "claude-code": {"project_name": "claude-code"},
+            "claude-code": {
+                "project_name": "claude-code",
+                "target": "phoenix",
+                "endpoint": "http://localhost:6006",
+                "api_key": "",
+            },
         },
     }
     config_path = fake_install / "config.yaml"
@@ -177,28 +178,37 @@ class TestMergeHarnessEntry:
             config = yaml.safe_load(f)
         assert config["harnesses"]["copilot"]["project_name"] == "my-copilot"
 
-    def test_preserves_existing_backend(self, fake_install, populated_config):
+    def test_preserves_existing_harness(self, fake_install, populated_config):
         from core.setup import merge_harness_entry
 
         merge_harness_entry("copilot", "my-copilot")
 
         with open(fake_install / "config.yaml") as f:
             config = yaml.safe_load(f)
-        # Original backend preserved
-        assert config["backend"]["target"] == "phoenix"
         # Original harness preserved
         assert config["harnesses"]["claude-code"]["project_name"] == "claude-code"
+        assert config["harnesses"]["claude-code"]["target"] == "phoenix"
         # New harness added
         assert config["harnesses"]["copilot"]["project_name"] == "my-copilot"
 
-    def test_per_harness_backend(self, fake_install):
+    def test_full_update_with_credentials(self, fake_install):
         from core.setup import merge_harness_entry
 
-        merge_harness_entry("copilot", "my-copilot", per_harness_backend={"target": "arize"})
+        merge_harness_entry(
+            "copilot",
+            "my-copilot",
+            target="arize",
+            credentials={"endpoint": "otlp.arize.com:443", "api_key": "ak-xxx", "space_id": "sp-1"},
+        )
 
         with open(fake_install / "config.yaml") as f:
             config = yaml.safe_load(f)
-        assert config["harnesses"]["copilot"]["backend"] == {"target": "arize"}
+        entry = config["harnesses"]["copilot"]
+        assert entry["target"] == "arize"
+        assert entry["endpoint"] == "otlp.arize.com:443"
+        assert entry["api_key"] == "ak-xxx"
+        assert entry["space_id"] == "sp-1"
+        assert entry["project_name"] == "my-copilot"
 
     def test_dry_run_no_write(self, fake_install, monkeypatch):
         monkeypatch.setenv("ARIZE_DRY_RUN", "true")
@@ -539,3 +549,348 @@ class TestEnsureHarnessInstalled:
         monkeypatch.setattr("builtins.input", _raise_kbd)
 
         assert setup_mod.ensure_harness_installed("Claude Code", home_subdir=".claude") is False
+
+
+# ---------------------------------------------------------------------------
+# write_config() — flat schema tests
+# ---------------------------------------------------------------------------
+
+
+class TestWriteConfigFlat:
+    def test_write_config_writes_flat_arize_entry(self, fake_install):
+        from core.setup import write_config
+
+        config_path = str(fake_install / "config.yaml")
+        write_config(
+            "arize",
+            {"endpoint": "otlp.arize.com:443", "api_key": "ak-1", "space_id": "sp-1"},
+            "claude-code",
+            "claude-code",
+            config_path=config_path,
+        )
+
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f)
+        entry = cfg["harnesses"]["claude-code"]
+        assert entry == {
+            "project_name": "claude-code",
+            "target": "arize",
+            "endpoint": "otlp.arize.com:443",
+            "api_key": "ak-1",
+            "space_id": "sp-1",
+        }
+        assert "backend" not in cfg
+        assert "collector" not in cfg
+
+    def test_write_config_writes_flat_phoenix_entry(self, fake_install):
+        from core.setup import write_config
+
+        config_path = str(fake_install / "config.yaml")
+        write_config(
+            "phoenix",
+            {"endpoint": "http://localhost:6006", "api_key": ""},
+            "cursor",
+            "cursor",
+            config_path=config_path,
+        )
+
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f)
+        entry = cfg["harnesses"]["cursor"]
+        assert entry == {
+            "project_name": "cursor",
+            "target": "phoenix",
+            "endpoint": "http://localhost:6006",
+            "api_key": "",
+        }
+        assert "space_id" not in entry
+        assert "backend" not in cfg
+
+    def test_write_config_writes_collector_for_codex(self, fake_install):
+        from core.setup import write_config
+
+        config_path = str(fake_install / "config.yaml")
+        write_config(
+            "phoenix",
+            {"endpoint": "http://localhost:6006", "api_key": ""},
+            "codex",
+            "codex",
+            collector={"host": "127.0.0.1", "port": 4318},
+            config_path=config_path,
+        )
+
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f)
+        assert cfg["harnesses"]["codex"]["collector"] == {"host": "127.0.0.1", "port": 4318}
+        # collector must NOT be at top level
+        assert "collector" not in cfg
+
+    def test_write_config_preserves_existing_harnesses(self, fake_install):
+        from core.setup import write_config
+
+        config_path = str(fake_install / "config.yaml")
+        write_config(
+            "phoenix",
+            {"endpoint": "http://localhost:6006", "api_key": ""},
+            "claude-code",
+            "claude-code",
+            config_path=config_path,
+        )
+        write_config(
+            "arize",
+            {"endpoint": "otlp.arize.com:443", "api_key": "ak-1", "space_id": "sp-1"},
+            "copilot",
+            "copilot",
+            config_path=config_path,
+        )
+
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f)
+        assert "claude-code" in cfg["harnesses"]
+        assert "copilot" in cfg["harnesses"]
+        assert cfg["harnesses"]["claude-code"]["target"] == "phoenix"
+        assert cfg["harnesses"]["copilot"]["target"] == "arize"
+
+    def test_write_config_strips_top_level_backend_and_collector(self, fake_install):
+        from core.setup import write_config
+
+        config_path = str(fake_install / "config.yaml")
+        # Pre-write a config with legacy top-level keys
+        legacy = {
+            "backend": {"target": "phoenix"},
+            "collector": {"host": "127.0.0.1", "port": 4318},
+            "harnesses": {},
+        }
+        with open(config_path, "w") as f:
+            yaml.safe_dump(legacy, f)
+
+        write_config(
+            "phoenix",
+            {"endpoint": "http://localhost:6006", "api_key": ""},
+            "cursor",
+            "cursor",
+            config_path=config_path,
+        )
+
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f)
+        assert "backend" not in cfg
+        assert "collector" not in cfg
+        assert "cursor" in cfg["harnesses"]
+
+
+# ---------------------------------------------------------------------------
+# merge_harness_entry() — additional flat schema tests
+# ---------------------------------------------------------------------------
+
+
+class TestMergeHarnessEntryFlat:
+    def test_project_name_only(self, fake_install, populated_config):
+        """Updates project_name without touching other fields."""
+        from core.setup import merge_harness_entry
+
+        merge_harness_entry("claude-code", "renamed-project")
+
+        with open(fake_install / "config.yaml") as f:
+            cfg = yaml.safe_load(f)
+        entry = cfg["harnesses"]["claude-code"]
+        assert entry["project_name"] == "renamed-project"
+        # Other fields preserved
+        assert entry["target"] == "phoenix"
+        assert entry["endpoint"] == "http://localhost:6006"
+
+    def test_full_update(self, fake_install, populated_config):
+        """credentials param replaces target, endpoint, api_key, space_id."""
+        from core.setup import merge_harness_entry
+
+        merge_harness_entry(
+            "claude-code",
+            "claude-code",
+            target="arize",
+            credentials={"endpoint": "otlp.arize.com:443", "api_key": "ak-new", "space_id": "sp-new"},
+        )
+
+        with open(fake_install / "config.yaml") as f:
+            cfg = yaml.safe_load(f)
+        entry = cfg["harnesses"]["claude-code"]
+        assert entry["target"] == "arize"
+        assert entry["api_key"] == "ak-new"
+        assert entry["space_id"] == "sp-new"
+
+    def test_creates_file(self, fake_install):
+        """From nothing, writes minimal {harnesses: {name: {project_name: ...}}}."""
+        from core.setup import merge_harness_entry
+
+        merge_harness_entry("copilot", "my-copilot")
+
+        config_path = fake_install / "config.yaml"
+        assert config_path.exists()
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f)
+        assert cfg == {"harnesses": {"copilot": {"project_name": "my-copilot"}}}
+
+
+# ---------------------------------------------------------------------------
+# remove / list — flat schema
+# ---------------------------------------------------------------------------
+
+
+class TestRemoveHarnessEntryFlat:
+    def test_removes_flat_entry(self, fake_install, populated_config):
+        from core.setup import remove_harness_entry
+
+        remove_harness_entry("claude-code")
+
+        with open(fake_install / "config.yaml") as f:
+            cfg = yaml.safe_load(f)
+        assert "claude-code" not in cfg.get("harnesses", {})
+
+
+class TestListInstalledHarnessesFlat:
+    def test_returns_names(self, fake_install, populated_config):
+        from core.setup import list_installed_harnesses
+
+        result = list_installed_harnesses()
+        assert result == ["claude-code"]
+
+
+# ---------------------------------------------------------------------------
+# prompt_backend() — copy-from and masking tests
+# ---------------------------------------------------------------------------
+
+
+class TestPromptBackendCopyFrom:
+    def test_copy_from_matching_target(self, monkeypatch):
+        from core.setup import prompt_backend
+
+        existing = {
+            "claude-code": {
+                "project_name": "claude-code",
+                "target": "arize",
+                "endpoint": "otlp.arize.com:443",
+                "api_key": "ak-1",
+                "space_id": "sp-1",
+            },
+        }
+        # Choose arize (2), then copy from entry 1
+        inputs = iter(["2", "1"])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+        target, creds = prompt_backend(existing_harnesses=existing)
+        assert target == "arize"
+        assert creds["api_key"] == "ak-1"
+        assert creds["space_id"] == "sp-1"
+        assert creds["endpoint"] == "otlp.arize.com:443"
+
+    def test_no_copy_when_no_matching_target(self, monkeypatch):
+        """Only phoenix harnesses installed, user picks arize — no menu shown."""
+        from core.setup import prompt_backend
+
+        existing = {
+            "claude-code": {
+                "project_name": "claude-code",
+                "target": "phoenix",
+                "endpoint": "http://localhost:6006",
+                "api_key": "",
+            },
+        }
+        # Choose arize (2), then provide fresh credentials
+        getpass_calls = []
+
+        def mock_getpass(prompt=""):
+            getpass_calls.append(prompt)
+            return "my-key"
+
+        inputs = iter(["2", "my-space", ""])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+        monkeypatch.setattr("core.setup.getpass", mock_getpass)
+        monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
+
+        target, creds = prompt_backend(existing_harnesses=existing)
+        assert target == "arize"
+        assert creds["api_key"] == "my-key"
+
+    def test_enter_new_from_menu(self, monkeypatch):
+        """When copy-from menu is shown and user picks 'Enter new credentials'."""
+        from core.setup import prompt_backend
+
+        existing = {
+            "claude-code": {
+                "project_name": "claude-code",
+                "target": "phoenix",
+                "endpoint": "http://localhost:6006",
+                "api_key": "",
+            },
+        }
+        # Choose phoenix (1), pick "Enter new credentials" (2), then provide endpoint + key
+        getpass_calls = []
+
+        def mock_getpass(prompt=""):
+            getpass_calls.append(prompt)
+            return ""
+
+        inputs = iter(["1", "2", "http://custom:9999"])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+        monkeypatch.setattr("core.setup.getpass", mock_getpass)
+
+        target, creds = prompt_backend(existing_harnesses=existing)
+        assert target == "phoenix"
+        assert creds["endpoint"] == "http://custom:9999"
+        # Should have gone through fresh prompts
+        assert len(getpass_calls) == 1  # api_key prompt
+
+
+class TestPromptBackendMasking:
+    def test_arize_masks_api_key(self, monkeypatch):
+        """api_key prompt routes through getpass, space_id/endpoint through input."""
+        from core.setup import prompt_backend
+
+        getpass_calls = []
+        input_calls = []
+
+        def mock_getpass(prompt=""):
+            getpass_calls.append(prompt)
+            return "secret-key"
+
+        real_inputs = iter(["2", "my-space", ""])
+        def mock_input(prompt=""):
+            input_calls.append(prompt)
+            return next(real_inputs)
+
+        monkeypatch.setattr("builtins.input", mock_input)
+        monkeypatch.setattr("core.setup.getpass", mock_getpass)
+        monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
+
+        target, creds = prompt_backend()
+        assert target == "arize"
+        assert creds["api_key"] == "secret-key"
+        # getpass was called for api_key
+        assert len(getpass_calls) == 1
+        assert "API Key" in getpass_calls[0]
+        # space_id went through input
+        assert any("Space ID" in p for p in input_calls)
+
+    def test_phoenix_masks_api_key(self, monkeypatch):
+        """Phoenix api_key prompt routes through getpass."""
+        from core.setup import prompt_backend
+
+        getpass_calls = []
+        input_calls = []
+
+        def mock_getpass(prompt=""):
+            getpass_calls.append(prompt)
+            return ""
+
+        real_inputs = iter(["1", ""])
+        def mock_input(prompt=""):
+            input_calls.append(prompt)
+            return next(real_inputs)
+
+        monkeypatch.setattr("builtins.input", mock_input)
+        monkeypatch.setattr("core.setup.getpass", mock_getpass)
+
+        target, creds = prompt_backend()
+        assert target == "phoenix"
+        # getpass was called for api_key
+        assert len(getpass_calls) == 1
+        assert "API Key" in getpass_calls[0]

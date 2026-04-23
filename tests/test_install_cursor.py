@@ -135,7 +135,7 @@ class TestFreshInstall:
         config_file = fake_home / ".arize" / "harness" / "config.yaml"
         assert config_file.exists()
         config = yaml.safe_load(config_file.read_text())
-        assert config["backend"]["target"] == expected_target
+        assert config["harnesses"]["cursor"]["target"] == expected_target
         assert config["harnesses"]["cursor"]["project_name"] == "cursor"
 
         # Check hooks.json has 12 events

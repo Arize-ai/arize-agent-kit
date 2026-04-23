@@ -119,7 +119,7 @@ class TestFreshInstall:
         config_file = fake_home / ".arize" / "harness" / "config.yaml"
         assert config_file.exists()
         config = yaml.safe_load(config_file.read_text())
-        assert config["backend"]["target"] == expected_target
+        assert config["harnesses"]["claude-code"]["target"] == expected_target
         assert config["harnesses"]["claude-code"]["project_name"] == "claude-code"
 
         # Check settings.json has plugin + 9 hook events

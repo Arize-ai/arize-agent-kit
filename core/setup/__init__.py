@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+from getpass import getpass
 from pathlib import Path
 from typing import Optional
 
@@ -130,57 +131,146 @@ def ensure_harness_installed(
 # ---------------------------------------------------------------------------
 
 
-def prompt_backend() -> tuple[str, dict]:
-    """Interactive backend selection.
+def prompt_backend(
+    existing_harnesses: dict | None = None,
+) -> tuple[str, dict]:
+    """Interactive backend selection with optional copy-from.
 
-    Returns:
-        ("phoenix", {"endpoint": "...", "api_key": ""})
-        or ("arize", {"endpoint": "...", "api_key": "...", "space_id": "..."})
+    existing_harnesses is the value of cfg['harnesses'] (or None).  After the
+    user picks a target ("phoenix" or "arize"), find entries in
+    existing_harnesses whose ``target`` matches.  If any exist, offer a menu
+    to copy credentials from one.
+
+    Returns (target, credentials).  credentials keys:
+      phoenix: {"endpoint", "api_key"}
+      arize:   {"endpoint", "api_key", "space_id"}
     """
     print("Which backend do you want to use?")
     print("")
-    print("  1) Phoenix (self-hosted, no Python required)")
-    print("  2) Arize AX (cloud, requires Python)")
+    print("  1) Phoenix (self-hosted)")
+    print("  2) Arize AX (cloud)")
     print("")
     choice = input("Enter choice [1/2]: ").strip()
 
     if choice in ("1", "phoenix", "Phoenix", ""):
+        target = "phoenix"
+    elif choice in ("2", "arize", "ax", "AX"):
+        target = "arize"
+    else:
+        err("Invalid choice. Run setup again.")
+        sys.exit(1)
+
+    # --- copy-from logic ---
+    copied = _try_copy_from(target, existing_harnesses)
+    if copied is not None:
+        return (target, copied)
+
+    # --- fresh credential prompts ---
+    if target == "phoenix":
         print("")
         phoenix_endpoint = input("Phoenix endpoint [http://localhost:6006]: ").strip()
         if not phoenix_endpoint:
             phoenix_endpoint = "http://localhost:6006"
-        return ("phoenix", {"endpoint": phoenix_endpoint, "api_key": ""})
+        api_key = getpass("Phoenix API Key (blank for no auth): ").strip()
+        return ("phoenix", {"endpoint": phoenix_endpoint, "api_key": api_key})
 
-    elif choice in ("2", "arize", "ax", "AX"):
-        print("")
-        api_key = input("Arize API Key: ").strip()
-        space_id = input("Arize Space ID: ").strip()
+    # arize
+    print("")
+    api_key = getpass("Arize API Key: ").strip()
+    space_id = input("Arize Space ID: ").strip()
 
-        if not api_key or not space_id:
-            err("API key and Space ID are required for Arize AX")
-            sys.exit(1)
-
-        print("")
-        if sys.stdout.isatty() and os.name != "nt":
-            print("\033[1;33mOTLP Endpoint\033[0m (for hosted Arize instances, leave blank for default):")
-        else:
-            print("OTLP Endpoint (for hosted Arize instances, leave blank for default):")
-        otlp_endpoint = input("OTLP Endpoint [otlp.arize.com:443]: ").strip()
-        if not otlp_endpoint:
-            otlp_endpoint = "otlp.arize.com:443"
-
-        return (
-            "arize",
-            {
-                "endpoint": otlp_endpoint,
-                "api_key": api_key,
-                "space_id": space_id,
-            },
-        )
-
-    else:
-        err("Invalid choice. Run setup again.")
+    if not api_key or not space_id:
+        err("API key and Space ID are required for Arize AX")
         sys.exit(1)
+
+    print("")
+    if sys.stdout.isatty() and os.name != "nt":
+        print("\033[1;33mOTLP Endpoint\033[0m (for hosted Arize instances, leave blank for default):")
+    else:
+        print("OTLP Endpoint (for hosted Arize instances, leave blank for default):")
+    otlp_endpoint = input("OTLP Endpoint [otlp.arize.com:443]: ").strip()
+    if not otlp_endpoint:
+        otlp_endpoint = "otlp.arize.com:443"
+
+    return (
+        "arize",
+        {
+            "endpoint": otlp_endpoint,
+            "api_key": api_key,
+            "space_id": space_id,
+        },
+    )
+
+
+def _try_copy_from(target: str, existing_harnesses: dict | None) -> dict | None:
+    """Show copy-from menu if matching harnesses exist.  Returns credentials or None."""
+    if not existing_harnesses:
+        return None
+
+    # Required fields per target
+    if target == "phoenix":
+        required = {"endpoint"}
+        # api_key must be present but may be empty string
+        def _valid(entry: dict) -> bool:
+            return "endpoint" in entry and "api_key" in entry
+    else:
+        required = {"endpoint", "api_key", "space_id"}
+        def _valid(entry: dict) -> bool:
+            return all(k in entry and entry[k] for k in required)
+
+    matches: list[tuple[str, dict]] = []
+    for name, entry in existing_harnesses.items():
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("target") != target:
+            continue
+        if not _valid(entry):
+            continue
+        matches.append((name, entry))
+
+    if not matches:
+        return None
+
+    # Display menu
+    target_label = "Phoenix" if target == "phoenix" else "Arize AX"
+    print("")
+    print(f"Found existing harnesses using {target_label}:")
+    for i, (name, entry) in enumerate(matches, 1):
+        detail = f"endpoint: {entry.get('endpoint', '')}"
+        if target == "arize":
+            detail += f", space_id: {entry.get('space_id', '')}"
+        print(f"  {i}) {name}  ({detail})")
+    last = len(matches) + 1
+    print(f"  {last}) Enter new credentials")
+    print("")
+
+    attempts = 0
+    while attempts < 2:
+        raw = input(f"Copy from [1-{last}]: ").strip()
+        try:
+            idx = int(raw)
+        except (ValueError, TypeError):
+            attempts += 1
+            if attempts >= 2:
+                break
+            print("Invalid input, please try again.")
+            continue
+        if idx == last:
+            return None  # fall through to fresh prompts
+        if 1 <= idx <= len(matches):
+            name, entry = matches[idx - 1]
+            info(f"Reusing {target} credentials from '{name}'.")
+            creds: dict = {"endpoint": entry["endpoint"], "api_key": entry["api_key"]}
+            if target == "arize":
+                creds["space_id"] = entry["space_id"]
+            return creds
+        attempts += 1
+        if attempts >= 2:
+            break
+        print("Invalid input, please try again.")
+
+    # Two invalid attempts — default to new credentials
+    return None
 
 
 def prompt_project_name(default: str) -> str:
@@ -207,51 +297,38 @@ def write_config(
     harness_name: str,
     project_name: str,
     user_id: str = "",
+    collector: dict | None = None,
     config_path: Optional[str] = None,
 ) -> None:
-    """Write or merge config.yaml with backend credentials and harness entry.
+    """Write or merge config.yaml with a fully-flattened harnesses.<name> entry.
 
-    If config.yaml exists with valid backend, only add/update the harness entry.
-    If no config, create fresh with all fields.
+    Writes harnesses.<harness_name>.{project_name, target, endpoint, api_key,
+    [space_id], [collector]}.  If user_id is non-empty, sets top-level user_id.
+    Read-merge-write: preserves other harnesses and top-level keys.
     """
     config = load_config(config_path)
 
     if not config:
-        # Fresh config
-        config = {
-            "collector": {
-                "host": "127.0.0.1",
-                "port": 4318,
-            },
-            "backend": {
-                "target": target,
-            },
-            "harnesses": {},
-        }
+        config = {"harnesses": {}}
 
-        if target == "phoenix":
-            config["backend"]["phoenix"] = {
-                "endpoint": credentials.get("endpoint", "http://localhost:6006"),
-                "api_key": credentials.get("api_key", ""),
-            }
-            config["backend"]["arize"] = {
-                "endpoint": "otlp.arize.com:443",
-                "api_key": "",
-                "space_id": "",
-            }
-        else:
-            config["backend"]["phoenix"] = {
-                "endpoint": "http://localhost:6006",
-                "api_key": "",
-            }
-            config["backend"]["arize"] = {
-                "endpoint": credentials.get("endpoint", "otlp.arize.com:443"),
-                "api_key": credentials.get("api_key", ""),
-                "space_id": credentials.get("space_id", ""),
-            }
+    # Strip legacy top-level keys if they leaked in from a prior save
+    config.pop("backend", None)
+    config.pop("collector", None)
 
-    # Add/update harness entry
-    set_value(config, f"harnesses.{harness_name}.project_name", project_name)
+    # Build the harness entry
+    entry: dict = {
+        "project_name": project_name,
+        "target": target,
+        "endpoint": credentials.get("endpoint", ""),
+        "api_key": credentials.get("api_key", ""),
+    }
+    if target == "arize" and "space_id" in credentials:
+        entry["space_id"] = credentials["space_id"]
+
+    if collector is not None:
+        entry["collector"] = collector
+
+    set_value(config, f"harnesses.{harness_name}", entry)
 
     if user_id:
         set_value(config, "user_id", user_id)
@@ -310,12 +387,16 @@ def venv_bin(name: str) -> Path:
 def merge_harness_entry(
     name: str,
     project_name: str,
-    per_harness_backend: dict | None = None,
+    target: str | None = None,
+    credentials: dict | None = None,
+    collector: dict | None = None,
 ) -> None:
     """Read config.yaml, add/update harnesses.<name>, write back with 0o600.
 
-    If the file doesn't exist yet, create a minimal one with just the harness
-    entry (no backend block).
+    If target + credentials are provided, writes the full entry.
+    If only project_name, updates only that field (leaves other fields alone).
+    If the file doesn't exist, creates it with just this entry under
+    harnesses:.
     """
     config_path = str(CONFIG_FILE)
     config = load_config(config_path)
@@ -323,10 +404,22 @@ def merge_harness_entry(
     if not config:
         config = {"harnesses": {}}
 
-    set_value(config, f"harnesses.{name}.project_name", project_name)
-
-    if per_harness_backend is not None:
-        set_value(config, f"harnesses.{name}.backend", per_harness_backend)
+    if target is not None and credentials is not None:
+        entry: dict = {
+            "project_name": project_name,
+            "target": target,
+            "endpoint": credentials.get("endpoint", ""),
+            "api_key": credentials.get("api_key", ""),
+        }
+        if target == "arize" and "space_id" in credentials:
+            entry["space_id"] = credentials["space_id"]
+        if collector is not None:
+            entry["collector"] = collector
+        set_value(config, f"harnesses.{name}", entry)
+    else:
+        set_value(config, f"harnesses.{name}.project_name", project_name)
+        if collector is not None:
+            set_value(config, f"harnesses.{name}.collector", collector)
 
     if dry_run():
         info(f"would write harness entry '{name}' to {config_path}")

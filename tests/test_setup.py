@@ -93,9 +93,10 @@ class TestPromptBackend:
         """Choosing Phoenix with default endpoint."""
         from core.setup import prompt_backend
 
-        # input: "1" for Phoenix, "" for default endpoint
+        # input: "1" for Phoenix, "" for default endpoint; getpass for api_key
         with patch("builtins.input", side_effect=["1", ""]):
-            target, creds = prompt_backend()
+            with patch("core.setup.getpass", return_value=""):
+                target, creds = prompt_backend()
         assert target == "phoenix"
         assert creds["endpoint"] == "http://localhost:6006"
         assert creds["api_key"] == ""
@@ -105,7 +106,8 @@ class TestPromptBackend:
         from core.setup import prompt_backend
 
         with patch("builtins.input", side_effect=["1", "http://my-phoenix:9090"]):
-            target, creds = prompt_backend()
+            with patch("core.setup.getpass", return_value=""):
+                target, creds = prompt_backend()
         assert target == "phoenix"
         assert creds["endpoint"] == "http://my-phoenix:9090"
 
@@ -114,16 +116,18 @@ class TestPromptBackend:
         from core.setup import prompt_backend
 
         with patch("builtins.input", side_effect=["", ""]):
-            target, creds = prompt_backend()
+            with patch("core.setup.getpass", return_value=""):
+                target, creds = prompt_backend()
         assert target == "phoenix"
 
     def test_arize_with_credentials(self):
         """Choosing Arize AX with all credentials."""
         from core.setup import prompt_backend
 
-        with patch("builtins.input", side_effect=["2", "my-api-key", "my-space-id", ""]):
-            with patch.object(sys.stdout, "isatty", return_value=False):
-                target, creds = prompt_backend()
+        with patch("builtins.input", side_effect=["2", "my-space-id", ""]):
+            with patch("core.setup.getpass", return_value="my-api-key"):
+                with patch.object(sys.stdout, "isatty", return_value=False):
+                    target, creds = prompt_backend()
         assert target == "arize"
         assert creds["api_key"] == "my-api-key"
         assert creds["space_id"] == "my-space-id"
@@ -133,9 +137,10 @@ class TestPromptBackend:
         """Choosing Arize AX with custom OTLP endpoint."""
         from core.setup import prompt_backend
 
-        with patch("builtins.input", side_effect=["2", "key", "space", "custom.endpoint:443"]):
-            with patch.object(sys.stdout, "isatty", return_value=False):
-                target, creds = prompt_backend()
+        with patch("builtins.input", side_effect=["2", "space", "custom.endpoint:443"]):
+            with patch("core.setup.getpass", return_value="key"):
+                with patch.object(sys.stdout, "isatty", return_value=False):
+                    target, creds = prompt_backend()
         assert target == "arize"
         assert creds["endpoint"] == "custom.endpoint:443"
 
@@ -143,17 +148,19 @@ class TestPromptBackend:
         """Arize AX with empty API key should exit."""
         from core.setup import prompt_backend
 
-        with patch("builtins.input", side_effect=["2", "", "space-id"]):
-            with pytest.raises(SystemExit):
-                prompt_backend()
+        with patch("builtins.input", side_effect=["2", "space-id"]):
+            with patch("core.setup.getpass", return_value=""):
+                with pytest.raises(SystemExit):
+                    prompt_backend()
 
     def test_arize_missing_space_id_exits(self):
         """Arize AX with empty space ID should exit."""
         from core.setup import prompt_backend
 
-        with patch("builtins.input", side_effect=["2", "api-key", ""]):
-            with pytest.raises(SystemExit):
-                prompt_backend()
+        with patch("builtins.input", side_effect=["2", ""]):
+            with patch("core.setup.getpass", return_value="api-key"):
+                with pytest.raises(SystemExit):
+                    prompt_backend()
 
     def test_invalid_choice_exits(self):
         """Invalid backend choice should exit."""
@@ -207,11 +214,11 @@ class TestWriteConfig:
         )
 
         config = yaml.safe_load(Path(config_path).read_text())
-        assert config["backend"]["target"] == "phoenix"
-        assert config["backend"]["phoenix"]["endpoint"] == "http://localhost:6006"
-        assert config["harnesses"]["claude-code"]["project_name"] == "claude-code"
-        # Arize section should have defaults
-        assert config["backend"]["arize"]["api_key"] == ""
+        entry = config["harnesses"]["claude-code"]
+        assert entry["target"] == "phoenix"
+        assert entry["endpoint"] == "http://localhost:6006"
+        assert entry["project_name"] == "claude-code"
+        assert "backend" not in config
 
     def test_creates_new_config_arize(self, tmp_path, monkeypatch):
         """write_config creates fresh config.yaml for Arize AX."""
@@ -231,28 +238,29 @@ class TestWriteConfig:
         )
 
         config = yaml.safe_load(Path(config_path).read_text())
-        assert config["backend"]["target"] == "arize"
-        assert config["backend"]["arize"]["api_key"] == "k"
-        assert config["backend"]["arize"]["space_id"] == "s"
-        assert config["harnesses"]["codex"]["project_name"] == "codex"
+        entry = config["harnesses"]["codex"]
+        assert entry["target"] == "arize"
+        assert entry["api_key"] == "k"
+        assert entry["space_id"] == "s"
+        assert entry["project_name"] == "codex"
+        assert "backend" not in config
 
-    def test_merge_harness_preserves_backend(self, tmp_path, monkeypatch):
-        """write_config with existing config only adds harness, keeps backend."""
+    def test_merge_harness_preserves_existing(self, tmp_path, monkeypatch):
+        """write_config with existing config adds harness, preserves others."""
         config_path = str(tmp_path / "config.yaml")
         import core.config
 
         monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
 
-        # Pre-existing config
+        # Pre-existing config in new flat format
         existing = {
-            "collector": {"host": "127.0.0.1", "port": 4318},
-            "backend": {
-                "target": "phoenix",
-                "phoenix": {"endpoint": "http://custom:9999", "api_key": "secret"},
-                "arize": {"endpoint": "", "api_key": "", "space_id": ""},
-            },
             "harnesses": {
-                "claude-code": {"project_name": "claude-code"},
+                "claude-code": {
+                    "project_name": "claude-code",
+                    "target": "phoenix",
+                    "endpoint": "http://custom:9999",
+                    "api_key": "secret",
+                },
             },
         }
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
@@ -261,16 +269,21 @@ class TestWriteConfig:
 
         from core.setup import write_config
 
-        write_config("phoenix", {"endpoint": "ignored"}, "cursor", "cursor", config_path=config_path)
+        write_config(
+            "phoenix",
+            {"endpoint": "http://localhost:6006", "api_key": ""},
+            "cursor",
+            "cursor",
+            config_path=config_path,
+        )
 
         config = yaml.safe_load(Path(config_path).read_text())
-        # Backend should be preserved (existing config was non-empty)
-        assert config["backend"]["phoenix"]["endpoint"] == "http://custom:9999"
-        assert config["backend"]["phoenix"]["api_key"] == "secret"
         # New harness should be added
         assert config["harnesses"]["cursor"]["project_name"] == "cursor"
+        assert config["harnesses"]["cursor"]["target"] == "phoenix"
         # Old harness should be preserved
         assert config["harnesses"]["claude-code"]["project_name"] == "claude-code"
+        assert config["harnesses"]["claude-code"]["endpoint"] == "http://custom:9999"
 
     def test_write_config_with_user_id(self, tmp_path, monkeypatch):
         """write_config sets user_id when provided."""
@@ -496,14 +509,14 @@ class TestClaudeSetup:
         # Inputs: backend=1 (Phoenix), endpoint=default, project_name=default, user_id=""
         inputs = iter(["1", "", "", ""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+        monkeypatch.setattr("core.setup.getpass", lambda prompt="": "")
 
         from core.setup.claude import _run
 
         _run()
 
-        # config.yaml should be written for the collector
         config = yaml.safe_load(config_path.read_text())
-        assert config["backend"]["target"] == "phoenix"
+        assert config["harnesses"]["claude-code"]["target"] == "phoenix"
         assert config["harnesses"]["claude-code"]["project_name"] == "claude-code"
 
         # settings.json should have hooks and env vars
@@ -516,17 +529,18 @@ class TestClaudeSetup:
         """Full Claude _run() flow for Arize AX backend."""
         config_path, settings_file = self._setup_install_env(tmp_path, monkeypatch)
 
-        # Inputs: backend=2, api_key, space_id, otlp_endpoint=default, project_name=default, user_id="alice"
-        inputs = iter(["2", "my-key", "my-space", "", "", "alice"])
+        # Inputs: backend=2, space_id, otlp_endpoint=default, project_name=default, user_id="alice"
+        # api_key goes through getpass
+        inputs = iter(["2", "my-space", "", "", "alice"])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+        monkeypatch.setattr("core.setup.getpass", lambda prompt="": "my-key")
 
         from core.setup.claude import _run
 
         _run()
 
-        # config.yaml should be written for the collector
         config = yaml.safe_load(config_path.read_text())
-        assert config["backend"]["target"] == "arize"
+        assert config["harnesses"]["claude-code"]["target"] == "arize"
 
         # settings.json should have hooks and env vars
         result = json.loads(settings_file.read_text())
@@ -724,6 +738,7 @@ class TestCodexRunFlow:
         # Inputs: project_name=default, backend=1 (Phoenix), endpoint=default, user_id=""
         inputs = iter(["", "1", "", ""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+        monkeypatch.setattr("core.setup.getpass", lambda prompt="": "")
         monkeypatch.setattr(
             "sys.stdout",
             type(
@@ -743,7 +758,7 @@ class TestCodexRunFlow:
 
         # config.yaml written
         config = yaml.safe_load(Path(config_path).read_text())
-        assert config["backend"]["target"] == "phoenix"
+        assert config["harnesses"]["codex"]["target"] == "phoenix"
         assert config["harnesses"]["codex"]["project_name"] == "codex"
 
         # arize-env.sh written
@@ -834,24 +849,24 @@ class TestCursorSetup:
 
         config = yaml.safe_load(Path(config_path).read_text())
         assert config["harnesses"]["cursor"]["project_name"] == "cursor"
-        assert config["backend"]["target"] == "phoenix"
+        assert config["harnesses"]["cursor"]["target"] == "phoenix"
 
     def test_existing_config_adds_cursor_harness(self, tmp_path, monkeypatch):
-        """Existing config gets cursor harness added, backend preserved."""
+        """Existing config gets cursor harness added, other harnesses preserved."""
         config_path = str(tmp_path / "config.yaml")
         import core.config
 
         monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
 
         existing = {
-            "collector": {"host": "127.0.0.1", "port": 4318},
-            "backend": {
-                "target": "arize",
-                "phoenix": {"endpoint": "http://localhost:6006", "api_key": ""},
-                "arize": {"endpoint": "otlp.arize.com:443", "api_key": "key", "space_id": "space"},
-            },
             "harnesses": {
-                "claude-code": {"project_name": "claude-code"},
+                "claude-code": {
+                    "project_name": "claude-code",
+                    "target": "arize",
+                    "endpoint": "otlp.arize.com:443",
+                    "api_key": "key",
+                    "space_id": "space",
+                },
             },
         }
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
@@ -865,8 +880,8 @@ class TestCursorSetup:
         result = yaml.safe_load(Path(config_path).read_text())
         assert result["harnesses"]["cursor"]["project_name"] == "cursor"
         assert result["harnesses"]["claude-code"]["project_name"] == "claude-code"
-        assert result["backend"]["target"] == "arize"
-        assert result["backend"]["arize"]["api_key"] == "key"
+        assert result["harnesses"]["claude-code"]["target"] == "arize"
+        assert result["harnesses"]["claude-code"]["api_key"] == "key"
 
     def test_main_keyboard_interrupt(self):
         """main() catches KeyboardInterrupt."""
@@ -931,13 +946,14 @@ class TestCursorSetup:
         # Inputs: project_name=default, backend=1, endpoint=default, user_id=""
         inputs = iter(["", "1", "", ""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+        monkeypatch.setattr("core.setup.getpass", lambda prompt="": "")
 
         from core.setup.cursor import _run
 
         _run()
 
         config = yaml.safe_load(Path(config_path).read_text())
-        assert config["backend"]["target"] == "phoenix"
+        assert config["harnesses"]["cursor"]["target"] == "phoenix"
         assert config["harnesses"]["cursor"]["project_name"] == "cursor"
 
     def test_run_existing_config_skips_prompts(self, tmp_path, monkeypatch):
@@ -1036,6 +1052,7 @@ class TestCopilotSetup:
         # Inputs: project_name=default, user_id="", backend=1 (Phoenix), endpoint=default
         inputs = iter(["", "", "1", ""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+        monkeypatch.setattr("core.setup.getpass", lambda prompt="": "")
         monkeypatch.setattr(
             "sys.stdout",
             type(
@@ -1054,8 +1071,8 @@ class TestCopilotSetup:
         _run()
 
         config = yaml.safe_load(Path(config_path).read_text())
-        assert config["backend"]["target"] == "phoenix"
-        assert config["backend"]["phoenix"]["endpoint"] == "http://localhost:6006"
+        assert config["harnesses"]["copilot"]["target"] == "phoenix"
+        assert config["harnesses"]["copilot"]["endpoint"] == "http://localhost:6006"
         assert config["harnesses"]["copilot"]["project_name"] == "copilot"
 
     def test_run_fresh_arize(self, tmp_path, monkeypatch):
@@ -1066,9 +1083,11 @@ class TestCopilotSetup:
 
         monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
 
-        # Inputs: project_name="my-project", user_id="alice", backend=2 (Arize), api_key, space_id, endpoint=default
-        inputs = iter(["my-project", "alice", "2", "my-key", "my-space", ""])
+        # Inputs: project_name="my-project", user_id="alice", backend=2 (Arize), space_id, endpoint=default
+        # api_key goes through getpass
+        inputs = iter(["my-project", "alice", "2", "my-space", ""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+        monkeypatch.setattr("core.setup.getpass", lambda prompt="": "my-key")
         monkeypatch.setattr(
             "sys.stdout",
             type(
@@ -1087,11 +1106,12 @@ class TestCopilotSetup:
         _run()
 
         config = yaml.safe_load(Path(config_path).read_text())
-        assert config["backend"]["target"] == "arize"
-        assert config["backend"]["arize"]["api_key"] == "my-key"
-        assert config["backend"]["arize"]["space_id"] == "my-space"
-        assert config["backend"]["arize"]["endpoint"] == "otlp.arize.com:443"
-        assert config["harnesses"]["copilot"]["project_name"] == "my-project"
+        entry = config["harnesses"]["copilot"]
+        assert entry["target"] == "arize"
+        assert entry["api_key"] == "my-key"
+        assert entry["space_id"] == "my-space"
+        assert entry["endpoint"] == "otlp.arize.com:443"
+        assert entry["project_name"] == "my-project"
         assert config["user_id"] == "alice"
 
     def test_run_existing_config_skips_prompts(self, tmp_path, monkeypatch):
@@ -1138,7 +1158,7 @@ class TestCopilotSetup:
         assert config["harnesses"]["copilot"]["project_name"] == "copilot"
         # Existing harness preserved
         assert config["harnesses"]["claude-code"]["project_name"] == "claude-code"
-        # Backend preserved
+        # Old-format backend preserved (copilot _run reads old format; Wave 2 updates)
         assert config["backend"]["target"] == "phoenix"
 
     def test_run_existing_config_with_user_id(self, tmp_path, monkeypatch):
@@ -1197,6 +1217,7 @@ class TestCopilotSetup:
         # Inputs: project_name="custom-copilot", user_id="", backend=1, endpoint=default
         inputs = iter(["custom-copilot", "", "1", ""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+        monkeypatch.setattr("core.setup.getpass", lambda prompt="": "")
         monkeypatch.setattr(
             "sys.stdout",
             type(
@@ -1228,6 +1249,7 @@ class TestCopilotSetup:
         # Inputs: project_name=default, user_id="", backend=1 (Phoenix), endpoint=default
         inputs = iter(["", "", "1", ""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+        monkeypatch.setattr("core.setup.getpass", lambda prompt="": "")
 
         from core.setup.copilot import _run
 
@@ -1249,6 +1271,7 @@ class TestCopilotSetup:
         # Inputs: project_name=default, user_id="", backend=1 (Phoenix), endpoint=default
         inputs = iter(["", "", "1", ""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+        monkeypatch.setattr("core.setup.getpass", lambda prompt="": "")
 
         from core.setup.copilot import _run
 
