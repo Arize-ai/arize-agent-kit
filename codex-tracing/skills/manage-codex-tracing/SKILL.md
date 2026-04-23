@@ -11,7 +11,7 @@ Configure OpenInference tracing for OpenAI Codex CLI sessions to Arize AX (cloud
 
 Codex tracing uses direct send for span export and a lightweight buffer service for event buffering:
 
-1. **Direct send** (`core/common.py`) — spans are sent directly to Phoenix (REST) or Arize AX (gRPC) from the notify handler via `send_span()`. Per-harness backend credentials are resolved from `harnesses.codex.backend` in config, falling back to the global `backend` section.
+1. **Direct send** (`core/common.py`) — spans are sent directly to Phoenix (REST) or Arize AX (gRPC) from the notify handler via `send_span()`. Per-harness backend credentials are read from `harnesses.codex.*` in config.
 
 2. **Codex Buffer Service** (`core/codex_buffer.py`, default port 4318) — a lightweight HTTP server that only buffers Codex OTLP log events between hook invocations. No export logic. Managed via `arize-codex-buffer`.
 
@@ -139,14 +139,15 @@ arize-config set harnesses.codex.project_name codex
 
 If no config exists yet, create it:
 ```yaml
-backend:
-  target: "phoenix"
-  phoenix:
-    endpoint: "http://localhost:6006"
-    api_key: ""
 harnesses:
   codex:
-    project_name: "codex"
+    project_name: codex
+    target: phoenix
+    endpoint: http://localhost:6006
+    api_key: ""
+    collector:
+      host: 127.0.0.1
+      port: 4318
 ```
 
 **Arize AX:**
@@ -157,15 +158,16 @@ arize-config set harnesses.codex.project_name codex
 
 If no config exists yet, create it:
 ```yaml
-backend:
-  target: "arize"
-  arize:
-    endpoint: "otlp.arize.com:443"
-    api_key: "<key>"
-    space_id: "<space-id>"
 harnesses:
   codex:
-    project_name: "codex"
+    project_name: codex
+    target: arize
+    endpoint: otlp.arize.com:443
+    api_key: <key>
+    space_id: <space-id>
+    collector:
+      host: 127.0.0.1
+      port: 4318
 ```
 
 ### Step 2: Write the environment file (optional)

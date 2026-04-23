@@ -7,7 +7,7 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 - 9 hook-based span types covering the full session lifecycle
 - Works with both Claude Code CLI and the Claude Agent SDK — same install, same hooks, same config
 - Sends spans directly to Phoenix (REST) or Arize AX (HTTP) — no background process needed
-- Per-harness backend credential overrides via `harnesses.claude-code.backend` in config
+- Per-harness backend credentials via `harnesses.claude-code.*` in config
 - PID-based session isolation with automatic garbage collection
 - Lazy session initialization for Agent SDK environments (no `SessionStart` event)
 - `ARIZE_USER_ID` support for team-level span attribution
@@ -15,7 +15,7 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 
 ## Architecture
 
-Claude hooks build OpenInference spans locally and send them directly to the configured backend via `send_span()` in `core/common.py`. Backend credentials are resolved per-harness from `config.yaml`, with optional overrides under `harnesses.claude-code.backend`.
+Claude hooks build OpenInference spans locally and send them directly to the configured backend via `send_span()` in `core/common.py`. Backend credentials are read from `harnesses.claude-code.*` in `config.yaml`.
 
 - No background process or collector needed
 - Cross-platform: works on macOS, Linux, and Windows (Python 3.9+)
@@ -75,8 +75,9 @@ python -m core.install claude
 The installer:
 
 1. Installs the package and CLI entry points into the venv
-2. Writes hook entries directly into `~/.claude/settings.json` (one per lifecycle event)
-3. Registers the plugin path in `settings.json` under `plugins`
+2. If another harness is already installed using the same target, offers to reuse its credentials
+3. Writes hook entries directly into `~/.claude/settings.json` (one per lifecycle event)
+4. Registers the plugin path in `settings.json` under `plugins`
 
 Hooks are Python CLI entry points (e.g. `arize-hook-session-start`) installed in the venv. Each hook event maps to a dedicated command.
 
@@ -117,23 +118,16 @@ The setup script will:
 
 ### Shared Config File
 
-The single source of truth for backend credentials and per-harness configuration is `~/.arize/harness/config.yaml`. Each harness gets its own entry under `harnesses` with a dedicated `project_name` and optional backend override:
+The single source of truth for backend credentials and per-harness configuration is `~/.arize/harness/config.yaml`. Each harness owns its full backend configuration directly:
 
 ```yaml
-backend:
-  target: "phoenix"
-  phoenix:
-    endpoint: "..."
-    api_key: "..."
 harnesses:
   claude-code:
-    project_name: "claude-code"
-    backend:                      # optional — overrides global backend
-      target: "arize"
-      arize:
-        api_key: "different-key"
-        space_id: "different-space"
-        endpoint: "otlp.arize.com:443"
+    project_name: claude-code
+    target: arize
+    endpoint: otlp.arize.com:443
+    api_key: ak-xxx
+    space_id: U3Bh...
 ```
 
 Backend credentials and harness project names are stored in `~/.arize/harness/config.yaml` and read by `send_span()` directly. No environment variables need to be set in Claude settings for tracing to work. Tracing is enabled by default (`ARIZE_TRACE_ENABLED` defaults to `true`).
@@ -170,7 +164,7 @@ Hook commands use Python CLI entry points (e.g. `~/.arize/harness/venv/bin/arize
 
 ## Environment Variables (fallback)
 
-The config file `~/.arize/harness/config.yaml` is the primary and recommended way to configure tracing. The environment variables below serve as a fallback or for overriding specific values at runtime.
+The config file `~/.arize/harness/config.yaml` is the primary and recommended way to configure tracing. The environment variables below are for optional overrides at runtime.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -180,8 +174,6 @@ The config file `~/.arize/harness/config.yaml` is the primary and recommended wa
 | `ARIZE_DRY_RUN` | No | `false` | Print spans to log instead of sending |
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
 | `ARIZE_LOG_FILE` | No | `/tmp/arize-claude-code.log` | Log file path (empty to disable) |
-
-Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.) can also be set as environment variables and will be used as fallbacks if not configured in `config.yaml`.
 
 ### User Identification
 

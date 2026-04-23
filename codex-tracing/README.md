@@ -19,7 +19,7 @@ Codex CLI
                       └─ Buffers native Codex events by thread-id
 ```
 
-1. **Direct send** (`core/common.py`) -- spans are sent directly to Phoenix or Arize AX from the notify handler via `send_span()`. Per-harness backend credentials are resolved from `harnesses.codex.backend` in config, falling back to the global `backend` section.
+1. **Direct send** (`core/common.py`) -- spans are sent directly to Phoenix or Arize AX from the notify handler via `send_span()`. Per-harness backend credentials are read from `harnesses.codex.*` in config.
 
 2. **Codex Buffer Service** (`core/codex_buffer.py`, default port 4318) -- a lightweight HTTP server that only buffers Codex OTLP log events between hook invocations. No export logic. Accepts events (`POST /v1/logs`) and serves buffered events (`GET /drain/{id}`, `GET /flush/{id}`). Managed via `arize-codex-buffer`.
 
@@ -36,7 +36,7 @@ pip install arize-agent-kit
 python -m core.install codex
 ```
 
-The installer detects Codex and guides you through configuration.
+The installer detects Codex and guides you through configuration. If another harness is already installed using the same target, the installer offers to reuse its credentials.
 
 ### Dedicated installer
 
@@ -64,36 +64,33 @@ The single source of truth is `~/.arize/harness/config.yaml`. The notify hook an
 **Phoenix** (self-hosted):
 
 ```yaml
-backend:
-  target: "phoenix"
-  phoenix:
-    endpoint: "http://localhost:6006"
-    api_key: ""
 harnesses:
   codex:
-    project_name: "codex"
-    buffer:
-      host: "127.0.0.1"
+    project_name: codex
+    target: phoenix
+    endpoint: http://localhost:6006
+    api_key: ""
+    collector:
+      host: 127.0.0.1
       port: 4318
 ```
 
 **Arize AX** (cloud):
 
 ```yaml
-backend:
-  target: "arize"
-  arize:
-    api_key: "<your-api-key>"
-    space_id: "<your-space-id>"
 harnesses:
   codex:
-    project_name: "codex"
-    buffer:
-      host: "127.0.0.1"
+    project_name: codex
+    target: arize
+    endpoint: otlp.arize.com:443
+    api_key: <your-api-key>
+    space_id: <your-space-id>
+    collector:
+      host: 127.0.0.1
       port: 4318
 ```
 
-Each harness can optionally override backend credentials under `harnesses.codex.backend`. See [TRACING_ARCHITECTURE.md](../docs/TRACING_ARCHITECTURE.md) for the per-harness override schema.
+Each harness owns its full backend configuration directly under `harnesses.<name>`. See [TRACING_ARCHITECTURE.md](../docs/TRACING_ARCHITECTURE.md) for the full schema.
 
 Env-var overrides (optional) can still be placed in `~/.codex/arize-env.sh`.
 
@@ -209,7 +206,7 @@ core/
 
 **Spans not appearing in Arize AX**
 
-1. Verify `ARIZE_API_KEY` and `ARIZE_SPACE_ID` in `~/.arize/harness/config.yaml`
+1. Verify `api_key` and `space_id` under `harnesses.codex` in `~/.arize/harness/config.yaml`
 2. Check the harness log for errors: `grep ERROR /tmp/arize-codex.log`
 
 **Buffer service not starting**

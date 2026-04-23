@@ -7,7 +7,7 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 - 12 hook-based span types covering the full Cursor session lifecycle
 - Before/after event merging for shell execution and MCP tool use via disk-backed state stack
 - Sends spans directly to Phoenix (REST) or Arize AX (HTTP) — no background process needed
-- Per-harness backend credential overrides via `harnesses.cursor.backend` in config
+- Per-harness backend credentials via `harnesses.cursor.*` in config
 - Deterministic trace IDs derived from Cursor's `generation_id`
 - Single Python CLI entry point dispatches all hook events via `hook_event_name`
 - Cross-platform: works on macOS, Linux, and Windows (Python 3.9+)
@@ -32,7 +32,8 @@ python -m core.install cursor
 The installer will:
 1. Install the package and CLI entry points into the venv
 2. Run the Cursor setup script
-3. Guide you through backend configuration
+3. If another harness is already installed using the same target, offer to reuse its credentials
+4. Guide you through backend configuration
 
 ### Manual
 
@@ -43,35 +44,32 @@ arize-setup-cursor
 
 ## Configuration
 
-The single source of truth for backend credentials and per-harness configuration is `~/.arize/harness/config.yaml`. Each harness gets its own entry under `harnesses` with a dedicated `project_name` and optional backend override.
+The single source of truth for backend credentials and per-harness configuration is `~/.arize/harness/config.yaml`. Each harness owns its full backend configuration directly.
 
 ### Phoenix (self-hosted)
 
 ```yaml
-backend:
-  target: "phoenix"
-  phoenix:
-    endpoint: "http://localhost:6006"
-    api_key: ""
 harnesses:
   cursor:
-    project_name: "cursor"
+    project_name: cursor
+    target: phoenix
+    endpoint: http://localhost:6006
+    api_key: ""
 ```
 
 ### Arize AX (cloud)
 
 ```yaml
-backend:
-  target: "arize"
-  arize:
-    api_key: "<your-api-key>"
-    space_id: "<your-space-id>"
 harnesses:
   cursor:
-    project_name: "cursor"
+    project_name: cursor
+    target: arize
+    endpoint: otlp.arize.com:443
+    api_key: <your-api-key>
+    space_id: <your-space-id>
 ```
 
-Each harness can optionally override backend credentials under `harnesses.cursor.backend`. See [TRACING_ARCHITECTURE.md](../docs/TRACING_ARCHITECTURE.md) for the per-harness override schema.
+See [TRACING_ARCHITECTURE.md](../docs/TRACING_ARCHITECTURE.md) for the full schema.
 
 ## Activating Hooks
 
@@ -115,7 +113,7 @@ All spans include `session.id` (from `conversation_id`), `project.name`, and `op
 
 ## Architecture
 
-Hooks build OTLP spans and send them directly to the configured backend via `send_span()` in `core/common.py`. Per-harness backend credentials are resolved from `harnesses.cursor.backend` in config, falling back to the global `backend` section.
+Hooks build OTLP spans and send them directly to the configured backend via `send_span()` in `core/common.py`. Per-harness backend credentials are read from `harnesses.cursor.*` in config.
 
 ```text
 Cursor IDE
@@ -168,7 +166,7 @@ The config file `~/.arize/harness/config.yaml` is the primary and recommended wa
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
 | `ARIZE_LOG_FILE` | No | `/tmp/arize-cursor.log` | Log file path (empty to disable) |
 
-Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.) can also be set as environment variables and will be used as fallbacks if not configured in `config.yaml`.
+Backend credentials are configured in `~/.arize/harness/config.yaml` under `harnesses.cursor.*`.
 
 ## Directory Structure
 

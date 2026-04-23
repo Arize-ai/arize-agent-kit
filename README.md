@@ -57,9 +57,10 @@ curl -sSL "$INSTALL_URL" | bash -s -- cursor   # Cursor IDE
 The installer:
 
 1. **Asks for your backend** — Phoenix endpoint or Arize AX credentials
-2. **Asks for a project name** — defaults to the harness name (e.g. `claude-code`, `codex`, `cursor`)
-3. **Writes config** — saves backend credentials and harness settings to `~/.arize/harness/config.yaml`
-4. **Configures your harness** — sets up hooks so spans flow automatically
+2. **Offers to copy credentials** — if another harness is already installed using the same target, the installer offers to reuse its credentials
+3. **Asks for a project name** — defaults to the harness name (e.g. `claude-code`, `codex`, `cursor`)
+4. **Writes config** — saves backend credentials and harness settings to `~/.arize/harness/config.yaml`
+5. **Configures your harness** — sets up hooks so spans flow automatically
 
 Spans are sent directly to the backend from hooks — no background process is needed. (Codex additionally starts a lightweight buffer service for native OTLP event buffering.)
 
@@ -77,26 +78,22 @@ All configuration lives in `~/.arize/harness/config.yaml`, written by the instal
 
 ### config.yaml Fields
 
-**Backend**
+**Per-harness settings** (under `harnesses.<name>`)
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `backend.target` | Yes | — | `phoenix` or `arize` |
+| `harnesses.<name>.project_name` | No | harness name | Project name in Arize/Phoenix |
+| `harnesses.<name>.target` | Yes | — | `phoenix` or `arize` |
+| `harnesses.<name>.endpoint` | Yes | — | Phoenix server URL or Arize OTLP gRPC endpoint |
+| `harnesses.<name>.api_key` | Arize: Yes | — | Arize AX API key (or optional Phoenix API key) |
+| `harnesses.<name>.space_id` | Arize: Yes | — | Arize AX space ID |
 
-**Phoenix backend** (`backend.target: "phoenix"`)
-
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `backend.phoenix.endpoint` | Yes | `http://localhost:6006` | Phoenix server URL |
-| `backend.phoenix.api_key` | No | — | Phoenix API key (if auth is enabled) |
-
-**Arize AX backend** (`backend.target: "arize"`)
+**Codex-only** (under `harnesses.codex.collector`)
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `backend.arize.api_key` | Yes | — | Arize AX API key |
-| `backend.arize.space_id` | Yes | — | Arize AX space ID |
-| `backend.arize.endpoint` | No | `otlp.arize.com:443` | Arize OTLP gRPC endpoint (for on-prem) |
+| `harnesses.codex.collector.host` | No | `127.0.0.1` | Codex buffer service listen address |
+| `harnesses.codex.collector.port` | No | `4318` | Codex buffer service listen port |
 
 **User**
 
@@ -104,26 +101,36 @@ All configuration lives in `~/.arize/harness/config.yaml`, written by the instal
 |-------|----------|---------|-------------|
 | `user_id` | No | — | User identifier added to all spans as `user.id` |
 
-**Per-harness settings** (under `harnesses.<name>`)
-
-| Name | Field | Default |
-|------|-------|---------|
-| `claude-code` | `project_name` | `claude-code` |
-| `codex` | `project_name` | `codex` |
-| `cursor` | `project_name` | `cursor` |
-
-Each harness can optionally override backend credentials under `harnesses.<name>.backend`. When present, these override the global `backend` section for that harness only. This allows different harnesses to use different backends or credentials:
+Each harness owns its full backend configuration directly — there is no shared global backend block. This allows different harnesses to use different backends or credentials:
 
 ```yaml
 harnesses:
   claude-code:
-    project_name: "my-project"
-    backend:                      # optional per-harness override
-      target: "arize"
-      arize:
-        api_key: "different-key"
-        space_id: "different-space"
-        endpoint: "otlp.arize.com:443"
+    project_name: claude-code
+    target: arize
+    endpoint: otlp.arize.com:443
+    api_key: ak-xxx
+    space_id: U3Bh...
+  codex:
+    project_name: codex
+    target: phoenix
+    endpoint: http://localhost:6006
+    api_key: ""
+    collector:
+      host: 127.0.0.1
+      port: 4318
+  copilot:
+    project_name: copilot
+    target: arize
+    endpoint: otlp.arize.com:443
+    api_key: ak-xxx
+    space_id: U3Bh...
+  cursor:
+    project_name: cursor
+    target: phoenix
+    endpoint: http://localhost:6006
+    api_key: ""
+user_id: optional-global-user-id
 ```
 
 Harnesses send spans directly to the backend via `send_span()` in `core/common.py`. Python CLI entry points handle all hook events — no external dependencies (`curl`, `jq`, `bash`) are required.
