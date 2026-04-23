@@ -6,8 +6,6 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-from unittest.mock import patch
-
 import pytest
 import yaml
 
@@ -238,6 +236,15 @@ class TestInstallSecondHarnessOffersCopyFrom:
         assert captured["existing_harnesses"] is not None
         assert "claude-code" in captured["existing_harnesses"]
         assert captured["existing_harnesses"]["claude-code"]["target"] == "arize"
+
+        # Verify the copilot entry was actually written with correct credentials
+        config = yaml.safe_load(config_path.read_text())
+        entry = config["harnesses"]["copilot"]
+        assert entry["target"] == "arize"
+        assert entry["endpoint"] == ARIZE_BACKEND[1]["endpoint"]
+        assert entry["api_key"] == ARIZE_BACKEND[1]["api_key"]
+        assert entry["space_id"] == ARIZE_BACKEND[1]["space_id"]
+        assert entry["project_name"] == "copilot"
 
 
 class TestInstallExistingCopilotEntryOnlyUpdatesProjectName:

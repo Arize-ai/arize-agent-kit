@@ -28,6 +28,7 @@ from core.setup import (
     remove_harness_entry,
     unlink_skills,
     venv_bin,
+    write_config,
 )
 
 # The directory is named "copilot-tracing" (hyphenated) so standard Python
@@ -212,8 +213,6 @@ def install() -> None:
         project_name = prompt_project_name(HARNESS_NAME)
         user_id = prompt_user_id()
         if not dry_run():
-            from core.setup import write_config
-
             write_config(target, credentials, HARNESS_NAME, project_name, user_id=user_id)
         else:
             info("would write config.yaml with backend credentials")

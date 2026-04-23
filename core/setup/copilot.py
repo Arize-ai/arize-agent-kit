@@ -41,7 +41,7 @@ def _get_copilot_mod():
     return _copilot_mod
 
 
-def install(with_skills: bool = False) -> None:
+def install() -> None:
     """Delegate to copilot-tracing/install.py install()."""
     _get_copilot_mod().install()
 
