@@ -300,17 +300,31 @@ def install(with_skills: bool = False) -> None:
 
     # 2. Prompt for credentials if needed; write harness entry
     config = load_config(str(CONFIG_FILE))
-    existing_backend = get_value(config, "backend.target")
+    existing_entry = get_value(config, f"harnesses.{HARNESS_NAME}")
 
     project_name = prompt_project_name("codex")
+    collector = {"host": "127.0.0.1", "port": 4318}
 
-    if existing_backend:
-        info(f"Reusing existing backend: {existing_backend}")
-        merge_harness_entry(HARNESS_NAME, project_name)
+    if existing_entry:
+        info(f"Reusing existing backend: {existing_entry.get('target')}")
+        # Preserve existing collector if present, otherwise set default
+        existing_collector = existing_entry.get("collector")
+        merge_harness_entry(HARNESS_NAME, project_name, collector=existing_collector or collector)
     else:
-        target, credentials = prompt_backend()
-        write_config(target, credentials, HARNESS_NAME, project_name)
-        info("Wrote backend config to config.yaml")
+        existing_harnesses = config.get("harnesses", {}) if config else {}
+        target, credentials = prompt_backend(existing_harnesses=existing_harnesses)
+        user_id = prompt_user_id()
+        if not dry_run():
+            write_config(
+                target=target,
+                credentials=credentials,
+                harness_name=HARNESS_NAME,
+                project_name=project_name,
+                user_id=user_id,
+                collector=collector,
+            )
+        else:
+            info("would write config.yaml with backend credentials")
 
     # 3. Ensure codex config dir exists
     if not dry_run():
@@ -319,11 +333,17 @@ def install(with_skills: bool = False) -> None:
         info(f"would create {CODEX_CONFIG_DIR}")
 
     # 4. Write env file
-    user_id = prompt_user_id()
+    if not existing_entry:
+        # user_id already prompted above for fresh installs
+        pass
+    else:
+        user_id = prompt_user_id()
     _write_env_file(CODEX_ENV_FILE, user_id=user_id)
     info(f"Wrote env file: {CODEX_ENV_FILE}")
 
-    # 5. Update codex config.toml
+    # 5. Update codex config.toml — collector port from new path
+    config = load_config(str(CONFIG_FILE))
+    collector_port = get_value(config, f"harnesses.{HARNESS_NAME}.collector.port") or 4318
     notify_cmd = str(venv_bin(NOTIFY_BIN_NAME))
     _codex_toml_add(CODEX_CONFIG_FILE, notify_cmd, OTEL_ENDPOINT)
     info(f"Updated TOML config: {CODEX_CONFIG_FILE}")
