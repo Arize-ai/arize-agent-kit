@@ -31,12 +31,16 @@ CODEX_ENV_FILE: Path = _constants.CODEX_ENV_FILE
 NOTIFY_BIN_NAME: str = _constants.NOTIFY_BIN_NAME
 BUFFER_PORT: int = _constants.BUFFER_PORT
 OTEL_ENDPOINT: str = _constants.OTEL_ENDPOINT
+DISPLAY_NAME: str = _constants.DISPLAY_NAME
+HARNESS_HOME: str = _constants.HARNESS_HOME
+HARNESS_BIN: str = _constants.HARNESS_BIN
 
 from core.codex_buffer_ctl import buffer_start, buffer_status, buffer_stop
 from core.config import get_value, load_config
 from core.setup import (
     CONFIG_FILE,
     dry_run,
+    ensure_harness_installed,
     ensure_shared_runtime,
     info,
     merge_harness_entry,
@@ -287,6 +291,10 @@ def _is_our_env_file(path: Path) -> bool:
 
 def install(with_skills: bool = False) -> None:
     """Install codex tracing harness."""
+    if not ensure_harness_installed(DISPLAY_NAME, home_subdir=HARNESS_HOME, bin_name=HARNESS_BIN):
+        info("Aborted.")
+        return
+
     # 1. Ensure shared runtime directories
     ensure_shared_runtime()
 

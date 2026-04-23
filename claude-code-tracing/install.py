@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from core.setup import (
+    ensure_harness_installed,
     ensure_shared_runtime,
     harness_dir,
     info,
@@ -24,11 +25,15 @@ from core.config import get_value, load_config
 
 # constants.py is a sibling file — make sure sys.path includes this file's parent.
 sys.path.insert(0, str(Path(__file__).parent))
-from constants import HARNESS_NAME, HOOK_EVENTS, SETTINGS_FILE
+from constants import DISPLAY_NAME, HARNESS_BIN, HARNESS_HOME, HARNESS_NAME, HOOK_EVENTS, SETTINGS_FILE
 
 
 def install(with_skills: bool = False) -> None:
     """Install Claude Code tracing: configure backend, register hooks, optionally symlink skills."""
+    if not ensure_harness_installed(DISPLAY_NAME, home_subdir=HARNESS_HOME, bin_name=HARNESS_BIN):
+        info("Aborted.")
+        return
+
     ensure_shared_runtime()
 
     # If config has no backend yet, prompt; otherwise reuse.

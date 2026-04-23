@@ -9,6 +9,7 @@ from pathlib import Path
 
 from core.setup import (
     INSTALL_DIR,
+    ensure_harness_installed,
     ensure_shared_runtime,
     dry_run,
     info,
@@ -31,6 +32,9 @@ _constants = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
 _spec.loader.exec_module(_constants)  # type: ignore[union-attr]
 
 HARNESS_NAME: str = _constants.HARNESS_NAME
+DISPLAY_NAME: str = _constants.DISPLAY_NAME
+HARNESS_HOME: str = _constants.HARNESS_HOME
+HARNESS_BIN: str = _constants.HARNESS_BIN
 HOOK_BIN_NAME: str = _constants.HOOK_BIN_NAME
 HOOK_EVENTS: tuple = _constants.HOOK_EVENTS
 HOOKS_FILE: Path = _constants.HOOKS_FILE
@@ -38,6 +42,10 @@ HOOKS_FILE: Path = _constants.HOOKS_FILE
 
 def install(with_skills: bool = False) -> None:
     """Install Cursor tracing: configure backend, register hooks, optionally symlink skills."""
+    if not ensure_harness_installed(DISPLAY_NAME, home_subdir=HARNESS_HOME, bin_name=HARNESS_BIN):
+        info("Aborted.")
+        return
+
     ensure_shared_runtime()
 
     # Create cursor state dir

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Optional
@@ -68,6 +69,60 @@ def err(msg: str) -> None:
         sys.stderr.write(f"\033[0;31m[arize]\033[0m {msg}\n")
     else:
         sys.stderr.write(f"[arize] {msg}\n")
+
+
+# ---------------------------------------------------------------------------
+# Harness presence check (soft signal)
+# ---------------------------------------------------------------------------
+
+
+def is_harness_installed(
+    home_subdir: Optional[str] = None,
+    bin_name: Optional[str] = None,
+) -> bool:
+    """True if ``~/<home_subdir>`` exists OR ``<bin_name>`` is on PATH.
+
+    ``Path.home()`` is resolved at call time so tests can monkeypatch it.
+    """
+    if home_subdir and (Path.home() / home_subdir).exists():
+        return True
+    if bin_name and shutil.which(bin_name):
+        return True
+    return False
+
+
+def ensure_harness_installed(
+    display_name: str,
+    home_subdir: Optional[str] = None,
+    bin_name: Optional[str] = None,
+) -> bool:
+    """Soft check that the harness appears installed on this machine.
+
+    If yes, return ``True`` silently.  If no, warn and either prompt the user
+    (interactive) or proceed with a note (non-interactive).  Return ``True`` to
+    proceed with install, ``False`` to abort.
+    """
+    if is_harness_installed(home_subdir=home_subdir, bin_name=bin_name):
+        return True
+
+    print_color(f"warning: {display_name} does not appear to be installed", "yellow")
+    checks = []
+    if home_subdir:
+        checks.append(str(Path.home() / home_subdir))
+    if bin_name:
+        checks.append(f"'{bin_name}' on PATH")
+    if checks:
+        info(f"  (not found: {', '.join(checks)})")
+
+    if not sys.stdout.isatty():
+        info("  non-interactive — proceeding anyway")
+        return True
+
+    try:
+        reply = input(f"Install tracing for {display_name} anyway? [y/N]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        return False
+    return reply in ("y", "yes")
 
 
 # ---------------------------------------------------------------------------

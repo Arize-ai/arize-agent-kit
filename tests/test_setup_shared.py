@@ -435,3 +435,107 @@ class TestWipeSharedRuntime:
 
         assert fake_install.exists()
         assert (fake_install / "config.yaml").exists()
+
+
+# ---------------------------------------------------------------------------
+# Harness presence check helpers
+# ---------------------------------------------------------------------------
+
+
+class TestIsHarnessInstalled:
+    def test_true_when_home_subdir_exists(self, tmp_path, monkeypatch):
+        from core.setup import is_harness_installed
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        (tmp_path / ".claude").mkdir()
+
+        assert is_harness_installed(home_subdir=".claude") is True
+
+    def test_true_when_bin_on_path(self, tmp_path, monkeypatch):
+        import core.setup as setup_mod
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setattr(setup_mod.shutil, "which", lambda name: "/usr/local/bin/claude" if name == "claude" else None)
+
+        assert setup_mod.is_harness_installed(home_subdir=".claude", bin_name="claude") is True
+
+    def test_false_when_neither(self, tmp_path, monkeypatch):
+        import core.setup as setup_mod
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setattr(setup_mod.shutil, "which", lambda name: None)
+
+        assert setup_mod.is_harness_installed(home_subdir=".claude", bin_name="claude") is False
+
+    def test_false_with_no_args(self):
+        from core.setup import is_harness_installed
+
+        assert is_harness_installed() is False
+
+
+class TestEnsureHarnessInstalled:
+    def test_proceeds_when_installed(self, tmp_path, monkeypatch, capsys):
+        from core.setup import ensure_harness_installed
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        (tmp_path / ".claude").mkdir()
+
+        assert ensure_harness_installed("Claude Code", home_subdir=".claude", bin_name="claude") is True
+        # no warning when installed
+        assert "warning" not in capsys.readouterr().out.lower()
+
+    def test_non_interactive_proceeds_with_warning(self, tmp_path, monkeypatch, capsys):
+        import core.setup as setup_mod
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setattr(setup_mod.shutil, "which", lambda name: None)
+        # pytest default stdout isn't a tty but be explicit
+        monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
+
+        assert setup_mod.ensure_harness_installed("Claude Code", home_subdir=".claude", bin_name="claude") is True
+        out = capsys.readouterr().out
+        assert "warning" in out.lower()
+        assert "non-interactive" in out.lower()
+
+    def test_interactive_yes_proceeds(self, tmp_path, monkeypatch):
+        import core.setup as setup_mod
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setattr(setup_mod.shutil, "which", lambda name: None)
+        monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+        monkeypatch.setattr("builtins.input", lambda prompt="": "y")
+
+        assert setup_mod.ensure_harness_installed("Claude Code", home_subdir=".claude") is True
+
+    def test_interactive_no_aborts(self, tmp_path, monkeypatch):
+        import core.setup as setup_mod
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setattr(setup_mod.shutil, "which", lambda name: None)
+        monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+        monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+
+        assert setup_mod.ensure_harness_installed("Claude Code", home_subdir=".claude") is False
+
+    def test_interactive_default_empty_aborts(self, tmp_path, monkeypatch):
+        import core.setup as setup_mod
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setattr(setup_mod.shutil, "which", lambda name: None)
+        monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+        monkeypatch.setattr("builtins.input", lambda prompt="": "")
+
+        assert setup_mod.ensure_harness_installed("Claude Code", home_subdir=".claude") is False
+
+    def test_keyboard_interrupt_aborts(self, tmp_path, monkeypatch):
+        import core.setup as setup_mod
+
+        def _raise_kbd(prompt=""):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setattr(setup_mod.shutil, "which", lambda name: None)
+        monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+        monkeypatch.setattr("builtins.input", _raise_kbd)
+
+        assert setup_mod.ensure_harness_installed("Claude Code", home_subdir=".claude") is False
