@@ -209,14 +209,14 @@ def _try_copy_from(target: str, existing_harnesses: dict | None) -> dict | None:
 
     # Required fields per target
     if target == "phoenix":
-        required = {"endpoint"}
         # api_key must be present but may be empty string
         def _valid(entry: dict) -> bool:
             return "endpoint" in entry and "api_key" in entry
     else:
-        required = {"endpoint", "api_key", "space_id"}
+        _required_arize = {"endpoint", "api_key", "space_id"}
+
         def _valid(entry: dict) -> bool:
-            return all(k in entry and entry[k] for k in required)
+            return all(k in entry and entry[k] for k in _required_arize)
 
     matches: list[tuple[str, dict]] = []
     for name, entry in existing_harnesses.items():

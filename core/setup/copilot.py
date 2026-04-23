@@ -70,7 +70,8 @@ def _run() -> None:
 
     # Check for existing config
     config = load_config()
-    existing_backend = get_value(config, "backend.target")
+    harnesses = get_value(config, "harnesses") or {}
+    existing_copilot = harnesses.get("copilot", {}) if isinstance(harnesses, dict) else {}
 
     # Project name
     project_name = prompt_project_name("copilot")
@@ -78,23 +79,25 @@ def _run() -> None:
     # Optional: User ID
     user_id = prompt_user_id()
 
-    if existing_backend:
+    if existing_copilot.get("target"):
         print_color(
-            f"Existing config found: backend={existing_backend} in ~/.arize/harness/config.yaml",
+            f"Existing config found: target={existing_copilot['target']} in ~/.arize/harness/config.yaml",
             "yellow",
         )
-        print("Skipping credential prompts — adding copilot harness entry.")
+        print("Skipping credential prompts — updating copilot harness entry.")
         print("")
 
-        # Add copilot harness entry
+        # Update copilot harness entry
         set_value(config, "harnesses.copilot.project_name", project_name)
         if user_id:
             set_value(config, "user_id", user_id)
         save_config(config)
-        info("Added copilot harness to existing config")
+        info("Updated copilot harness in existing config")
     else:
-        # No existing config — prompt for backend
-        target, credentials = prompt_backend()
+        # No existing copilot config — prompt for backend
+        target, credentials = prompt_backend(
+            existing_harnesses=harnesses or None,
+        )
         info(
             f"Target: {'Phoenix at ' + credentials['endpoint'] if target == 'phoenix' else 'Arize AX (endpoint: ' + credentials['endpoint'] + ')'}"
         )

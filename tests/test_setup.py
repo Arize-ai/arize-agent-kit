@@ -1115,16 +1115,23 @@ class TestCopilotSetup:
         assert config["user_id"] == "alice"
 
     def test_run_existing_config_skips_prompts(self, tmp_path, monkeypatch):
-        """Copilot _run() with existing config skips backend prompts."""
+        """Copilot _run() with existing copilot config skips backend prompts."""
         config_path = str(tmp_path / "config.yaml")
         existing = {
-            "collector": {"host": "127.0.0.1", "port": 4318},
-            "backend": {
-                "target": "phoenix",
-                "phoenix": {"endpoint": "http://localhost:6006", "api_key": ""},
-                "arize": {"endpoint": "", "api_key": "", "space_id": ""},
+            "harnesses": {
+                "claude-code": {
+                    "project_name": "claude-code",
+                    "target": "phoenix",
+                    "endpoint": "http://localhost:6006",
+                    "api_key": "",
+                },
+                "copilot": {
+                    "project_name": "copilot",
+                    "target": "phoenix",
+                    "endpoint": "http://localhost:6006",
+                    "api_key": "",
+                },
             },
-            "harnesses": {"claude-code": {"project_name": "claude-code"}},
         }
         Path(config_path).parent.mkdir(parents=True, exist_ok=True)
         with open(config_path, "w") as f:
@@ -1156,22 +1163,25 @@ class TestCopilotSetup:
 
         config = yaml.safe_load(Path(config_path).read_text())
         assert config["harnesses"]["copilot"]["project_name"] == "copilot"
+        assert config["harnesses"]["copilot"]["target"] == "phoenix"
         # Existing harness preserved
         assert config["harnesses"]["claude-code"]["project_name"] == "claude-code"
-        # Old-format backend preserved (copilot _run reads old format; Wave 2 updates)
-        assert config["backend"]["target"] == "phoenix"
+        # No old-format keys
+        assert "backend" not in config
 
     def test_run_existing_config_with_user_id(self, tmp_path, monkeypatch):
-        """Copilot _run() with existing config and user ID sets user_id."""
+        """Copilot _run() with existing copilot config and user ID sets user_id."""
         config_path = str(tmp_path / "config.yaml")
         existing = {
-            "collector": {"host": "127.0.0.1", "port": 4318},
-            "backend": {
-                "target": "arize",
-                "phoenix": {"endpoint": "http://localhost:6006", "api_key": ""},
-                "arize": {"endpoint": "otlp.arize.com:443", "api_key": "k", "space_id": "s"},
+            "harnesses": {
+                "copilot": {
+                    "project_name": "copilot",
+                    "target": "arize",
+                    "endpoint": "otlp.arize.com:443",
+                    "api_key": "k",
+                    "space_id": "s",
+                },
             },
-            "harnesses": {},
         }
         Path(config_path).parent.mkdir(parents=True, exist_ok=True)
         with open(config_path, "w") as f:
@@ -1204,7 +1214,8 @@ class TestCopilotSetup:
         config = yaml.safe_load(Path(config_path).read_text())
         assert config["harnesses"]["copilot"]["project_name"] == "copilot-proj"
         assert config["user_id"] == "bob"
-        assert config["backend"]["target"] == "arize"
+        assert config["harnesses"]["copilot"]["target"] == "arize"
+        assert "backend" not in config
 
     def test_run_custom_project_name(self, tmp_path, monkeypatch):
         """Copilot _run() uses custom project name when provided."""
