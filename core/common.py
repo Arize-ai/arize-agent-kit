@@ -147,14 +147,25 @@ def get_target() -> str:
 
 
 def resolve_backend(span_dict: dict) -> dict:
-    """Resolve backend config for a span payload, checking per-harness overrides.
+    """Resolve backend config for a span payload from config.yaml.
 
-    Returns a dict with keys: target, endpoint, api_key, space_id, project_name.
-    Resolution priority:
-      1. harnesses.<service_name>.backend.* in config (per-harness override)
-      2. backend.* in config (global)
-      3. Environment variables (PHOENIX_ENDPOINT, ARIZE_API_KEY, etc.)
+    Reads harnesses.<service_name>.{target, endpoint, api_key, space_id,
+    project_name}.  No fallback to a global backend block (gone).  No
+    fallback to environment variables.
+
+    service_name is pulled from the span's resource attributes
+    (resource.attributes[service.name]).
+
+    Returns:
+      {"target": "phoenix", "endpoint", "api_key", "project_name"} or
+      {"target": "arize",   "endpoint", "api_key", "space_id", "project_name"}
+
+    On any missing required field (no harness entry, no target, no endpoint,
+    no api_key for arize, no space_id for arize), logs a clear error via
+    error() and returns {"target": "none", "project_name": project_name_or_""}.
     """
+    _none = {"target": "none", "project_name": ""}
+
     # Extract service.name from span resource attributes
     service_name = ""
     for rs in span_dict.get("resourceSpans", []):
@@ -165,6 +176,10 @@ def resolve_backend(span_dict: dict) -> dict:
         if service_name:
             break
 
+    if not service_name:
+        error("No service.name attribute found on span — cannot resolve harness config.")
+        return _none
+
     # Load config
     try:
         from core.config import load_config
@@ -173,63 +188,68 @@ def resolve_backend(span_dict: dict) -> dict:
     except Exception:
         cfg = {}
 
-    # Check per-harness backend override
-    harness_cfg = cfg.get("harnesses", {}).get(service_name, {})
-    harness_backend = harness_cfg.get("backend", {})
-
-    # Resolve project name: harness config > env var > service.name
-    project_name = harness_cfg.get("project_name", "")
-    if not project_name:
-        project_name = env.project_name
-    if not project_name:
-        project_name = service_name
-    if not project_name:
+    harness_cfg = cfg.get("harnesses", {}).get(service_name)
+    if harness_cfg is None:
         error(
-            "No project name found. Set ARIZE_PROJECT_NAME, configure "
-            "harnesses.<name>.project_name in config.yaml, or ensure spans "
-            "include a service.name resource attribute."
+            f"No config entry for harness '{service_name}'.  Run install.sh {service_name} "
+            "to configure it."
         )
-        return {"target": "none", "project_name": ""}
+        return _none
 
-    # Resolve target: harness > global config > env detection
-    global_backend = cfg.get("backend", {})
-    target = harness_backend.get("target") or global_backend.get("target", "")
+    project_name = harness_cfg.get("project_name", "")
+    target = harness_cfg.get("target", "")
 
     if not target:
-        # Fall back to env var detection (same as get_target())
-        if env.phoenix_endpoint:
-            target = "phoenix"
-        elif env.api_key and env.space_id:
-            target = "arize"
-        else:
-            target = "none"
+        error(
+            f"Incomplete config for harness '{service_name}': missing target.  Run "
+            f"install.sh {service_name} to reconfigure."
+        )
+        return {"target": "none", "project_name": project_name}
 
-    # Resolve credentials based on target
     if target == "phoenix":
-        harness_phoenix = harness_backend.get("phoenix", {})
-        global_phoenix = global_backend.get("phoenix", {})
+        endpoint = harness_cfg.get("endpoint", "")
+        if not endpoint:
+            error(
+                f"Incomplete config for harness '{service_name}': missing endpoint.  Run "
+                f"install.sh {service_name} to reconfigure."
+            )
+            return {"target": "none", "project_name": project_name}
         return {
             "target": "phoenix",
-            "endpoint": (
-                harness_phoenix.get("endpoint")
-                or global_phoenix.get("endpoint")
-                or env.phoenix_endpoint
-                or "http://localhost:6006"
-            ),
-            "api_key": (harness_phoenix.get("api_key") or global_phoenix.get("api_key") or env.api_key or ""),
+            "endpoint": endpoint,
+            "api_key": harness_cfg.get("api_key", ""),
             "project_name": project_name,
         }
     elif target == "arize":
-        harness_arize = harness_backend.get("arize", {})
-        global_arize = global_backend.get("arize", {})
+        endpoint = harness_cfg.get("endpoint", "")
+        api_key = harness_cfg.get("api_key", "")
+        space_id = harness_cfg.get("space_id", "")
+
+        missing = []
+        if not endpoint:
+            missing.append("endpoint")
+        if not api_key:
+            missing.append("api_key")
+        if not space_id:
+            missing.append("space_id")
+        if missing:
+            error(
+                f"Incomplete config for harness '{service_name}': missing {', '.join(missing)}.  Run "
+                f"install.sh {service_name} to reconfigure."
+            )
+            return {"target": "none", "project_name": project_name}
         return {
             "target": "arize",
-            "endpoint": (harness_arize.get("endpoint") or global_arize.get("endpoint") or "otlp.arize.com:443"),
-            "api_key": (harness_arize.get("api_key") or global_arize.get("api_key") or env.api_key or ""),
-            "space_id": (harness_arize.get("space_id") or global_arize.get("space_id") or env.space_id or ""),
+            "endpoint": endpoint,
+            "api_key": api_key,
+            "space_id": space_id,
             "project_name": project_name,
         }
     else:
+        error(
+            f"Incomplete config for harness '{service_name}': missing target.  Run "
+            f"install.sh {service_name} to reconfigure."
+        )
         return {"target": "none", "project_name": project_name}
 
 
