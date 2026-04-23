@@ -16,12 +16,17 @@ import json
 import sys
 from pathlib import Path
 
+from core.config import get_value, load_config
 from core.setup import (
     dry_run,
     ensure_shared_runtime,
     info,
     merge_harness_entry,
+    prompt_backend,
+    prompt_project_name,
+    prompt_user_id,
     remove_harness_entry,
+    unlink_skills,
     venv_bin,
 )
 
@@ -193,9 +198,30 @@ def _uninstall_cli_hooks(hooks_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def install(project_name: str = "copilot") -> None:
+def install() -> None:
     """Install Copilot tracing hooks (VS Code + CLI) and register in config.yaml."""
     ensure_shared_runtime()
+
+    # If this harness has no backend config yet, prompt; otherwise reuse.
+    config = load_config()
+    existing_entry = get_value(config, f"harnesses.{HARNESS_NAME}")
+
+    if not existing_entry or not isinstance(existing_entry, dict) or "target" not in existing_entry:
+        existing_harnesses = config.get("harnesses") if config else None
+        target, credentials = prompt_backend(existing_harnesses)
+        project_name = prompt_project_name(HARNESS_NAME)
+        user_id = prompt_user_id()
+        if not dry_run():
+            from core.setup import write_config
+
+            write_config(target, credentials, HARNESS_NAME, project_name, user_id=user_id)
+        else:
+            info("would write config.yaml with backend credentials")
+    else:
+        project_name = prompt_project_name(
+            existing_entry.get("project_name") or HARNESS_NAME
+        )
+        merge_harness_entry(HARNESS_NAME, project_name)
 
     hooks_dir = Path.cwd() / HOOKS_DIR
 
@@ -205,7 +231,6 @@ def install(project_name: str = "copilot") -> None:
     _install_vscode_hooks(hooks_dir)
     _install_cli_hooks(hooks_dir)
 
-    merge_harness_entry(HARNESS_NAME, project_name)
     info("Copilot tracing installed")
 
 
@@ -217,6 +242,7 @@ def uninstall() -> None:
     _uninstall_cli_hooks(hooks_dir)
 
     remove_harness_entry(HARNESS_NAME)
+    unlink_skills(HARNESS_NAME)
     info("Copilot tracing uninstalled")
 
 
@@ -234,12 +260,7 @@ def main() -> None:
     action = sys.argv[1]
 
     if action == "install":
-        project = "copilot"
-        if "--project" in sys.argv:
-            idx = sys.argv.index("--project")
-            if idx + 1 < len(sys.argv):
-                project = sys.argv[idx + 1]
-        install(project_name=project)
+        install()
     else:
         uninstall()
 
