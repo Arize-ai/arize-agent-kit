@@ -333,19 +333,16 @@ def install(with_skills: bool = False) -> None:
         info(f"would create {CODEX_CONFIG_DIR}")
 
     # 4. Write env file
-    if not existing_entry:
-        # user_id already prompted above for fresh installs
-        pass
-    else:
+    if existing_entry:
         user_id = prompt_user_id()
     _write_env_file(CODEX_ENV_FILE, user_id=user_id)
-    info(f"Wrote env file: {CODEX_ENV_FILE}")
 
     # 5. Update codex config.toml — collector port from new path
     config = load_config(str(CONFIG_FILE))
     collector_port = get_value(config, f"harnesses.{HARNESS_NAME}.collector.port") or 4318
+    otel_endpoint = f"http://127.0.0.1:{collector_port}/v1/logs"
     notify_cmd = str(venv_bin(NOTIFY_BIN_NAME))
-    _codex_toml_add(CODEX_CONFIG_FILE, notify_cmd, OTEL_ENDPOINT)
+    _codex_toml_add(CODEX_CONFIG_FILE, notify_cmd, otel_endpoint)
     info(f"Updated TOML config: {CODEX_CONFIG_FILE}")
 
     # 6. Start buffer service
@@ -379,8 +376,11 @@ def uninstall() -> None:
         info("would stop buffer service")
 
     # 2. Revert codex config.toml
+    config = load_config(str(CONFIG_FILE))
+    collector_port = get_value(config, f"harnesses.{HARNESS_NAME}.collector.port") or 4318
+    otel_endpoint = f"http://127.0.0.1:{collector_port}/v1/logs"
     notify_cmd = str(venv_bin(NOTIFY_BIN_NAME))
-    _codex_toml_remove(CODEX_CONFIG_FILE, notify_cmd, OTEL_ENDPOINT)
+    _codex_toml_remove(CODEX_CONFIG_FILE, notify_cmd, otel_endpoint)
     info(f"Reverted TOML config: {CODEX_CONFIG_FILE}")
 
     # 3. Remove env file if it's ours

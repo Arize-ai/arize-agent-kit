@@ -367,9 +367,15 @@ class TestInstall:
 
         codex_install.install()
 
-        # Re-read config to verify collector port preserved
+        # Verify collector port preserved in config
         config = yaml.safe_load(config_file.read_text())
         assert config["harnesses"]["codex"]["collector"]["port"] == 4319
+
+        # Verify TOML otel endpoint uses port 4319, not the default 4318
+        toml_path = fake_home / ".codex" / "config.toml"
+        toml_data = codex_install._toml_load(toml_path)
+        otel_ep = toml_data["otel"]["exporter"]["otlp-http"]["endpoint"]
+        assert ":4319/" in otel_ep
 
 
 # ---------------------------------------------------------------------------
