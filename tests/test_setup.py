@@ -780,13 +780,15 @@ class TestCodexRunFlow:
         config_path = str(tmp_path / "config.yaml")
         codex_dir = tmp_path / ".codex"
         existing = {
-            "collector": {"host": "127.0.0.1", "port": 4318},
-            "backend": {
-                "target": "phoenix",
-                "phoenix": {"endpoint": "http://localhost:6006", "api_key": ""},
-                "arize": {"endpoint": "", "api_key": "", "space_id": ""},
+            "harnesses": {
+                "codex": {
+                    "project_name": "codex",
+                    "target": "phoenix",
+                    "endpoint": "http://localhost:6006",
+                    "api_key": "",
+                    "collector": {"host": "127.0.0.1", "port": 4318},
+                }
             },
-            "harnesses": {},
         }
         Path(config_path).parent.mkdir(parents=True, exist_ok=True)
         with open(config_path, "w") as f:
@@ -819,7 +821,7 @@ class TestCodexRunFlow:
 
         config = yaml.safe_load(Path(config_path).read_text())
         assert config["harnesses"]["codex"]["project_name"] == "codex"
-        assert config["backend"]["target"] == "phoenix"
+        assert config["harnesses"]["codex"]["target"] == "phoenix"
 
         # env file and toml should still be written
         assert (codex_dir / "arize-env.sh").exists()

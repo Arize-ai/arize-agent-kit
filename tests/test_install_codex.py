@@ -29,6 +29,13 @@ def _load_codex_install():
 codex_install = _load_codex_install()
 
 
+PHOENIX_BACKEND = ("phoenix", {"endpoint": "http://localhost:6006", "api_key": ""})
+ARIZE_BACKEND = (
+    "arize",
+    {"endpoint": "otlp.arize.com:443", "api_key": "ak-xxx", "space_id": "U3Bh"},
+)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -63,7 +70,6 @@ def fake_home(tmp_path, monkeypatch):
     monkeypatch.setattr("core.setup.STATE_DIR", install_dir / "state")
 
     # Patch core.constants.CONFIG_FILE and core.config.CONFIG_FILE
-    # (config.py imports CONFIG_FILE at module level, binding a local name)
     monkeypatch.setattr("core.constants.CONFIG_FILE", config_file)
     monkeypatch.setattr("core.config.CONFIG_FILE", config_file)
 
@@ -87,13 +93,24 @@ def mock_buffer():
 
 @pytest.fixture()
 def mock_prompts(monkeypatch):
-    """Mock interactive prompts to return defaults."""
+    """Mock interactive prompts to return phoenix defaults."""
     monkeypatch.setattr(codex_install, "prompt_project_name", lambda default: default)
     monkeypatch.setattr(codex_install, "prompt_user_id", lambda: "")
     monkeypatch.setattr(
         codex_install,
         "prompt_backend",
-        lambda: ("phoenix", {"endpoint": "http://localhost:6006", "api_key": ""}),
+        lambda existing_harnesses=None: PHOENIX_BACKEND,
+    )
+
+
+def _mock_prompts_arize(monkeypatch):
+    """Mock interactive prompts to return arize defaults."""
+    monkeypatch.setattr(codex_install, "prompt_project_name", lambda default: default)
+    monkeypatch.setattr(codex_install, "prompt_user_id", lambda: "")
+    monkeypatch.setattr(
+        codex_install,
+        "prompt_backend",
+        lambda existing_harnesses=None: ARIZE_BACKEND,
     )
 
 
@@ -138,13 +155,59 @@ class TestTomlHelpers:
 
 
 # ---------------------------------------------------------------------------
-# Install tests
+# Install tests — flat schema
 # ---------------------------------------------------------------------------
 
 class TestInstall:
-    """Tests for install()."""
+    """Tests for install() using the flat config schema."""
 
-    def test_fresh_install_writes_toml_and_env(self, fake_home, mock_buffer, mock_prompts):
+    def test_install_fresh_writes_flat_phoenix_entry(self, fake_home, mock_buffer, mock_prompts):
+        """Fresh install with phoenix writes flat harnesses.codex entry."""
+        codex_install.install()
+
+        config_file = fake_home / ".arize" / "harness" / "config.yaml"
+        assert config_file.is_file()
+        config = yaml.safe_load(config_file.read_text())
+
+        entry = config["harnesses"]["codex"]
+        assert entry["target"] == "phoenix"
+        assert entry["endpoint"] == "http://localhost:6006"
+        assert entry["api_key"] == ""
+        assert entry["project_name"] == "codex"
+        # No top-level backend or collector
+        assert "backend" not in config
+        assert "collector" not in config
+
+    def test_install_fresh_writes_flat_arize_entry(self, fake_home, mock_buffer, monkeypatch):
+        """Fresh install with arize writes flat harnesses.codex entry with space_id."""
+        _mock_prompts_arize(monkeypatch)
+        codex_install.install()
+
+        config_file = fake_home / ".arize" / "harness" / "config.yaml"
+        config = yaml.safe_load(config_file.read_text())
+
+        entry = config["harnesses"]["codex"]
+        assert entry["target"] == "arize"
+        assert entry["endpoint"] == "otlp.arize.com:443"
+        assert entry["api_key"] == "ak-xxx"
+        assert entry["space_id"] == "U3Bh"
+        assert entry["project_name"] == "codex"
+
+    def test_install_fresh_writes_collector_under_codex_entry(self, fake_home, mock_buffer, mock_prompts):
+        """Fresh install writes collector under harnesses.codex.collector, not top-level."""
+        codex_install.install()
+
+        config_file = fake_home / ".arize" / "harness" / "config.yaml"
+        config = yaml.safe_load(config_file.read_text())
+
+        # Collector under harnesses.codex
+        collector = config["harnesses"]["codex"]["collector"]
+        assert collector["host"] == "127.0.0.1"
+        assert collector["port"] == 4318
+        # No top-level collector
+        assert "collector" not in config
+
+    def test_install_fresh_writes_toml_and_env(self, fake_home, mock_buffer, mock_prompts):
         """Fresh install writes config.toml with notify + otel, writes env file, calls buffer start."""
         codex_install.install()
 
@@ -170,16 +233,86 @@ class TestInstall:
         # Check buffer start was called
         mock_buffer["start"].assert_called_once()
 
-        # Check config.yaml has harness entry
+    def test_install_existing_codex_entry_only_updates_project_name(
+        self, fake_home, mock_buffer, monkeypatch
+    ):
+        """When harnesses.codex already exists, install reuses it and updates project_name."""
         config_file = fake_home / ".arize" / "harness" / "config.yaml"
-        assert config_file.is_file()
+        config_file.write_text(yaml.safe_dump({
+            "harnesses": {
+                "codex": {
+                    "project_name": "old-name",
+                    "target": "arize",
+                    "endpoint": "otlp.arize.com:443",
+                    "api_key": "ak-existing",
+                    "space_id": "S123",
+                    "collector": {"host": "127.0.0.1", "port": 4318},
+                }
+            }
+        }))
+
+        monkeypatch.setattr(codex_install, "prompt_project_name", lambda default: "new-name")
+        monkeypatch.setattr(codex_install, "prompt_user_id", lambda: "")
+
+        codex_install.install()
+
         config = yaml.safe_load(config_file.read_text())
-        assert config["harnesses"]["codex"]["project_name"] == "codex"
+        entry = config["harnesses"]["codex"]
+        assert entry["project_name"] == "new-name"
+        # Credentials preserved
+        assert entry["target"] == "arize"
+        assert entry["api_key"] == "ak-existing"
+        assert entry["space_id"] == "S123"
+
+    def test_install_offers_copy_from_existing_arize_harness(
+        self, fake_home, mock_buffer, monkeypatch
+    ):
+        """Pre-populate harnesses.claude-code with arize; verify codex gets copied creds."""
+        config_file = fake_home / ".arize" / "harness" / "config.yaml"
+        config_file.write_text(yaml.safe_dump({
+            "harnesses": {
+                "claude-code": {
+                    "project_name": "claude-code",
+                    "target": "arize",
+                    "endpoint": "otlp.arize.com:443",
+                    "api_key": "ak-shared",
+                    "space_id": "S-shared",
+                }
+            }
+        }))
+
+        # prompt_backend receives existing_harnesses and returns arize with copied creds
+        captured_kwargs = {}
+
+        def fake_prompt_backend(existing_harnesses=None):
+            captured_kwargs["existing_harnesses"] = existing_harnesses
+            return ("arize", {
+                "endpoint": "otlp.arize.com:443",
+                "api_key": "ak-shared",
+                "space_id": "S-shared",
+            })
+
+        monkeypatch.setattr(codex_install, "prompt_project_name", lambda default: default)
+        monkeypatch.setattr(codex_install, "prompt_user_id", lambda: "")
+        monkeypatch.setattr(codex_install, "prompt_backend", fake_prompt_backend)
+
+        codex_install.install()
+
+        # Verify existing_harnesses was passed to prompt_backend
+        assert "claude-code" in captured_kwargs["existing_harnesses"]
+
+        config = yaml.safe_load(config_file.read_text())
+        codex_entry = config["harnesses"]["codex"]
+        assert codex_entry["target"] == "arize"
+        assert codex_entry["api_key"] == "ak-shared"
+        assert codex_entry["space_id"] == "S-shared"
+        # Collector written under codex
+        assert codex_entry["collector"]["host"] == "127.0.0.1"
+        assert codex_entry["collector"]["port"] == 4318
 
     def test_reinstall_is_idempotent(self, fake_home, mock_buffer, mock_prompts):
         """Re-install does not duplicate notify line or otel block."""
         codex_install.install()
-        # Reset mock to track second call
         mock_buffer["start"].reset_mock()
         mock_buffer["status"].return_value = ("running", 1234, "127.0.0.1:4318")
 
@@ -187,11 +320,8 @@ class TestInstall:
 
         toml_path = fake_home / ".codex" / "config.toml"
         toml_data = codex_install._toml_load(toml_path)
-        # Only one notify entry
         assert len(toml_data["notify"]) == 1
-        # Only one otel exporter
         assert "otlp-http" in toml_data["otel"]["exporter"]
-        # Buffer start not called again (already running)
         mock_buffer["start"].assert_not_called()
 
     def test_install_with_user_id(self, fake_home, mock_buffer, monkeypatch):
@@ -201,7 +331,7 @@ class TestInstall:
         monkeypatch.setattr(
             codex_install,
             "prompt_backend",
-            lambda: ("phoenix", {"endpoint": "http://localhost:6006", "api_key": ""}),
+            lambda existing_harnesses=None: PHOENIX_BACKEND,
         )
 
         codex_install.install()
@@ -215,22 +345,37 @@ class TestInstall:
             codex_install.install(with_skills=True)
             m_symlink.assert_called_once_with("codex")
 
-    def test_install_reuses_existing_backend(self, fake_home, mock_buffer, mock_prompts):
-        """Install reuses existing backend config instead of prompting."""
+    def test_install_reads_collector_port_from_codex_entry(
+        self, fake_home, mock_buffer, monkeypatch
+    ):
+        """Verify the TOML writer picks up collector port from harnesses.codex.collector.port."""
         config_file = fake_home / ".arize" / "harness" / "config.yaml"
         config_file.write_text(yaml.safe_dump({
-            "backend": {
-                "target": "arize",
-                "arize": {"endpoint": "otlp.arize.com:443", "api_key": "k", "space_id": "s"},
-            },
-            "harnesses": {},
+            "harnesses": {
+                "codex": {
+                    "project_name": "codex",
+                    "target": "phoenix",
+                    "endpoint": "http://localhost:6006",
+                    "api_key": "",
+                    "collector": {"host": "127.0.0.1", "port": 4319},
+                }
+            }
         }))
+
+        monkeypatch.setattr(codex_install, "prompt_project_name", lambda default: default)
+        monkeypatch.setattr(codex_install, "prompt_user_id", lambda: "")
 
         codex_install.install()
 
+        # Verify collector port preserved in config
         config = yaml.safe_load(config_file.read_text())
-        assert config["harnesses"]["codex"]["project_name"] == "codex"
-        assert config["backend"]["target"] == "arize"
+        assert config["harnesses"]["codex"]["collector"]["port"] == 4319
+
+        # Verify TOML otel endpoint uses port 4319, not the default 4318
+        toml_path = fake_home / ".codex" / "config.toml"
+        toml_data = codex_install._toml_load(toml_path)
+        otel_ep = toml_data["otel"]["exporter"]["otlp-http"]["endpoint"]
+        assert ":4319/" in otel_ep
 
 
 # ---------------------------------------------------------------------------
@@ -240,47 +385,49 @@ class TestInstall:
 class TestUninstall:
     """Tests for uninstall()."""
 
+    def test_uninstall_removes_codex_entry_including_collector(
+        self, fake_home, mock_buffer, mock_prompts
+    ):
+        """Uninstall removes harnesses.codex entirely (including collector sub-block)."""
+        codex_install.install()
+
+        # Verify collector exists before uninstall
+        config_file = fake_home / ".arize" / "harness" / "config.yaml"
+        config = yaml.safe_load(config_file.read_text())
+        assert "collector" in config["harnesses"]["codex"]
+
+        codex_install.uninstall()
+
+        config = yaml.safe_load(config_file.read_text())
+        harnesses = config.get("harnesses", {})
+        assert "codex" not in harnesses
+
     def test_uninstall_removes_our_toml_entries_preserves_unrelated(
         self, fake_home, mock_buffer, mock_prompts
     ):
         """Uninstall removes notify + otel but preserves unrelated TOML content."""
-        # Install first
         codex_install.install()
 
-        # Seed an unrelated [model] section into config.toml
         toml_path = fake_home / ".codex" / "config.toml"
         data = codex_install._toml_load(toml_path)
         data["model"] = {"name": "gpt-4"}
         codex_install._toml_write(data, toml_path)
 
-        # Uninstall
         codex_install.uninstall()
 
-        # config.toml should still exist with [model] section
         assert toml_path.is_file()
         remaining = codex_install._toml_load(toml_path)
         assert remaining.get("model", {}).get("name") == "gpt-4"
         assert "notify" not in remaining
         assert "otel" not in remaining
 
-        # Buffer stop called
         mock_buffer["stop"].assert_called_once()
-
-        # Env file removed
         assert not (fake_home / ".codex" / "arize-env.sh").is_file()
-
-        # Harness entry removed from config.yaml
-        config_file = fake_home / ".arize" / "harness" / "config.yaml"
-        if config_file.is_file():
-            config = yaml.safe_load(config_file.read_text())
-            harnesses = config.get("harnesses", {})
-            assert "codex" not in harnesses
 
     def test_uninstall_preserves_foreign_notify(self, fake_home, mock_buffer, mock_prompts):
         """Uninstall does NOT remove a notify line that points elsewhere."""
         codex_install.install()
 
-        # Add a foreign notify entry
         toml_path = fake_home / ".codex" / "config.toml"
         data = codex_install._toml_load(toml_path)
         data["notify"].append("/usr/local/bin/my-custom-hook")
@@ -296,6 +443,23 @@ class TestUninstall:
         codex_install.uninstall()
         mock_buffer["stop"].assert_called_once()
 
+    def test_uninstall_is_idempotent(self, fake_home, mock_buffer, mock_prompts):
+        """Calling uninstall() twice succeeds both times; second call is a no-op."""
+        codex_install.install()
+
+        codex_install.uninstall()
+        mock_buffer["stop"].reset_mock()
+
+        # Second uninstall should not raise
+        codex_install.uninstall()
+        mock_buffer["stop"].assert_called_once()
+
+        # Config still exists with empty harnesses
+        config_file = fake_home / ".arize" / "harness" / "config.yaml"
+        if config_file.is_file():
+            config = yaml.safe_load(config_file.read_text())
+            assert "codex" not in config.get("harnesses", {})
+
 
 # ---------------------------------------------------------------------------
 # Dry-run tests
@@ -304,7 +468,7 @@ class TestUninstall:
 class TestDryRun:
     """Tests for dry-run mode."""
 
-    def test_dry_run_writes_nothing(self, fake_home, mock_buffer, mock_prompts, monkeypatch):
+    def test_install_dry_run_writes_nothing(self, fake_home, mock_buffer, mock_prompts, monkeypatch):
         """With ARIZE_DRY_RUN=true, no files are written."""
         monkeypatch.setenv("ARIZE_DRY_RUN", "true")
 
@@ -314,14 +478,16 @@ class TestDryRun:
         assert not (codex_dir / "config.toml").exists()
         assert not (codex_dir / "arize-env.sh").exists()
 
-        # Buffer start not called in dry-run
+        # config.yaml should not exist either
+        config_file = fake_home / ".arize" / "harness" / "config.yaml"
+        assert not config_file.exists()
+
         mock_buffer["start"].assert_not_called()
 
     def test_dry_run_uninstall_preserves_files(
         self, fake_home, mock_buffer, mock_prompts, monkeypatch
     ):
         """Dry-run uninstall does not remove existing files."""
-        # Install normally first
         codex_install.install()
 
         toml_path = fake_home / ".codex" / "config.toml"
@@ -329,15 +495,12 @@ class TestDryRun:
         assert toml_path.is_file()
         assert env_path.is_file()
 
-        # Now uninstall in dry-run mode
         monkeypatch.setenv("ARIZE_DRY_RUN", "true")
         mock_buffer["stop"].reset_mock()
         codex_install.uninstall()
 
-        # Files still exist
         assert toml_path.is_file()
         assert env_path.is_file()
-        # Buffer stop not called
         mock_buffer["stop"].assert_not_called()
 
 
@@ -377,7 +540,6 @@ class TestTomlAddRemove:
     """Unit tests for _codex_toml_add and _codex_toml_remove."""
 
     def test_add_to_empty_file(self, tmp_path):
-        """Adding to a non-existent file creates it with notify + otel."""
         p = tmp_path / "config.toml"
         codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
         data = codex_install._toml_load(p)
@@ -386,18 +548,15 @@ class TestTomlAddRemove:
         assert data["otel"]["exporter"]["otlp-http"]["protocol"] == "json"
 
     def test_add_idempotent(self, tmp_path):
-        """Calling _codex_toml_add twice doesn't duplicate entries."""
         p = tmp_path / "config.toml"
         codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
         codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
         data = codex_install._toml_load(p)
         assert data["notify"] == ["/venv/bin/hook"]
-        # Verify otel section wasn't duplicated either
         assert data["otel"]["exporter"]["otlp-http"]["endpoint"] == "http://127.0.0.1:4318/v1/logs"
         assert data["otel"]["exporter"]["otlp-http"]["protocol"] == "json"
 
     def test_add_preserves_existing_notify(self, tmp_path):
-        """Adding appends to existing notify list from another tool."""
         p = tmp_path / "config.toml"
         p.write_text('notify = ["/usr/bin/other-hook"]\n')
         codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
@@ -405,7 +564,6 @@ class TestTomlAddRemove:
         assert data["notify"] == ["/usr/bin/other-hook", "/venv/bin/hook"]
 
     def test_add_preserves_unrelated_sections(self, tmp_path):
-        """Adding preserves unrelated TOML sections like [model]."""
         p = tmp_path / "config.toml"
         p.write_text('[model]\nname = "gpt-4"\n')
         codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
@@ -414,10 +572,8 @@ class TestTomlAddRemove:
         assert data["notify"] == ["/venv/bin/hook"]
 
     def test_remove_only_our_notify(self, tmp_path):
-        """Remove only removes our notify, leaves others."""
         p = tmp_path / "config.toml"
         codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
-        # Add another notify
         data = codex_install._toml_load(p)
         data["notify"].append("/usr/bin/other")
         codex_install._toml_write(data, p)
@@ -428,13 +584,11 @@ class TestTomlAddRemove:
         assert "otel" not in remaining
 
     def test_remove_nonexistent_file_is_noop(self, tmp_path):
-        """Removing from a non-existent file is a safe no-op."""
         p = tmp_path / "nonexistent.toml"
         codex_install._codex_toml_remove(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
         assert not p.exists()
 
     def test_remove_non_matching_endpoint_preserves_otel(self, tmp_path):
-        """If otel exporter points at a different endpoint, it's preserved."""
         p = tmp_path / "config.toml"
         data = {
             "otel": {
@@ -452,14 +606,12 @@ class TestTomlAddRemove:
         assert remaining["otel"]["exporter"]["otlp-http"]["endpoint"] == "http://other-host:9999/v1/logs"
 
     def test_add_dry_run_no_write(self, tmp_path, monkeypatch):
-        """In dry-run mode, _codex_toml_add does not write the file."""
         monkeypatch.setenv("ARIZE_DRY_RUN", "true")
         p = tmp_path / "config.toml"
         codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
         assert not p.exists()
 
     def test_remove_dry_run_no_write(self, tmp_path, monkeypatch):
-        """In dry-run mode, _codex_toml_remove does not modify the file."""
         p = tmp_path / "config.toml"
         codex_install._codex_toml_add(p, "/venv/bin/hook", "http://127.0.0.1:4318/v1/logs")
         original = p.read_text()
@@ -493,7 +645,6 @@ class TestTomlEdgeCases:
         codex_install._toml_write({"notify": []}, p)
         text = p.read_text()
         assert "notify = []" in text
-        # Verify roundtrip: parsing the written empty array back
         data = codex_install._toml_line_parse(text)
         assert data["notify"] == []
 
@@ -511,7 +662,6 @@ class TestWriteEnvFile:
     """Tests for _write_env_file."""
 
     def test_env_file_permissions(self, tmp_path):
-        """Env file should be chmod 600."""
         p = tmp_path / "env.sh"
         codex_install._write_env_file(p)
         mode = oct(p.stat().st_mode & 0o777)
@@ -550,7 +700,6 @@ class TestCoreSetupDelegation:
     """Test that core/setup/codex.py delegates to codex-tracing/install.py."""
 
     def test_install_delegates(self, fake_home, mock_buffer, mock_prompts):
-        """core.setup.codex.install() delegates to codex-tracing install."""
         import core.setup.codex as setup_codex
 
         mock_mod = MagicMock()
@@ -559,7 +708,6 @@ class TestCoreSetupDelegation:
             mock_mod.install.assert_called_once_with(with_skills=True)
 
     def test_uninstall_delegates(self, fake_home, mock_buffer):
-        """core.setup.codex.uninstall() delegates to codex-tracing install."""
         import core.setup.codex as setup_codex
 
         mock_mod = MagicMock()
@@ -576,31 +724,26 @@ class TestCLIDispatch:
     """Tests for cli_main() dispatch logic."""
 
     def test_cli_install(self, fake_home, mock_buffer, mock_prompts):
-        """cli_main(['prog', 'install']) calls install(with_skills=False)."""
         with patch.object(codex_install, "install") as m:
             codex_install.cli_main(["install.py", "install"])
             m.assert_called_once_with(with_skills=False)
 
     def test_cli_install_with_skills(self, fake_home, mock_buffer, mock_prompts):
-        """cli_main(['prog', 'install', '--with-skills']) passes the flag."""
         with patch.object(codex_install, "install") as m:
             codex_install.cli_main(["install.py", "install", "--with-skills"])
             m.assert_called_once_with(with_skills=True)
 
     def test_cli_uninstall(self, fake_home, mock_buffer):
-        """cli_main(['prog', 'uninstall']) calls uninstall()."""
         with patch.object(codex_install, "uninstall") as m:
             codex_install.cli_main(["install.py", "uninstall"])
             m.assert_called_once()
 
     def test_cli_invalid_action_exits(self):
-        """cli_main with invalid action exits with code 1."""
         with pytest.raises(SystemExit) as exc_info:
             codex_install.cli_main(["install.py", "bogus"])
         assert exc_info.value.code == 1
 
     def test_cli_no_args_exits(self):
-        """cli_main with no action exits with code 1."""
         with pytest.raises(SystemExit) as exc_info:
             codex_install.cli_main(["install.py"])
         assert exc_info.value.code == 1
@@ -614,19 +757,15 @@ class TestBufferInteraction:
     """Tests for buffer service control during install/uninstall."""
 
     def test_buffer_already_running_skips_start(self, fake_home, mock_buffer, mock_prompts):
-        """If buffer is already running, install() skips buffer_start."""
         mock_buffer["status"].return_value = ("running", 1234, "127.0.0.1:4318")
         codex_install.install()
         mock_buffer["start"].assert_not_called()
 
     def test_buffer_start_failure_doesnt_crash(self, fake_home, mock_buffer, mock_prompts):
-        """If buffer_start returns False, install continues with a warning."""
         mock_buffer["start"].return_value = False
         codex_install.install()
         mock_buffer["start"].assert_called_once()
-        # Should not raise — install continues
 
     def test_uninstall_calls_buffer_stop(self, fake_home, mock_buffer):
-        """Uninstall always calls buffer_stop."""
         codex_install.uninstall()
         mock_buffer["stop"].assert_called_once()
