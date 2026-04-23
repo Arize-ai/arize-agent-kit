@@ -81,16 +81,10 @@ def _resolve_host_port() -> tuple:
     """Return (host, port) from config.yaml, falling back to defaults."""
     try:
         cfg = load_config(str(CONFIG_FILE))
-        # Try buffer.* first, fall back to collector.*
-        host = get_value(cfg, "buffer.host") or get_value(cfg, "collector.host")
-        port = get_value(cfg, "buffer.port") or get_value(cfg, "collector.port")
+        host = get_value(cfg, "harnesses.codex.collector.host") or DEFAULT_BUFFER_HOST
+        port = get_value(cfg, "harnesses.codex.collector.port") or DEFAULT_BUFFER_PORT
     except Exception:
-        host = None
-        port = None
-
-    if not host:
         host = DEFAULT_BUFFER_HOST
-    if not port:
         port = DEFAULT_BUFFER_PORT
     return (str(host), int(port))
 
