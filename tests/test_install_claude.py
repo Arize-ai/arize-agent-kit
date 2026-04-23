@@ -89,7 +89,7 @@ def _mock_prompts(monkeypatch, backend=None):
     monkeypatch.setattr(
         claude_install,
         "prompt_backend",
-        lambda: backend,
+        lambda existing_harnesses=None: backend,
     )
     monkeypatch.setattr(claude_install, "prompt_project_name", lambda default: default)
     monkeypatch.setattr(claude_install, "prompt_user_id", lambda: "")
@@ -137,6 +137,30 @@ class TestFreshInstall:
         assert env.get("ARIZE_TRACE_ENABLED") == "true"
         assert env.get("ARIZE_PROJECT_NAME") == "claude-code"
 
+    def test_install_fresh_writes_flat_harness_entry(self, fake_home, monkeypatch):
+        """Fresh install writes all backend fields directly under harnesses.claude-code."""
+        import install as claude_install
+
+        _mock_prompts(monkeypatch, backend=ARIZE_BACKEND)
+
+        claude_install.install(with_skills=False)
+
+        config_file = fake_home / ".arize" / "harness" / "config.yaml"
+        config = yaml.safe_load(config_file.read_text())
+        entry = config["harnesses"]["claude-code"]
+
+        # All fields at the same level — no nested backend block
+        assert entry["project_name"] == "claude-code"
+        assert entry["target"] == "arize"
+        assert entry["endpoint"] == "otlp.arize.com:443"
+        assert entry["api_key"] == "test-key"
+        assert entry["space_id"] == "test-space"
+
+        # No legacy top-level backend block
+        assert "backend" not in config
+        # No nested backend under the harness entry
+        assert "backend" not in entry
+
 
 class TestIdempotent:
     """Re-install is idempotent — no duplicate hooks."""
@@ -159,6 +183,95 @@ class TestIdempotent:
         # Still exactly 1 hook entry per event
         for event, entries in settings["hooks"].items():
             assert len(entries) == 1, f"Event {event} has {len(entries)} entries"
+
+
+class TestExistingEntry:
+    """Re-install with an existing harness entry only updates project_name."""
+
+    def test_install_existing_claude_entry_only_updates_project_name(self, fake_home, monkeypatch):
+        """When harnesses.claude-code already exists, re-install updates only project_name."""
+        import install as claude_install
+        import core.config as config_mod
+
+        _mock_prompts(monkeypatch, backend=ARIZE_BACKEND)
+
+        # Pre-populate config with an existing claude-code entry
+        config_file = fake_home / ".arize" / "harness" / "config.yaml"
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        original_entry = {
+            "project_name": "old-name",
+            "target": "arize",
+            "endpoint": "otlp.arize.com:443",
+            "api_key": "original-key",
+            "space_id": "original-space",
+        }
+        config_file.write_text(yaml.dump({"harnesses": {"claude-code": original_entry}}))
+
+        # Mock prompt_project_name to return a new name
+        monkeypatch.setattr(claude_install, "prompt_project_name", lambda default: "new-project-name")
+
+        claude_install.install(with_skills=False)
+
+        config = yaml.safe_load(config_file.read_text())
+        entry = config["harnesses"]["claude-code"]
+
+        # project_name updated
+        assert entry["project_name"] == "new-project-name"
+        # credentials preserved
+        assert entry["target"] == "arize"
+        assert entry["endpoint"] == "otlp.arize.com:443"
+        assert entry["api_key"] == "original-key"
+        assert entry["space_id"] == "original-space"
+
+
+class TestCopyFrom:
+    """Copy-from: install offers to reuse credentials from another harness."""
+
+    def test_install_second_harness_offers_copy_from(self, fake_home, monkeypatch):
+        """Pre-populate codex with arize creds; verify claude-code gets them via copy-from."""
+        import install as claude_install
+
+        # Pre-populate config with a codex entry using arize
+        config_file = fake_home / ".arize" / "harness" / "config.yaml"
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        codex_entry = {
+            "project_name": "codex",
+            "target": "arize",
+            "endpoint": "otlp.arize.com:443",
+            "api_key": "codex-key",
+            "space_id": "codex-space",
+        }
+        config_file.write_text(yaml.dump({"harnesses": {"codex": codex_entry}}))
+
+        # Mock prompt_backend to return arize target with codex's credentials (simulating copy-from)
+        copied_creds = {
+            "endpoint": "otlp.arize.com:443",
+            "api_key": "codex-key",
+            "space_id": "codex-space",
+        }
+        monkeypatch.setattr(
+            claude_install,
+            "prompt_backend",
+            lambda existing_harnesses=None: ("arize", copied_creds),
+        )
+        monkeypatch.setattr(claude_install, "prompt_project_name", lambda default: default)
+        monkeypatch.setattr(claude_install, "prompt_user_id", lambda: "")
+        monkeypatch.setattr("sys.stdout", _fake_stdout())
+
+        claude_install.install(with_skills=False)
+
+        config = yaml.safe_load(config_file.read_text())
+        entry = config["harnesses"]["claude-code"]
+
+        # claude-code got codex's credentials
+        assert entry["target"] == "arize"
+        assert entry["endpoint"] == "otlp.arize.com:443"
+        assert entry["api_key"] == "codex-key"
+        assert entry["space_id"] == "codex-space"
+        assert entry["project_name"] == "claude-code"
+
+        # codex entry is preserved
+        assert config["harnesses"]["codex"]["api_key"] == "codex-key"
 
 
 class TestUninstall:
@@ -184,6 +297,44 @@ class TestUninstall:
         config = yaml.safe_load(config_file.read_text())
         harnesses = config.get("harnesses", {})
         assert "claude-code" not in harnesses
+
+    def test_uninstall_removes_harness_entry_preserves_others(self, fake_home, monkeypatch):
+        """Uninstall removes claude-code but preserves other harness entries."""
+        import install as claude_install
+
+        _mock_prompts(monkeypatch)
+
+        # Install claude-code
+        claude_install.install(with_skills=False)
+
+        # Add another harness entry to config
+        config_file = fake_home / ".arize" / "harness" / "config.yaml"
+        config = yaml.safe_load(config_file.read_text())
+        config["harnesses"]["copilot"] = {
+            "project_name": "copilot",
+            "target": "arize",
+            "endpoint": "otlp.arize.com:443",
+            "api_key": "copilot-key",
+            "space_id": "copilot-space",
+        }
+        config_file.write_text(yaml.dump(config))
+
+        claude_install.uninstall()
+
+        config = yaml.safe_load(config_file.read_text())
+        assert "claude-code" not in config["harnesses"]
+        assert config["harnesses"]["copilot"]["api_key"] == "copilot-key"
+
+    def test_uninstall_idempotent(self, fake_home, monkeypatch):
+        """Calling uninstall twice does not error."""
+        import install as claude_install
+
+        _mock_prompts(monkeypatch)
+
+        claude_install.install(with_skills=False)
+        claude_install.uninstall()
+        # Second uninstall should be a no-op, not raise
+        claude_install.uninstall()
 
     def test_uninstall_preserves_third_party_hooks(self, fake_home, monkeypatch):
         """Uninstall keeps hooks that don't belong to us."""
@@ -222,7 +373,7 @@ class TestUninstall:
 class TestDryRun:
     """Dry-run mode should not write files."""
 
-    def test_dry_run_no_files_written(self, fake_home, monkeypatch):
+    def test_install_dry_run_writes_nothing(self, fake_home, monkeypatch):
         """With ARIZE_DRY_RUN=true, install() logs but does not write files."""
         import install as claude_install
 
