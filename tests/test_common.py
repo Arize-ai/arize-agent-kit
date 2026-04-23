@@ -985,6 +985,7 @@ class TestResolveBackend:
 
         result = resolve_backend(self._make_span("claude-code"))
         assert result["target"] == "none"
+        assert result["project_name"] == "claude-code"
         stderr = capsys.readouterr().err
         assert "missing target" in stderr
 
@@ -1005,6 +1006,7 @@ class TestResolveBackend:
 
         result = resolve_backend(self._make_span("claude-code"))
         assert result["target"] == "none"
+        assert result["project_name"] == "claude-code"
         stderr = capsys.readouterr().err
         assert "missing space_id" in stderr
 
@@ -1025,8 +1027,30 @@ class TestResolveBackend:
 
         result = resolve_backend(self._make_span("claude-code"))
         assert result["target"] == "none"
+        assert result["project_name"] == "claude-code"
         stderr = capsys.readouterr().err
         assert "missing api_key" in stderr
+
+    def test_resolve_backend_arize_missing_endpoint_returns_none(self, capsys, monkeypatch):
+        """Arize entry without endpoint returns none."""
+        cfg = {
+            "harnesses": {
+                "claude-code": {
+                    "project_name": "claude-code",
+                    "target": "arize",
+                    "api_key": "ak-xxx",
+                    "space_id": "U3Bh",
+                    # no endpoint
+                },
+            },
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("claude-code"))
+        assert result["target"] == "none"
+        assert result["project_name"] == "claude-code"
+        stderr = capsys.readouterr().err
+        assert "missing endpoint" in stderr
 
     def test_resolve_backend_phoenix_missing_endpoint_returns_none(self, capsys, monkeypatch):
         """Phoenix entry without endpoint returns none."""
@@ -1043,6 +1067,7 @@ class TestResolveBackend:
 
         result = resolve_backend(self._make_span("claude-code"))
         assert result["target"] == "none"
+        assert result["project_name"] == "claude-code"
         stderr = capsys.readouterr().err
         assert "missing endpoint" in stderr
 

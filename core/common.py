@@ -247,7 +247,7 @@ def resolve_backend(span_dict: dict) -> dict:
         }
     else:
         error(
-            f"Incomplete config for harness '{service_name}': missing target.  Run "
+            f"Incomplete config for harness '{service_name}': unknown target '{target}'.  Run "
             f"install.sh {service_name} to reconfigure."
         )
         return {"target": "none", "project_name": project_name}
