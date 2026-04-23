@@ -17,9 +17,6 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from core.config import get_value, load_config, save_config, set_value
-from core.setup import info, print_color, prompt_backend, prompt_project_name, prompt_user_id, write_config
-
 
 # ---------------------------------------------------------------------------
 # Delegation to copilot-tracing/install.py
@@ -46,7 +43,7 @@ def _get_copilot_mod():
 
 def install(with_skills: bool = False) -> None:
     """Delegate to copilot-tracing/install.py install()."""
-    _get_copilot_mod().install(with_skills=with_skills)
+    _get_copilot_mod().install()
 
 
 def uninstall() -> None:
@@ -64,78 +61,13 @@ def main() -> None:
 
 
 def _run() -> None:
-    print("")
-    print_color("▸ ARIZE Copilot Tracing Setup", "green")
-    print("")
+    """Delegate to the new install module in copilot-tracing/.
 
-    # Check for existing config
-    config = load_config()
-    harnesses = get_value(config, "harnesses") or {}
-    existing_copilot = harnesses.get("copilot", {}) if isinstance(harnesses, dict) else {}
-
-    # Project name
-    project_name = prompt_project_name("copilot")
-
-    # Optional: User ID
-    user_id = prompt_user_id()
-
-    if existing_copilot.get("target"):
-        print_color(
-            f"Existing config found: target={existing_copilot['target']} in ~/.arize/harness/config.yaml",
-            "yellow",
-        )
-        print("Skipping credential prompts — updating copilot harness entry.")
-        print("")
-
-        # Update copilot harness entry
-        set_value(config, "harnesses.copilot.project_name", project_name)
-        if user_id:
-            set_value(config, "user_id", user_id)
-        save_config(config)
-        info("Updated copilot harness in existing config")
-    else:
-        # No existing copilot config — prompt for backend
-        target, credentials = prompt_backend(
-            existing_harnesses=harnesses or None,
-        )
-        info(
-            f"Target: {'Phoenix at ' + credentials['endpoint'] if target == 'phoenix' else 'Arize AX (endpoint: ' + credentials['endpoint'] + ')'}"
-        )
-
-        # Write config.yaml
-        write_config(target, credentials, "copilot", project_name, user_id=user_id)
-        info("Wrote config to ~/.arize/harness/config.yaml")
-
-    if user_id:
-        info(f"User ID set: {user_id}")
-
-    # Install hooks via copilot-tracing/install.py
+    This replaces the old interactive flow so that ``arize-setup-copilot``
+    and the installer router share a single code path.
+    """
     installer = _load_installer()
-    installer.install(project_name=project_name)
-
-    # Summary
-    print("")
-    info("Setup complete!")
-    print("")
-    print("  Copilot tracing supports both VS Code and CLI modes.")
-    print("")
-    print("  Configuration:")
-    print("    Config file: ~/.arize/harness/config.yaml")
-    print("")
-    print("  VS Code Copilot:")
-    print("    Hooks are registered via .github/hooks/*.json or Claude-format settings.")
-    print("    Traced events: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse,")
-    print("                   Stop, SubagentStop, ErrorOccurred, SessionEnd")
-    print("    (SubagentStart and PreCompact are fired by VS Code but not traced)")
-    print("")
-    print("  Copilot CLI:")
-    print("    Hooks are registered via .github/hooks/hooks.json (version: 1).")
-    print("    Events: sessionStart, sessionEnd, userPromptSubmitted,")
-    print("            preToolUse, postToolUse, errorOccurred")
-    print("")
-    print("  To verify setup:")
-    print("    ARIZE_DRY_RUN=true arize-hook-copilot-session-start")
-    print("")
+    installer.install()
 
 
 if __name__ == "__main__":

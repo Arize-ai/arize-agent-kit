@@ -1041,255 +1041,36 @@ class TestCopilotSetup:
                 main()
             assert exc_info.value.code == 1
 
-    def test_run_fresh_phoenix(self, tmp_path, monkeypatch):
-        """Copilot _run() with no existing config prompts for Phoenix and writes config.yaml."""
-        config_path = str(tmp_path / "config.yaml")
-
-        import core.config
-
-        monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
-
-        # Inputs: project_name=default, user_id="", backend=1 (Phoenix), endpoint=default
-        inputs = iter(["", "", "1", ""])
-        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
-        monkeypatch.setattr("core.setup.getpass", lambda prompt="": "")
-        monkeypatch.setattr(
-            "sys.stdout",
-            type(
-                "FakeOut",
-                (),
-                {
-                    "isatty": lambda self: False,
-                    "write": lambda self, s: None,
-                    "flush": lambda self: None,
-                },
-            )(),
-        )
-
+    def test_run_delegates_to_installer(self):
+        """_run() delegates to copilot-tracing/install.py install()."""
         from core.setup.copilot import _run
 
-        _run()
+        with patch("core.setup.copilot._load_installer") as mock_loader:
+            mock_mod = mock_loader.return_value
+            _run()
+            mock_mod.install.assert_called_once()
 
-        config = yaml.safe_load(Path(config_path).read_text())
-        assert config["harnesses"]["copilot"]["target"] == "phoenix"
-        assert config["harnesses"]["copilot"]["endpoint"] == "http://localhost:6006"
-        assert config["harnesses"]["copilot"]["project_name"] == "copilot"
+    def test_install_delegates_to_installer(self):
+        """install() delegates to copilot-tracing/install.py install()."""
+        import core.setup.copilot as copilot_mod
 
-    def test_run_fresh_arize(self, tmp_path, monkeypatch):
-        """Copilot _run() with no existing config prompts for Arize AX and writes config.yaml."""
-        config_path = str(tmp_path / "config.yaml")
+        copilot_mod._copilot_mod = None  # reset cached module
+        with patch.object(copilot_mod, "_load_installer") as mock_loader:
+            mock_mod = mock_loader.return_value
+            copilot_mod.install()
+            mock_mod.install.assert_called_once()
+        copilot_mod._copilot_mod = None  # cleanup
 
-        import core.config
+    def test_uninstall_delegates_to_installer(self):
+        """uninstall() delegates to copilot-tracing/install.py uninstall()."""
+        import core.setup.copilot as copilot_mod
 
-        monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
-
-        # Inputs: project_name="my-project", user_id="alice", backend=2 (Arize), space_id, endpoint=default
-        # api_key goes through getpass
-        inputs = iter(["my-project", "alice", "2", "my-space", ""])
-        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
-        monkeypatch.setattr("core.setup.getpass", lambda prompt="": "my-key")
-        monkeypatch.setattr(
-            "sys.stdout",
-            type(
-                "FakeOut",
-                (),
-                {
-                    "isatty": lambda self: False,
-                    "write": lambda self, s: None,
-                    "flush": lambda self: None,
-                },
-            )(),
-        )
-
-        from core.setup.copilot import _run
-
-        _run()
-
-        config = yaml.safe_load(Path(config_path).read_text())
-        entry = config["harnesses"]["copilot"]
-        assert entry["target"] == "arize"
-        assert entry["api_key"] == "my-key"
-        assert entry["space_id"] == "my-space"
-        assert entry["endpoint"] == "otlp.arize.com:443"
-        assert entry["project_name"] == "my-project"
-        assert config["user_id"] == "alice"
-
-    def test_run_existing_config_skips_prompts(self, tmp_path, monkeypatch):
-        """Copilot _run() with existing copilot config skips backend prompts."""
-        config_path = str(tmp_path / "config.yaml")
-        existing = {
-            "harnesses": {
-                "claude-code": {
-                    "project_name": "claude-code",
-                    "target": "phoenix",
-                    "endpoint": "http://localhost:6006",
-                    "api_key": "",
-                },
-                "copilot": {
-                    "project_name": "copilot",
-                    "target": "phoenix",
-                    "endpoint": "http://localhost:6006",
-                    "api_key": "",
-                },
-            },
-        }
-        Path(config_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(config_path, "w") as f:
-            yaml.safe_dump(existing, f)
-
-        import core.config
-
-        monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
-
-        # Inputs: project_name=default, user_id="" (no backend prompts needed)
-        inputs = iter(["", ""])
-        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
-        monkeypatch.setattr(
-            "sys.stdout",
-            type(
-                "FakeOut",
-                (),
-                {
-                    "isatty": lambda self: False,
-                    "write": lambda self, s: None,
-                    "flush": lambda self: None,
-                },
-            )(),
-        )
-
-        from core.setup.copilot import _run
-
-        _run()
-
-        config = yaml.safe_load(Path(config_path).read_text())
-        assert config["harnesses"]["copilot"]["project_name"] == "copilot"
-        assert config["harnesses"]["copilot"]["target"] == "phoenix"
-        # Existing harness preserved
-        assert config["harnesses"]["claude-code"]["project_name"] == "claude-code"
-        # No old-format keys
-        assert "backend" not in config
-
-    def test_run_existing_config_with_user_id(self, tmp_path, monkeypatch):
-        """Copilot _run() with existing copilot config and user ID sets user_id."""
-        config_path = str(tmp_path / "config.yaml")
-        existing = {
-            "harnesses": {
-                "copilot": {
-                    "project_name": "copilot",
-                    "target": "arize",
-                    "endpoint": "otlp.arize.com:443",
-                    "api_key": "k",
-                    "space_id": "s",
-                },
-            },
-        }
-        Path(config_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(config_path, "w") as f:
-            yaml.safe_dump(existing, f)
-
-        import core.config
-
-        monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
-
-        # Inputs: project_name="copilot-proj", user_id="bob"
-        inputs = iter(["copilot-proj", "bob"])
-        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
-        monkeypatch.setattr(
-            "sys.stdout",
-            type(
-                "FakeOut",
-                (),
-                {
-                    "isatty": lambda self: False,
-                    "write": lambda self, s: None,
-                    "flush": lambda self: None,
-                },
-            )(),
-        )
-
-        from core.setup.copilot import _run
-
-        _run()
-
-        config = yaml.safe_load(Path(config_path).read_text())
-        assert config["harnesses"]["copilot"]["project_name"] == "copilot-proj"
-        assert config["user_id"] == "bob"
-        assert config["harnesses"]["copilot"]["target"] == "arize"
-        assert "backend" not in config
-
-    def test_run_custom_project_name(self, tmp_path, monkeypatch):
-        """Copilot _run() uses custom project name when provided."""
-        config_path = str(tmp_path / "config.yaml")
-
-        import core.config
-
-        monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
-
-        # Inputs: project_name="custom-copilot", user_id="", backend=1, endpoint=default
-        inputs = iter(["custom-copilot", "", "1", ""])
-        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
-        monkeypatch.setattr("core.setup.getpass", lambda prompt="": "")
-        monkeypatch.setattr(
-            "sys.stdout",
-            type(
-                "FakeOut",
-                (),
-                {
-                    "isatty": lambda self: False,
-                    "write": lambda self, s: None,
-                    "flush": lambda self: None,
-                },
-            )(),
-        )
-
-        from core.setup.copilot import _run
-
-        _run()
-
-        config = yaml.safe_load(Path(config_path).read_text())
-        assert config["harnesses"]["copilot"]["project_name"] == "custom-copilot"
-
-    def test_summary_mentions_both_modes(self, tmp_path, monkeypatch, capsys):
-        """Summary output mentions both VS Code and CLI modes."""
-        config_path = str(tmp_path / "config.yaml")
-
-        import core.config
-
-        monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
-
-        # Inputs: project_name=default, user_id="", backend=1 (Phoenix), endpoint=default
-        inputs = iter(["", "", "1", ""])
-        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
-        monkeypatch.setattr("core.setup.getpass", lambda prompt="": "")
-
-        from core.setup.copilot import _run
-
-        _run()
-
-        out = capsys.readouterr().out
-        assert "VS Code" in out
-        assert "CLI" in out
-        assert "copilot-session-start" in out
-
-    def test_summary_mentions_test_command(self, tmp_path, monkeypatch, capsys):
-        """Summary output includes the dry-run test command."""
-        config_path = str(tmp_path / "config.yaml")
-
-        import core.config
-
-        monkeypatch.setattr(core.config, "CONFIG_FILE", config_path)
-
-        # Inputs: project_name=default, user_id="", backend=1 (Phoenix), endpoint=default
-        inputs = iter(["", "", "1", ""])
-        monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
-        monkeypatch.setattr("core.setup.getpass", lambda prompt="": "")
-
-        from core.setup.copilot import _run
-
-        _run()
-
-        out = capsys.readouterr().out
-        assert "ARIZE_DRY_RUN=true" in out
+        copilot_mod._copilot_mod = None  # reset cached module
+        with patch.object(copilot_mod, "_load_installer") as mock_loader:
+            mock_mod = mock_loader.return_value
+            copilot_mod.uninstall()
+            mock_mod.uninstall.assert_called_once()
+        copilot_mod._copilot_mod = None  # cleanup
 
 
 # ---------------------------------------------------------------------------
