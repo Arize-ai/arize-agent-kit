@@ -957,22 +957,31 @@ class TestCursorSetup:
         assert config["harnesses"]["cursor"]["project_name"] == "cursor"
 
     def test_run_existing_config_skips_prompts(self, tmp_path, monkeypatch):
-        """Cursor _run() with existing config skips backend prompts."""
+        """Cursor _run() with existing cursor entry skips backend prompts."""
         config_path = self._patch_cursor_install(tmp_path, monkeypatch)
         existing = {
-            "collector": {"host": "127.0.0.1", "port": 4318},
-            "backend": {
-                "target": "arize",
-                "phoenix": {"endpoint": "http://localhost:6006", "api_key": ""},
-                "arize": {"endpoint": "otlp.arize.com:443", "api_key": "k", "space_id": "s"},
+            "harnesses": {
+                "claude-code": {
+                    "project_name": "claude-code",
+                    "target": "arize",
+                    "endpoint": "otlp.arize.com:443",
+                    "api_key": "k",
+                    "space_id": "s",
+                },
+                "cursor": {
+                    "project_name": "cursor",
+                    "target": "arize",
+                    "endpoint": "otlp.arize.com:443",
+                    "api_key": "k",
+                    "space_id": "s",
+                },
             },
-            "harnesses": {"claude-code": {"project_name": "claude-code"}},
         }
         Path(config_path).parent.mkdir(parents=True, exist_ok=True)
         with open(config_path, "w") as f:
             yaml.safe_dump(existing, f)
 
-        # Inputs: project_name=default (no backend prompts since config exists)
+        # Inputs: project_name=default (no backend prompts since cursor entry exists)
         inputs = iter([""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
 
@@ -983,7 +992,7 @@ class TestCursorSetup:
         config = yaml.safe_load(Path(config_path).read_text())
         assert config["harnesses"]["cursor"]["project_name"] == "cursor"
         assert config["harnesses"]["claude-code"]["project_name"] == "claude-code"
-        assert config["backend"]["target"] == "arize"
+        assert "backend" not in config
 
 
 # ---------------------------------------------------------------------------
