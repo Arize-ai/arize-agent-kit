@@ -55,10 +55,12 @@ def install(with_skills: bool = False) -> None:
     else:
         state_dir.mkdir(parents=True, exist_ok=True)
 
-    # If config has no backend yet, prompt; otherwise reuse.
+    # If this harness has no entry yet, prompt for backend; otherwise just update project_name.
     config = load_config()
-    if not get_value(config, "backend.target"):
-        target, credentials = prompt_backend()
+    existing_entry = get_value(config, f"harnesses.{HARNESS_NAME}")
+    if not existing_entry:
+        existing_harnesses = config.get("harnesses") if config else None
+        target, credentials = prompt_backend(existing_harnesses)
         project_name = prompt_project_name(HARNESS_NAME)
         user_id = prompt_user_id()
         if not dry_run():
