@@ -8,7 +8,7 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 - Automatic mode detection — no configuration needed to switch between VS Code and CLI
 - Separate CLI entry points per hook event for clean registration
 - Direct span export to Phoenix (REST) or Arize AX (HTTP) — no background process needed
-- Per-harness backend credential overrides via `harnesses.copilot.backend` in config
+- Per-harness backend credentials via `harnesses.copilot.*` in config
 - VS Code mode: full input/output/token capture via transcript parsing at `Stop`
 - VS Code mode: subagent completion tracking via `SubagentStop`
 - CLI mode: deferred turn completion — spans sent at next `userPromptSubmitted` or `sessionEnd`
@@ -76,7 +76,8 @@ The installer:
 1. Creates a virtualenv at `~/.arize/harness/venv`
 2. Installs `arize-agent-kit` and CLI entry points
 3. Writes both VS Code (`copilot-tracing.json`) and CLI (`hooks.json`) hook files into `.github/hooks/`
-4. Prompts for backend credentials and project name, writing them to `~/.arize/harness/config.yaml`
+4. If another harness is already installed using the same target, offers to reuse its credentials
+5. Prompts for backend credentials and project name, writing them to `~/.arize/harness/config.yaml`
 
 ### Manual setup
 
@@ -89,35 +90,32 @@ Then register hooks manually — see [Activating Hooks](#activating-hooks) below
 
 ## Configuration
 
-The single source of truth for backend credentials and per-harness configuration is `~/.arize/harness/config.yaml`. Each harness gets its own entry under `harnesses` with a dedicated `project_name` and optional backend override.
+The single source of truth for backend credentials and per-harness configuration is `~/.arize/harness/config.yaml`. Each harness owns its full backend configuration directly.
 
 ### Phoenix (self-hosted)
 
 ```yaml
-backend:
-  target: "phoenix"
-  phoenix:
-    endpoint: "http://localhost:6006"
-    api_key: ""
 harnesses:
   copilot:
-    project_name: "copilot"
+    project_name: copilot
+    target: phoenix
+    endpoint: http://localhost:6006
+    api_key: ""
 ```
 
 ### Arize AX (cloud)
 
 ```yaml
-backend:
-  target: "arize"
-  arize:
-    api_key: "<your-api-key>"
-    space_id: "<your-space-id>"
 harnesses:
   copilot:
-    project_name: "copilot"
+    project_name: copilot
+    target: arize
+    endpoint: otlp.arize.com:443
+    api_key: <your-api-key>
+    space_id: <your-space-id>
 ```
 
-Each harness can optionally override backend credentials under `harnesses.copilot.backend`. See [TRACING_ARCHITECTURE.md](../docs/TRACING_ARCHITECTURE.md) for the per-harness override schema.
+See [TRACING_ARCHITECTURE.md](../docs/TRACING_ARCHITECTURE.md) for the full schema.
 
 ## Activating Hooks
 
@@ -237,7 +235,7 @@ The config file `~/.arize/harness/config.yaml` is the primary and recommended wa
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
 | `ARIZE_LOG_FILE` | No | `/tmp/arize-copilot.log` | Log file path (empty to disable) |
 
-Backend credentials (`ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `PHOENIX_ENDPOINT`, etc.) can also be set as environment variables and will be used as fallbacks if not configured in `config.yaml`.
+Backend credentials are configured in `~/.arize/harness/config.yaml` under `harnesses.copilot.*`.
 
 ## Troubleshooting
 

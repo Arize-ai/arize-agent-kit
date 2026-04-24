@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 """Arize Claude Code Plugin - Interactive Setup.
 
-Replaces claude-code-tracing/scripts/setup.sh.
-Writes env vars to ~/.claude/settings.json or .claude/settings.local.json.
+Entry point for ``arize-setup-claude``.  The heavy lifting now lives in
+``claude-code-tracing/install.py``; this module is kept for backwards
+compatibility with the existing entry point and for helper functions used
+by tests.
 """
+
+from __future__ import annotations
 
 import json
 import sys
 from pathlib import Path
 
-from core.setup import err, info, print_color, prompt_backend, prompt_project_name, prompt_user_id, write_config
+from core.setup import print_color
+
+# ---------------------------------------------------------------------------
+# Helper functions preserved for existing tests (test_setup.py::TestClaudeSetup)
+# ---------------------------------------------------------------------------
 
 
 def _ensure_settings_file(settings_path: Path) -> None:
@@ -66,6 +74,11 @@ def _check_existing_configuration(settings_path: Path) -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+
 def main() -> None:
     """Entry point for arize-setup-claude."""
     try:
@@ -76,77 +89,16 @@ def main() -> None:
 
 
 def _run() -> None:
-    global_settings = Path.home() / ".claude" / "settings.json"
-    local_settings = Path(".claude") / "settings.local.json"
+    """Delegate to the new install module in claude-code-tracing/.
 
-    print("")
-    print_color("▸ ARIZE Claude Code Tracing Setup", "green")
-    print("")
+    This replaces the old interactive flow so that ``arize-setup-claude``
+    and the installer router share a single code path.
+    """
+    plugin_dir = Path(__file__).resolve().parents[2] / "claude-code-tracing"
+    sys.path.insert(0, str(plugin_dir))
+    from install import install
 
-    # 1. Choose settings scope
-    print("Where should Claude tracing env vars be stored?")
-    print("")
-    print("  1) Project-local (.claude/settings.local.json)")
-    print("  2) Global (~/.claude/settings.json)")
-    print("")
-    settings_choice = input("Enter choice [1/2]: ").strip()
-
-    if settings_choice in ("1", ""):
-        settings_path = local_settings
-    elif settings_choice == "2":
-        settings_path = global_settings
-    else:
-        err("Invalid choice. Run setup again.")
-        sys.exit(1)
-
-    # 2. Check existing config
-    if not _check_existing_configuration(settings_path):
-        sys.exit(0)
-
-    # 3. Prompt backend + credentials
-    target, credentials = prompt_backend()
-
-    # 4. Project name
-    project_name = prompt_project_name("claude-code")
-
-    # 5. Write env vars to settings.json
-    _ensure_settings_file(settings_path)
-    settings = _load_settings(settings_path)
-    env_block = settings.setdefault("env", {})
-
-    env_block["ARIZE_TRACE_ENABLED"] = "true"
-    env_block["ARIZE_PROJECT_NAME"] = project_name
-
-    if target == "phoenix":
-        env_block["PHOENIX_ENDPOINT"] = credentials["endpoint"]
-        print("")
-        print_color(f"✓ Configured for Phoenix at {credentials['endpoint']}", "green")
-    else:
-        env_block["ARIZE_API_KEY"] = credentials["api_key"]
-        env_block["ARIZE_SPACE_ID"] = credentials["space_id"]
-        env_block["ARIZE_OTLP_ENDPOINT"] = credentials["endpoint"]
-        print("")
-        print_color(f"✓ Configured for Arize AX (endpoint: {credentials['endpoint']})", "green")
-
-    _save_settings(settings_path, settings)
-
-    # 5. Optional user ID
-    user_id = prompt_user_id()
-    if user_id:
-        env_block["ARIZE_USER_ID"] = user_id
-        _save_settings(settings_path, settings)
-        print_color(f"✓ User ID set: {user_id}", "green")
-
-    # 7. Write config.yaml
-    write_config(target, credentials, "claude-code", project_name, user_id=user_id)
-    info("Wrote shared collector config to ~/.arize/harness/config.yaml")
-
-    # 7. Summary
-    print("")
-    print(f"Configuration saved to {settings_path}")
-    print("")
-    print("Start a new Claude Code session to begin tracing!")
-    print("")
+    install(with_skills=False)
 
 
 if __name__ == "__main__":

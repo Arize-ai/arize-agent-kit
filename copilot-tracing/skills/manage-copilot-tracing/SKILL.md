@@ -106,30 +106,26 @@ The config file at `~/.arize/harness/config.yaml` is the single source of truth 
 
 **Phoenix:**
 ```yaml
-backend:
-  target: "phoenix"
-  phoenix:
-    endpoint: "<endpoint>"
-    api_key: ""
 harnesses:
   copilot:
-    project_name: "copilot"
+    project_name: copilot
+    target: phoenix
+    endpoint: <endpoint>
+    api_key: ""
 ```
 
 **Arize AX:**
 ```yaml
-backend:
-  target: "arize"
-  arize:
-    endpoint: "otlp.arize.com:443"
-    api_key: "<key>"
-    space_id: "<id>"
 harnesses:
   copilot:
-    project_name: "copilot"
+    project_name: copilot
+    target: arize
+    endpoint: otlp.arize.com:443
+    api_key: <key>
+    space_id: <id>
 ```
 
-If the user has a custom OTLP endpoint, set it in `backend.arize.endpoint`.
+If the user has a custom OTLP endpoint, set it in `harnesses.copilot.endpoint`.
 
 ### Activate Copilot hooks
 

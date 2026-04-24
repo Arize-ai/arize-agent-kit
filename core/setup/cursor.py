@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Arize Cursor Tracing - Interactive Setup.
 
-Replaces cursor-tracing/scripts/setup.sh.
-Writes config.yaml and prints instructions for hooks.json.
+Entry point for ``arize-setup-cursor``.  The heavy lifting now lives in
+``cursor-tracing/install.py``; this module is kept for backwards
+compatibility with the existing entry point.
 """
 
-import sys
+from __future__ import annotations
 
-from core.config import get_value, load_config, save_config, set_value
-from core.setup import info, print_color, prompt_backend, prompt_project_name, prompt_user_id, write_config
+import importlib.util
+import sys
+from pathlib import Path
 
 
 def main() -> None:
@@ -21,67 +23,22 @@ def main() -> None:
 
 
 def _run() -> None:
-    print("")
-    print_color("▸ ARIZE Cursor Tracing Setup", "green")
-    print("")
+    """Delegate to the new install module in cursor-tracing/.
 
-    # Check for existing config
-    config = load_config()
-    existing_backend = get_value(config, "backend.target")
-
-    # Project name
-    project_name = prompt_project_name("cursor")
-
-    if existing_backend:
-        print_color(
-            f"Existing config found: backend={existing_backend} in ~/.arize/harness/config.yaml",
-            "yellow",
-        )
-        print("Skipping credential prompts — adding cursor harness entry.")
-        print("")
-
-        # Add cursor harness entry
-        set_value(config, "harnesses.cursor.project_name", project_name)
-        save_config(config)
-        info("Added cursor harness to existing config")
+    This replaces the old interactive flow so that ``arize-setup-cursor``
+    and the installer router share a single code path.
+    """
+    plugin_dir = Path(__file__).resolve().parents[2] / "cursor-tracing"
+    mod_name = "cursor_tracing_install"
+    if mod_name in sys.modules:
+        mod = sys.modules[mod_name]
     else:
-        # No existing config — prompt for backend
-        target, credentials = prompt_backend()
-        info(
-            f"Target: {'Phoenix at ' + credentials['endpoint'] if target == 'phoenix' else 'Arize AX (endpoint: ' + credentials['endpoint'] + ')'}"
-        )
+        spec = importlib.util.spec_from_file_location(mod_name, plugin_dir / "install.py")
+        mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        sys.modules[mod_name] = mod
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
 
-        # Write config.yaml
-        write_config(target, credentials, "cursor", project_name)
-        info("Wrote config to ~/.arize/harness/config.yaml")
-
-    # Optional: User ID
-    user_id = prompt_user_id()
-    if user_id:
-        config = load_config()
-        set_value(config, "user_id", user_id)
-        save_config(config)
-        info(f"User ID set: {user_id}")
-
-    # Summary
-    print("")
-    info("Setup complete!")
-    print("")
-    print("  Configuration:")
-    print("    Config file: ~/.arize/harness/config.yaml")
-    print("")
-    print("  Next steps:")
-    print("    1. Copy hooks.json into your Cursor settings:")
-    print("       cp cursor-tracing/hooks/hooks.json ~/.cursor/hooks.json")
-    print("")
-    print("    2. Start the shared collector (if not already running):")
-    print("       arize-collector-ctl start")
-    print("")
-    print("    3. Open Cursor — traces will be sent to your configured backend")
-    print("")
-    print("  To verify setup:")
-    print("    ARIZE_VERBOSE=true cursor")
-    print("")
+    mod.install(with_skills=False)
 
 
 if __name__ == "__main__":
