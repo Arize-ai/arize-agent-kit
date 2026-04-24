@@ -103,11 +103,11 @@ def _toml_line_parse(text: str) -> dict:
         if m:
             key = m.group(1).strip()
             val_raw = m.group(2).strip()
-            # Handle array values like ["cmd"]
+            # Handle array values like ["cmd"] or ['cmd']
             if val_raw.startswith("["):
                 items = []
-                for item in re.findall(r'"([^"]*)"', val_raw):
-                    items.append(item)
+                for item in re.findall(r'"([^"]*)"|\'([^\']*)\'', val_raw):
+                    items.append(item[0] or item[1])
                 current_section[key] = items
             elif (val_raw.startswith('"') and val_raw.endswith('"')) or (
                 val_raw.startswith("'") and val_raw.endswith("'")
@@ -155,16 +155,32 @@ def _toml_write_section(data: dict, prefix: list[str], lines: list[str]) -> None
 def _toml_write_value(key: str, val: object, lines: list[str]) -> None:
     """Write a single TOML key-value pair."""
     if isinstance(val, list):
-        items = ", ".join(f'"{v}"' for v in val)
+        items = ", ".join(_toml_string_literal(v) for v in val)
         lines.append(f"{key} = [{items}]")
     elif isinstance(val, bool):
         lines.append(f"{key} = {'true' if val else 'false'}")
     elif isinstance(val, int):
         lines.append(f"{key} = {val}")
-    elif isinstance(val, str):
-        lines.append(f'{key} = "{val}"')
     else:
-        lines.append(f'{key} = "{val}"')
+        lines.append(f"{key} = {_toml_string_literal(val)}")
+
+
+def _toml_string_literal(val: object) -> str:
+    """Render a string as a TOML literal '...' — no escape handling needed,
+    which matches `_toml_line_parse` semantics and is safe for Windows paths
+    with backslashes. Falls back to an escaped basic string if the value
+    contains a single quote or newline (which literal strings cannot carry).
+    """
+    s = str(val)
+    if "'" in s or "\n" in s or "\r" in s:
+        escaped = (
+            s.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+        )
+        return f'"{escaped}"'
+    return f"'{s}'"
 
 
 # ---------------------------------------------------------------------------

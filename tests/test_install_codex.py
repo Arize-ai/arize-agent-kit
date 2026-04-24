@@ -153,6 +153,35 @@ class TestTomlHelpers:
         assert parsed["model"]["name"] == "gpt-4"
         assert parsed["otel"]["exporter"]["otlp-http"]["endpoint"] == "http://127.0.0.1:4318/v1/logs"
 
+    def test_roundtrip_windows_path_with_backslashes(self, tmp_path):
+        """Windows notify_cmd paths with backslashes round-trip cleanly.
+
+        Regression guard: previously written as unescaped basic strings
+        ("C:\\Users\\..."), which produced invalid TOML. Now written as
+        literal strings ('C:\\Users\\...') which take bytes as-is.
+        """
+        win_path = r"C:\Users\foo\.arize\harness\venv\Scripts\arize-hook-codex-notify.exe"
+        data = {"notify": [win_path]}
+        p = tmp_path / "config.toml"
+        codex_install._toml_write(data, p)
+
+        raw = p.read_text()
+        assert f"'{win_path}'" in raw  # literal string, no escape mangling
+        assert "\\\\" not in raw        # no accidental double-escaping
+
+        parsed = codex_install._toml_line_parse(raw)
+        assert parsed["notify"] == [win_path]
+
+    def test_roundtrip_value_with_single_quote_falls_back_to_basic(self, tmp_path):
+        """A value containing ' can't use literal form — must escape into basic."""
+        data = {"desc": "it's a value"}
+        p = tmp_path / "config.toml"
+        codex_install._toml_write(data, p)
+
+        raw = p.read_text()
+        # Basic string (double-quoted) because literal can't carry a '
+        assert 'desc = "it\'s a value"' in raw
+
 
 # ---------------------------------------------------------------------------
 # Install tests — flat schema
