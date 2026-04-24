@@ -39,3 +39,9 @@ Thumbs.db
 uv.lock
 mempalace.yaml
 entities.json
+
+# Runtime artifacts (generated at install/run time, not versioned)
+state/
+config.yaml
+logs/
+run/
