@@ -1,0 +1,7 @@
+project_name: claude-code
+session_id: test-diag-001
+session_start_time: '1777024649478'
+tool_count: '0'
+trace_count: '1'
+trace_start_line: '0'
+user_id: ''

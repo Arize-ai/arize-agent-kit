@@ -1,0 +1,14 @@
+current_trace_id: 4e5fff99b2a47cd07c6714f1460ea9b6
+current_trace_prompt: Create a branch and PR.
+current_trace_span_id: c3a7dd1974d8fe65
+current_trace_start_time: '1777025201960'
+project_name: claude-code
+session_id: bdf36db6-4dcf-411c-981d-8f19e668a9d5
+session_start_time: '1777023806337'
+tool_count: '37'
+tool_toolu_01BD6GGJeggbEdnf3UQbozRX_start: '1777025218904'
+tool_toolu_01Gyn8hXks7SomZVkJkVQ6Qk_start: '1777024671906'
+tool_toolu_01NX3yMCEGksuYCssSG3Mcr5_start: '1777024106868'
+trace_count: '4'
+trace_start_line: '121'
+user_id: ''

@@ -1,0 +1,12 @@
+backend:
+  target: "arize"
+  phoenix:
+    endpoint: "http://localhost:6006"
+    api_key: ""
+  arize:
+    endpoint: "otlp.arize.com:443"
+    api_key: "ak-d2d1786d-0b8d-479a-92f4-4405500b6771-t8-rAbxMF2txtZgO3hdnFk-R9KxBVSKd"
+    space_id: "U3BhY2U6NDMwOTI6MGp3MA=="
+harnesses:
+  claude-code:
+    project_name: "claude-code"

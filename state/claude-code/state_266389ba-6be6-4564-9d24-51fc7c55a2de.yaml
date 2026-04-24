@@ -1,0 +1,29 @@
+current_trace_id: 352d1e9d957a59b5ff94a01c83759917
+current_trace_prompt: "1. Fix\n2. Fix\n3. Fix\n4. Invited should be included. But\
+  \ we should be able to filter on that status on the API. Fix. \n5. Fix comment.\n\
+  6. Fix.\n7. fix.\n8. Can you verify the identity? Is there an established pattern?\n\
+  9. Fix.\n10. Fix.\n11. That is intentional, that is ok.\n12. Fix. \n13. Fix.\n14.\
+  \ Fix."
+current_trace_span_id: 57e4d2a2916b70be
+current_trace_start_time: '1777024623109'
+project_name: claude-code
+session_id: 266389ba-6be6-4564-9d24-51fc7c55a2de
+session_start_time: '1777024623099'
+tool_count: '43'
+tool_toolu_012pSVcu5VyTKWMetZGdYp6k_start: '1777024291616'
+tool_toolu_018B32LJKyHfgKgLvXDixWsD_start: '1777024266392'
+tool_toolu_018Q5j8JnNZuUNfXLsHA7ex1_start: '1777024271047'
+tool_toolu_019Bp6SDvSPJKhbbw5xV9eiM_start: '1777024278990'
+tool_toolu_01AYJQfihbtRNPykkRKC7YpV_start: '1777024273790'
+tool_toolu_01BBvGXNbJXK6Gfi3dmXXjoP_start: '1777024267661'
+tool_toolu_01CGDnv1WyGAwaiP1uK62EQi_start: '1777024282671'
+tool_toolu_01DFeDrVTjLnS3ArmToeGM3r_start: '1777024277818'
+tool_toolu_01KYsM1SYz8iNxSidKEznEej_start: '1777024350216'
+tool_toolu_01MjVtBi229KGLB9mtHeEwUd_start: '1777024297229'
+tool_toolu_01UPG49fngABmJ4Era6rqvAv_start: '1777024274604'
+tool_toolu_01Ur8mVQa15eNiKcFfad5s76_start: '1777024631879'
+tool_toolu_01VRqiPtpXXDwf3eqUk3ruGH_start: '1777024850899'
+tool_toolu_01VhbVB6cKjoZeNSLYFgcZuT_start: '1777024304472'
+trace_count: '1'
+trace_start_line: '34'
+user_id: ''
