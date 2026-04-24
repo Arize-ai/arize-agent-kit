@@ -42,9 +42,14 @@ class TestSampleConfig:
         assert loaded == sample_config
 
     def test_has_expected_sections(self, sample_config):
-        assert "collector" in sample_config
-        assert "backend" in sample_config
         assert "harnesses" in sample_config
+        assert "claude-code" in sample_config["harnesses"]
+        assert "codex" in sample_config["harnesses"]
+        assert "cursor" in sample_config["harnesses"]
+        assert "collector" in sample_config["harnesses"]["codex"]
+        # Old top-level keys must NOT be present
+        assert "backend" not in sample_config
+        assert "collector" not in sample_config
 
 
 class TestMockCollector:

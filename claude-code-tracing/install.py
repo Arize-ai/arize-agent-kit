@@ -20,8 +20,9 @@ from core.setup import (
     symlink_skills,
     unlink_skills,
     venv_bin,
+    write_config,
 )
-from core.config import get_value, load_config
+from core.config import load_config
 
 # constants.py is a sibling file — make sure sys.path includes this file's parent.
 sys.path.insert(0, str(Path(__file__).parent))
@@ -36,23 +37,31 @@ def install(with_skills: bool = False) -> None:
 
     ensure_shared_runtime()
 
-    # If config has no backend yet, prompt; otherwise reuse.
     config = load_config()
-    if not get_value(config, "backend.target"):
-        target, credentials = prompt_backend()
+    existing_entry = (config.get("harnesses") or {}).get(HARNESS_NAME)
+
+    if existing_entry:
+        # Already configured — just let user update project_name.
+        project_name = prompt_project_name(
+            existing_entry.get("project_name") or HARNESS_NAME
+        )
+        merge_harness_entry(HARNESS_NAME, project_name)
+    else:
+        # New install. Pass existing harnesses so prompt_backend can offer copy-from.
+        existing_harnesses = config.get("harnesses", {})
+        target, credentials = prompt_backend(existing_harnesses=existing_harnesses)
         project_name = prompt_project_name(HARNESS_NAME)
         user_id = prompt_user_id()
         if not dry_run():
-            from core.setup import write_config
-
-            write_config(target, credentials, HARNESS_NAME, project_name, user_id=user_id)
+            write_config(
+                target=target,
+                credentials=credentials,
+                harness_name=HARNESS_NAME,
+                project_name=project_name,
+                user_id=user_id,
+            )
         else:
-            info("would write config.yaml with backend credentials")
-    else:
-        project_name = prompt_project_name(
-            get_value(config, f"harnesses.{HARNESS_NAME}.project_name") or HARNESS_NAME
-        )
-        merge_harness_entry(HARNESS_NAME, project_name)
+            info("would write config.yaml with harness entry")
 
     _register_claude_hooks(project_name)
     if with_skills:

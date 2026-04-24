@@ -105,6 +105,61 @@ class TestIsProcessAlive:
 
 
 class TestResolveHostPort:
+    def test_buffer_reads_host_port_from_codex_collector(self, ctl_paths):
+        """Full config with harnesses.codex.collector.{host, port} is read correctly."""
+        import core.constants as c
+
+        config = {"harnesses": {"codex": {"collector": {"host": "0.0.0.0", "port": 9999}}}}
+        with open(c.CONFIG_FILE, "w") as f:
+            yaml.safe_dump(config, f)
+        host, port = _resolve_host_port()
+        assert host == "0.0.0.0"
+        assert port == 9999
+
+    def test_buffer_defaults_when_no_codex_entry(self, ctl_paths):
+        """Config has no harnesses.codex at all -> defaults."""
+        import core.constants as c
+
+        config = {"harnesses": {"claude-code": {"project_name": "cc"}}}
+        with open(c.CONFIG_FILE, "w") as f:
+            yaml.safe_dump(config, f)
+        host, port = _resolve_host_port()
+        assert host == "127.0.0.1"
+        assert port == 4318
+
+    def test_buffer_defaults_when_codex_entry_has_no_collector(self, ctl_paths):
+        """harnesses.codex exists but no collector sub-dict -> defaults."""
+        import core.constants as c
+
+        config = {"harnesses": {"codex": {"project_name": "codex"}}}
+        with open(c.CONFIG_FILE, "w") as f:
+            yaml.safe_dump(config, f)
+        host, port = _resolve_host_port()
+        assert host == "127.0.0.1"
+        assert port == 4318
+
+    def test_buffer_ignores_top_level_collector_key(self, ctl_paths):
+        """Old-style top-level collector: block is NOT read; defaults used."""
+        import core.constants as c
+
+        config = {"collector": {"host": "10.0.0.1", "port": 9999}}
+        with open(c.CONFIG_FILE, "w") as f:
+            yaml.safe_dump(config, f)
+        host, port = _resolve_host_port()
+        assert host == "127.0.0.1"
+        assert port == 4318
+
+    def test_buffer_ignores_top_level_buffer_key(self, ctl_paths):
+        """Old-style top-level buffer: block is NOT read; defaults used."""
+        import core.constants as c
+
+        config = {"buffer": {"host": "192.168.1.1", "port": 7777}}
+        with open(c.CONFIG_FILE, "w") as f:
+            yaml.safe_dump(config, f)
+        host, port = _resolve_host_port()
+        assert host == "127.0.0.1"
+        assert port == 4318
+
     def test_with_default_config(self, ctl_paths, sample_config):
         """With standard sample config, returns 127.0.0.1:4318."""
         host, port = _resolve_host_port()
@@ -117,22 +172,11 @@ class TestResolveHostPort:
         assert host == "127.0.0.1"
         assert port == 4318
 
-    def test_with_custom_host_port(self, ctl_paths):
-        """Custom host/port in config.yaml is returned."""
-        import core.constants as c
-
-        config = {"collector": {"host": "0.0.0.0", "port": 9999}}
-        with open(c.CONFIG_FILE, "w") as f:
-            yaml.safe_dump(config, f)
-        host, port = _resolve_host_port()
-        assert host == "0.0.0.0"
-        assert port == 9999
-
     def test_partial_config_falls_back(self, ctl_paths):
         """If only host is set, port falls back to default."""
         import core.constants as c
 
-        config = {"collector": {"host": "10.0.0.1"}}
+        config = {"harnesses": {"codex": {"collector": {"host": "10.0.0.1"}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
         host, port = _resolve_host_port()
@@ -163,40 +207,12 @@ class TestResolveHostPort:
         """Port is returned as int even if config stores it as string."""
         import core.constants as c
 
-        config = {"collector": {"host": "127.0.0.1", "port": "5555"}}
+        config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": "5555"}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
         host, port = _resolve_host_port()
         assert isinstance(port, int)
         assert port == 5555
-
-    def test_buffer_config_takes_priority(self, ctl_paths):
-        """buffer.host/port takes priority over collector.host/port."""
-        import core.constants as c
-
-        config = {
-            "collector": {"host": "10.0.0.1", "port": 9999},
-            "buffer": {"host": "192.168.1.1", "port": 7777},
-        }
-        with open(c.CONFIG_FILE, "w") as f:
-            yaml.safe_dump(config, f)
-        host, port = _resolve_host_port()
-        assert host == "192.168.1.1"
-        assert port == 7777
-
-    def test_buffer_partial_falls_back_to_collector(self, ctl_paths):
-        """If buffer only has host, port falls back to collector.port."""
-        import core.constants as c
-
-        config = {
-            "collector": {"host": "10.0.0.1", "port": 9999},
-            "buffer": {"host": "192.168.1.1"},
-        }
-        with open(c.CONFIG_FILE, "w") as f:
-            yaml.safe_dump(config, f)
-        host, port = _resolve_host_port()
-        assert host == "192.168.1.1"
-        assert port == 9999
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +309,7 @@ class TestBufferStatus:
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
-        config = {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}
+        config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
 
@@ -310,7 +326,7 @@ class TestBufferStatus:
         pid_file.write_text(str(os.getpid()) + "\n")
 
         # Config points to a port with nothing listening
-        config = {"collector": {"host": "127.0.0.1", "port": 19998}}
+        config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": 19998}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
 
@@ -349,7 +365,7 @@ class TestBufferStart:
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
-        config = {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}
+        config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
 
@@ -374,7 +390,7 @@ class TestBufferStart:
         thread.start()
 
         try:
-            config = {"collector": {"host": "127.0.0.1", "port": port}}
+            config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": port}}}}
             with open(c.CONFIG_FILE, "w") as f:
                 yaml.safe_dump(config, f)
 
@@ -391,7 +407,7 @@ class TestBufferStart:
         # Restore real _health_check for this test (overrides autouse mock)
         monkeypatch.setattr("core.codex_buffer_ctl._health_check", _health_check)
 
-        config = {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}
+        config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
 
@@ -684,7 +700,7 @@ class TestBufferEnsure:
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
-        config = {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}
+        config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
 
@@ -733,7 +749,7 @@ class TestCLI:
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
-        config = {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}
+        config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
 

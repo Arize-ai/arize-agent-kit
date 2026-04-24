@@ -367,11 +367,11 @@ def main():
     except Exception:
         _config = {}
 
-    # Read buffer config with fallback to collector config
-    buffer_cfg = _config.get("buffer", {})
-    collector_cfg = _config.get("collector", {})
-    host = buffer_cfg.get("host") or collector_cfg.get("host", "127.0.0.1")
-    port = int(buffer_cfg.get("port") or collector_cfg.get("port", 4318))
+    # Read collector config from harnesses.codex.collector
+    codex_cfg = _config.get("harnesses", {}).get("codex", {})
+    collector_cfg = codex_cfg.get("collector", {})
+    host = collector_cfg.get("host", "127.0.0.1")
+    port = int(collector_cfg.get("port", 4318))
 
     os.makedirs(LOG_DIR, exist_ok=True)
     os.makedirs(PID_DIR, exist_ok=True)

@@ -47,16 +47,26 @@ def sample_config(tmp_harness_dir):
     Returns the config dict.
     """
     config = {
-        "collector": {"host": "127.0.0.1", "port": 4318},
-        "backend": {
-            "target": "phoenix",
-            "phoenix": {"endpoint": "http://localhost:6006", "api_key": ""},
-            "arize": {"endpoint": "otlp.arize.com:443", "api_key": "", "space_id": ""},
-        },
         "harnesses": {
-            "claude-code": {"project_name": "claude-code"},
-            "codex": {"project_name": "codex"},
-            "cursor": {"project_name": "cursor"},
+            "claude-code": {
+                "project_name": "claude-code",
+                "target": "phoenix",
+                "endpoint": "http://localhost:6006",
+                "api_key": "",
+            },
+            "codex": {
+                "project_name": "codex",
+                "target": "phoenix",
+                "endpoint": "http://localhost:6006",
+                "api_key": "",
+                "collector": {"host": "127.0.0.1", "port": 4318},
+            },
+            "cursor": {
+                "project_name": "cursor",
+                "target": "phoenix",
+                "endpoint": "http://localhost:6006",
+                "api_key": "",
+            },
         },
     }
     config_path = tmp_harness_dir / "config.yaml"

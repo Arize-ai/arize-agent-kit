@@ -10,15 +10,16 @@ Cursor hooks ──┤
 Codex hooks  ──┴── send_span() ──► Phoenix (REST)
                         │              └──► Arize AX (gRPC)
                         │
-                        └── per-harness credential resolution
-                              (harnesses.<name>.backend → global backend → env vars)
+                        └── harnesses.<service_name>.* in ~/.arize/harness/config.yaml
+                              No fallback — if the entry is missing or incomplete,
+                              the resolver logs an error and spans are dropped.
 
 Codex OTLP ────── POST /v1/logs ──► Codex Buffer Service (event buffer)
                                        │
 Codex notify ──── GET /drain/{id} ◄────┘
 ```
 
-Harness hooks build OTLP JSON span payloads using `core.common.build_span()` and send them directly to the backend via `core.common.send_span()`. Each harness can optionally override backend credentials under its own `harnesses.<name>.backend` block in `config.yaml`. If not set, the global `backend` section is used.
+Harness hooks build OTLP JSON span payloads using `core.common.build_span()` and send them directly to the backend via `core.common.send_span()`. Each harness owns its full backend configuration directly under `harnesses.<name>` in `config.yaml`.
 
 ## Source Files
 
@@ -33,45 +34,40 @@ Harness hooks build OTLP JSON span payloads using `core.common.build_span()` and
 All settings live in `~/.arize/harness/config.yaml`:
 
 ```yaml
-backend:                          # global defaults
-  target: "phoenix"               # "phoenix" or "arize"
-  phoenix:
-    endpoint: "http://localhost:6006"
-    api_key: ""                   # Optional, if Phoenix auth is enabled
-  arize:
-    api_key: "<key>"              # Required for Arize AX
-    space_id: "<id>"              # Required for Arize AX
-    endpoint: "otlp.arize.com:443"  # Default; override for on-prem
-
 harnesses:
   claude-code:
-    project_name: "my-claude-project"
-    backend:                      # optional per-harness override
-      target: "arize"
-      arize:
-        api_key: "different-key"
-        space_id: "different-space"
-        endpoint: "otlp.arize.com:443"
+    project_name: claude-code
+    target: arize
+    endpoint: otlp.arize.com:443
+    api_key: ak-xxx
+    space_id: U3Bh...
   codex:
-    project_name: "codex"
-    buffer:
-      host: "127.0.0.1"          # Codex buffer listen address (default: 127.0.0.1)
-      port: 4318                  # Codex buffer listen port (default: 4318)
+    project_name: codex
+    target: phoenix
+    endpoint: http://localhost:6006
+    api_key: ""
+    collector:                    # codex only
+      host: 127.0.0.1
+      port: 4318
+  copilot:
+    project_name: copilot
+    target: arize
+    endpoint: otlp.arize.com:443
+    api_key: ak-xxx
+    space_id: U3Bh...
   cursor:
-    project_name: "cursor"
+    project_name: cursor
+    target: phoenix
+    endpoint: http://localhost:6006
+    api_key: ""
+user_id: optional-global-user-id
 ```
 
-Per-harness `project_name` values are resolved from config, falling back to `ARIZE_PROJECT_NAME` env var, then the harness default name.
-
-Per-harness `backend` blocks are optional. When present, they override the global `backend` section for that harness only. This allows different harnesses to send to different backends or use different credentials.
+Each harness owns its full backend configuration directly — `target`, `endpoint`, `api_key`, and (for Arize) `space_id`. There is no shared global backend block. This allows different harnesses to use different backends or credentials.
 
 ## Credential Resolution
 
-`resolve_backend()` in `core/common.py` resolves backend config for each span:
-
-1. `harnesses.<service_name>.backend.*` in config (per-harness override)
-2. `backend.*` in config (global)
-3. Environment variables (`ARIZE_API_KEY`, `PHOENIX_ENDPOINT`, etc.)
+`resolve_backend()` in `core/common.py` resolves backend config for each span from `harnesses.<service_name>.*` in `~/.arize/harness/config.yaml`. No fallback — if the entry is missing or incomplete, the resolver logs an error pointing the user at `install.sh <harness>` and spans are dropped.
 
 ## Codex Buffer Service
 

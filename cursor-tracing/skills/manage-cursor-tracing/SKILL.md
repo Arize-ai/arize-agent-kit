@@ -100,30 +100,26 @@ The config file at `~/.arize/harness/config.yaml` is the single source of truth 
 
 **Phoenix:**
 ```yaml
-backend:
-  target: "phoenix"
-  phoenix:
-    endpoint: "<endpoint>"
-    api_key: ""
 harnesses:
   cursor:
-    project_name: "cursor"
+    project_name: cursor
+    target: phoenix
+    endpoint: <endpoint>
+    api_key: ""
 ```
 
 **Arize AX:**
 ```yaml
-backend:
-  target: "arize"
-  arize:
-    endpoint: "otlp.arize.com:443"
-    api_key: "<key>"
-    space_id: "<id>"
 harnesses:
   cursor:
-    project_name: "cursor"
+    project_name: cursor
+    target: arize
+    endpoint: otlp.arize.com:443
+    api_key: <key>
+    space_id: <id>
 ```
 
-If the user has a custom OTLP endpoint, set it in `backend.arize.endpoint`.
+If the user has a custom OTLP endpoint, set it in `harnesses.cursor.endpoint`.
 
 ### Activate Cursor hooks
 

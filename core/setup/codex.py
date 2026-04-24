@@ -133,49 +133,52 @@ def _run() -> None:
 
     # Check for existing config
     config = load_config()
-    existing_backend = get_value(config, "backend.target")
+    existing_entry = get_value(config, "harnesses.codex")
 
     # Project name
     project_name = prompt_project_name("codex")
 
-    if existing_backend:
+    collector = {"host": "127.0.0.1", "port": 4318}
+
+    if existing_entry:
+        target = existing_entry.get("target", "")
         print_color(
-            f"Existing config found: backend={existing_backend} in ~/.arize/harness/config.yaml",
+            f"Existing config found: target={target} in ~/.arize/harness/config.yaml",
             "yellow",
         )
-        print("Skipping credential prompts — adding codex harness entry.")
+        print("Skipping credential prompts — updating codex harness entry.")
         print("")
 
-        # Add codex harness entry
+        # Update codex harness entry
         set_value(config, "harnesses.codex.project_name", project_name)
+        set_value(config, "harnesses.codex.collector", collector)
         save_config(config)
-        info("Added codex harness to existing config")
+        info("Updated codex harness in existing config")
 
         # Write env file from existing config
-        if existing_backend == "phoenix":
-            phoenix_ep = get_value(config, "backend.phoenix.endpoint") or "http://localhost:6006"
-            phoenix_key = get_value(config, "backend.phoenix.api_key") or ""
-            creds = {"endpoint": phoenix_ep, "api_key": phoenix_key}
-        elif existing_backend == "arize":
-            arize_ep = get_value(config, "backend.arize.endpoint") or "otlp.arize.com:443"
-            arize_key = get_value(config, "backend.arize.api_key") or ""
-            arize_space = get_value(config, "backend.arize.space_id") or ""
-            creds = {"endpoint": arize_ep, "api_key": arize_key, "space_id": arize_space}
+        endpoint = get_value(config, "harnesses.codex.endpoint") or ""
+        api_key = get_value(config, "harnesses.codex.api_key") or ""
+        if target == "phoenix":
+            creds = {"endpoint": endpoint or "http://localhost:6006", "api_key": api_key}
+        elif target == "arize":
+            space_id = get_value(config, "harnesses.codex.space_id") or ""
+            creds = {"endpoint": endpoint or "otlp.arize.com:443", "api_key": api_key, "space_id": space_id}
         else:
-            err(f"Unknown backend in config: {existing_backend}")
+            err(f"Unknown target in config: {target}")
             sys.exit(1)
 
-        _write_env_file(env_file, existing_backend, creds, project_name)
+        _write_env_file(env_file, target, creds, project_name)
         info(f"Wrote credentials to {env_file}")
     else:
         # No existing config — prompt for backend
-        target, credentials = prompt_backend()
+        existing_harnesses = config.get("harnesses", {}) if config else {}
+        target, credentials = prompt_backend(existing_harnesses=existing_harnesses)
         info(
             f"Target: {'Phoenix at ' + credentials['endpoint'] if target == 'phoenix' else 'Arize AX (endpoint: ' + credentials['endpoint'] + ')'}"
         )
 
         # Write config.yaml
-        write_config(target, credentials, "codex", project_name)
+        write_config(target, credentials, "codex", project_name, collector=collector)
         info("Wrote config to ~/.arize/harness/config.yaml")
 
         # Write env file
@@ -184,7 +187,7 @@ def _run() -> None:
 
     # Configure OTLP exporter in ~/.codex/config.toml
     config = load_config()
-    collector_port = get_value(config, "collector.port") or 4318
+    collector_port = get_value(config, "harnesses.codex.collector.port") or 4318
     _update_toml_otel_section(codex_config, collector_port)
     info(f"Added [otel] exporter pointing to shared collector (port {collector_port})")
 

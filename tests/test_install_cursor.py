@@ -105,7 +105,7 @@ def _mock_prompts(monkeypatch, backend=None):
     monkeypatch.setattr(
         cursor_install,
         "prompt_backend",
-        lambda: backend,
+        lambda existing_harnesses=None: backend,
     )
     monkeypatch.setattr(cursor_install, "prompt_project_name", lambda default: default)
     monkeypatch.setattr(cursor_install, "prompt_user_id", lambda: "")
@@ -123,20 +123,31 @@ class TestFreshInstall:
         ],
         ids=["phoenix", "arize"],
     )
-    def test_fresh_install_creates_config_and_hooks(self, fake_home, monkeypatch, backend, expected_target):
-        """With no existing config, install() prompts and writes config.yaml + hooks.json."""
+    def test_install_fresh_writes_flat_harness_entry(self, fake_home, monkeypatch, backend, expected_target):
+        """With no existing config, install() prompts and writes a flat harness entry."""
         cursor_install = _load_cursor_module("install")
 
         _mock_prompts(monkeypatch, backend=backend)
 
         cursor_install.install(with_skills=False)
 
-        # Check config.yaml was written
+        # Check config.yaml was written with flat schema
         config_file = fake_home / ".arize" / "harness" / "config.yaml"
         assert config_file.exists()
         config = yaml.safe_load(config_file.read_text())
-        assert config["backend"]["target"] == expected_target
-        assert config["harnesses"]["cursor"]["project_name"] == "cursor"
+
+        # Flat entry under harnesses.cursor
+        entry = config["harnesses"]["cursor"]
+        assert entry["target"] == expected_target
+        assert entry["project_name"] == "cursor"
+        assert entry["endpoint"] == backend[1]["endpoint"]
+        assert entry["api_key"] == backend[1]["api_key"]
+        if expected_target == "arize":
+            assert entry["space_id"] == backend[1]["space_id"]
+
+        # No top-level backend or collector blocks
+        assert "backend" not in config
+        assert "collector" not in config
 
         # Check hooks.json has 12 events
         hooks_file = fake_home / ".cursor" / "hooks.json"
@@ -161,6 +172,100 @@ class TestFreshInstall:
 
         state_dir = fake_home / ".arize" / "harness" / "state" / "cursor"
         assert state_dir.is_dir()
+
+
+class TestCopyFrom:
+    """Copy-from flow when another harness is already installed."""
+
+    def test_install_second_harness_offers_copy_from(self, fake_home, monkeypatch):
+        """When another harness exists with matching target, prompt_backend receives existing_harnesses."""
+        cursor_install = _load_cursor_module("install")
+
+        # Pre-seed config with an existing claude-code harness entry
+        config_file = fake_home / ".arize" / "harness" / "config.yaml"
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        existing_config = {
+            "harnesses": {
+                "claude-code": {
+                    "project_name": "claude-code",
+                    "target": "arize",
+                    "endpoint": "otlp.arize.com:443",
+                    "api_key": "existing-key",
+                    "space_id": "existing-space",
+                },
+            },
+        }
+        config_file.write_text(yaml.dump(existing_config))
+
+        # Track what prompt_backend receives
+        received_harnesses = {}
+
+        def fake_prompt_backend(existing_harnesses=None):
+            received_harnesses["value"] = existing_harnesses
+            return ARIZE_BACKEND
+
+        monkeypatch.setattr(cursor_install, "prompt_backend", fake_prompt_backend)
+        monkeypatch.setattr(cursor_install, "prompt_project_name", lambda default: default)
+        monkeypatch.setattr(cursor_install, "prompt_user_id", lambda: "")
+        monkeypatch.setattr("sys.stdout", _fake_stdout())
+
+        cursor_install.install(with_skills=False)
+
+        # prompt_backend should have received the existing harnesses dict
+        assert "claude-code" in received_harnesses["value"]
+        assert received_harnesses["value"]["claude-code"]["target"] == "arize"
+
+        # Both harnesses should exist in config
+        config = yaml.safe_load(config_file.read_text())
+        assert "claude-code" in config["harnesses"]
+        assert "cursor" in config["harnesses"]
+
+
+class TestExistingEntry:
+    """Re-install when cursor already has an entry."""
+
+    def test_install_existing_cursor_entry_only_updates_project_name(self, fake_home, monkeypatch):
+        """When cursor entry exists, install() only updates project_name via merge."""
+        cursor_install = _load_cursor_module("install")
+
+        # Pre-seed config with an existing cursor entry
+        config_file = fake_home / ".arize" / "harness" / "config.yaml"
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        existing_config = {
+            "harnesses": {
+                "cursor": {
+                    "project_name": "cursor",
+                    "target": "phoenix",
+                    "endpoint": "http://localhost:6006",
+                    "api_key": "",
+                },
+            },
+        }
+        config_file.write_text(yaml.dump(existing_config))
+
+        # prompt_backend should NOT be called
+        prompt_backend_called = {"called": False}
+
+        def fail_prompt_backend(existing_harnesses=None):
+            prompt_backend_called["called"] = True
+            return PHOENIX_BACKEND
+
+        monkeypatch.setattr(cursor_install, "prompt_backend", fail_prompt_backend)
+        monkeypatch.setattr(cursor_install, "prompt_project_name", lambda default: "my-cursor")
+        monkeypatch.setattr(cursor_install, "prompt_user_id", lambda: "")
+        monkeypatch.setattr("sys.stdout", _fake_stdout())
+
+        cursor_install.install(with_skills=False)
+
+        # prompt_backend should not have been called
+        assert not prompt_backend_called["called"]
+
+        # project_name should be updated, other fields preserved
+        config = yaml.safe_load(config_file.read_text())
+        entry = config["harnesses"]["cursor"]
+        assert entry["project_name"] == "my-cursor"
+        assert entry["target"] == "phoenix"
+        assert entry["endpoint"] == "http://localhost:6006"
 
 
 class TestIdempotent:
@@ -188,7 +293,7 @@ class TestIdempotent:
 class TestUninstall:
     """Uninstall removes hooks and harness entry."""
 
-    def test_uninstall_removes_hooks_and_config(self, fake_home, monkeypatch):
+    def test_uninstall_removes_harness_entry(self, fake_home, monkeypatch):
         """Uninstall removes hooks and harness entry from config.yaml."""
         cursor_install = _load_cursor_module("install")
 
@@ -241,11 +346,28 @@ class TestUninstall:
         assert "CustomEvent" in hooks
         assert hooks["CustomEvent"][0]["command"] == "/usr/local/bin/other"
 
+    def test_uninstall_is_idempotent(self, fake_home, monkeypatch):
+        """Running uninstall twice succeeds and is a no-op the second time."""
+        cursor_install = _load_cursor_module("install")
+
+        _mock_prompts(monkeypatch)
+
+        cursor_install.install(with_skills=False)
+        cursor_install.uninstall()
+        # Second uninstall should not raise
+        cursor_install.uninstall()
+
+        # config.yaml should still have no cursor entry
+        config_file = fake_home / ".arize" / "harness" / "config.yaml"
+        config = yaml.safe_load(config_file.read_text())
+        harnesses = config.get("harnesses", {})
+        assert "cursor" not in harnesses
+
 
 class TestDryRun:
     """Dry-run mode should not write files."""
 
-    def test_dry_run_no_files_written(self, fake_home, monkeypatch):
+    def test_install_dry_run_writes_nothing(self, fake_home, monkeypatch):
         """With ARIZE_DRY_RUN=true, install() logs but does not write files."""
         cursor_install = _load_cursor_module("install")
 
