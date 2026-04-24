@@ -310,6 +310,7 @@ def install(with_skills: bool = False) -> None:
         # Preserve existing collector if present, otherwise set default
         existing_collector = existing_entry.get("collector")
         merge_harness_entry(HARNESS_NAME, project_name, collector=existing_collector or collector)
+        user_id = get_value(config, "user_id") or ""
     else:
         existing_harnesses = config.get("harnesses", {}) if config else {}
         target, credentials = prompt_backend(existing_harnesses=existing_harnesses)
@@ -333,8 +334,6 @@ def install(with_skills: bool = False) -> None:
         info(f"would create {CODEX_CONFIG_DIR}")
 
     # 4. Write env file
-    if existing_entry:
-        user_id = prompt_user_id()
     _write_env_file(CODEX_ENV_FILE, user_id=user_id)
 
     # 5. Update codex config.toml — collector port from new path

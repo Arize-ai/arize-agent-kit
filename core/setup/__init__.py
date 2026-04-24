@@ -249,25 +249,20 @@ def _try_copy_from(target: str, existing_harnesses: dict | None) -> dict | None:
         raw = input(f"Copy from [1-{last}]: ").strip()
         try:
             idx = int(raw)
+            if idx == last:
+                return None  # fall through to fresh prompts
+            if 1 <= idx <= len(matches):
+                name, entry = matches[idx - 1]
+                info(f"Reusing {target} credentials from '{name}'.")
+                creds: dict = {"endpoint": entry["endpoint"], "api_key": entry["api_key"]}
+                if target == "arize":
+                    creds["space_id"] = entry["space_id"]
+                return creds
         except (ValueError, TypeError):
-            attempts += 1
-            if attempts >= 2:
-                break
-            print("Invalid input, please try again.")
-            continue
-        if idx == last:
-            return None  # fall through to fresh prompts
-        if 1 <= idx <= len(matches):
-            name, entry = matches[idx - 1]
-            info(f"Reusing {target} credentials from '{name}'.")
-            creds: dict = {"endpoint": entry["endpoint"], "api_key": entry["api_key"]}
-            if target == "arize":
-                creds["space_id"] = entry["space_id"]
-            return creds
+            pass
         attempts += 1
-        if attempts >= 2:
-            break
-        print("Invalid input, please try again.")
+        if attempts < 2:
+            print("Invalid input, please try again.")
 
     # Two invalid attempts — default to new credentials
     return None

@@ -170,7 +170,7 @@ def buffer_start() -> bool:
         # Port is open but health check failed — something else owns it
         _log(
             f"ERROR: Port {port} is already in use by another process. "
-            f"Set buffer.port in {CONFIG_FILE} to use a different port"
+            f"Set harnesses.codex.collector.port in {CONFIG_FILE} to use a different port"
         )
         return False
     except (ConnectionRefusedError, socket.timeout, OSError):
