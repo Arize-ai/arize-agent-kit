@@ -26,7 +26,15 @@ from core.config import load_config
 
 # constants.py is a sibling file — make sure sys.path includes this file's parent.
 sys.path.insert(0, str(Path(__file__).parent))
-from constants import DISPLAY_NAME, HARNESS_BIN, HARNESS_HOME, HARNESS_NAME, HOOK_EVENTS, SETTINGS_FILE
+from constants import (
+    ARIZE_ENV_KEYS,
+    DISPLAY_NAME,
+    HARNESS_BIN,
+    HARNESS_HOME,
+    HARNESS_NAME,
+    HOOK_EVENTS,
+    SETTINGS_FILE,
+)
 
 
 def install(with_skills: bool = False) -> None:
@@ -183,6 +191,14 @@ def _unregister_claude_hooks() -> None:
                 del hooks[event]
         if not hooks:
             del settings["hooks"]
+
+    # Remove our env keys so stale values don't linger post-uninstall.
+    if "env" in settings and isinstance(settings["env"], dict):
+        env_block = settings["env"]
+        for key in ARIZE_ENV_KEYS:
+            env_block.pop(key, None)
+        if not env_block:
+            del settings["env"]
 
     if dry_run():
         info(f"would remove Claude hooks from {SETTINGS_FILE}")

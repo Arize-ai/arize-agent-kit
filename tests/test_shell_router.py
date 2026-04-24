@@ -267,6 +267,35 @@ class TestDispatchLogic:
         """Uninstall without harness should call core.setup.wipe."""
         assert "core.setup.wipe" in self.text
 
+    def test_full_uninstall_runs_per_harness_uninstall_before_wipe(self):
+        """Full uninstall must iterate installed harnesses and call each
+        harness's install.py uninstall before the shared-runtime wipe.
+
+        Regression guard: wipe.py intentionally does NOT touch
+        ~/.claude/settings.json, ~/.cursor/hooks.json, ~/.codex/config.toml,
+        or .github/hooks/*. Callers must run each harness uninstall first to
+        clean those external registrations. install.bat does this; install.sh
+        previously omitted it, leaving orphaned hook entries after full
+        uninstall.
+        """
+        # Extract the full-uninstall branch (the `else` clause after
+        # `if [[ -n "$subcmd" ]]`). It must list harnesses and invoke
+        # each harness install.py with uninstall BEFORE running wipe.
+        text = self.text
+        wipe_idx = text.find('"$vp" -m core.setup.wipe')
+        assert wipe_idx >= 0, "wipe call not found"
+
+        # The list_installed_harnesses invocation must appear before the
+        # wipe call, and an install.py uninstall dispatch must appear
+        # between them.
+        pre_wipe = text[:wipe_idx]
+        assert "list_installed_harnesses" in pre_wipe, (
+            "Full uninstall does not iterate installed harnesses before wipe"
+        )
+        assert 'install.py" uninstall' in pre_wipe, (
+            "Full uninstall does not invoke per-harness install.py uninstall before wipe"
+        )
+
     def test_update_calls_pip_install(self):
         assert "pip" in self.text and "install" in self.text
 

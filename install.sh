@@ -235,6 +235,22 @@ main() {
                     warn "Venv not found — removing install directory"; rm -rf "$INSTALL_DIR"
                     info "Uninstall complete."; return 0; }
                 header "Full uninstall"
+                # Run each installed harness's uninstall first so external
+                # registrations (settings.json hooks, config.toml notify,
+                # cursor hooks.json, .github/hooks/*) are cleaned before the
+                # shared runtime is wiped. wipe.py deliberately does not
+                # touch those files.
+                local harnesses
+                harnesses=$("$vp" -c 'from core.setup import list_installed_harnesses as L; print("\n".join(L()))' 2>/dev/null) || true
+                if [[ -n "$harnesses" ]]; then
+                    while IFS= read -r key; do
+                        local dir="${key}-tracing"
+                        if [[ -f "${INSTALL_DIR}/${dir}/install.py" ]]; then
+                            info "Uninstalling ${key} tracing..."
+                            "$vp" "${INSTALL_DIR}/${dir}/install.py" uninstall || warn "${key} uninstall failed (continuing)"
+                        fi
+                    done <<< "$harnesses"
+                fi
                 "$vp" -m core.setup.wipe
             fi
             ;;

@@ -336,6 +336,64 @@ class TestUninstall:
         # Second uninstall should be a no-op, not raise
         claude_install.uninstall()
 
+    def test_uninstall_clears_arize_env_keys(self, fake_home, monkeypatch):
+        """Uninstall pops Arize env vars from settings.json.
+
+        Regression guard: the previous bash installer cleaned
+        ARIZE_PROJECT_NAME / ARIZE_TRACE_ENABLED / etc. out of
+        settings.json on uninstall. The Python port only removed hooks
+        and plugins, leaving stale env entries.
+        """
+        import install as claude_install
+
+        _mock_prompts(monkeypatch)
+
+        claude_install.install(with_skills=False)
+
+        # Inject extra Arize env keys + a non-Arize key that must be preserved.
+        settings_file = fake_home / ".claude" / "settings.json"
+        settings = json.loads(settings_file.read_text())
+        settings["env"].update({
+            "ARIZE_USER_ID": "user-42",
+            "ARIZE_API_KEY": "ak-secret",
+            "ARIZE_SPACE_ID": "sp-abc",
+            "PHOENIX_ENDPOINT": "http://localhost:6006",
+            "UNRELATED_VAR": "keep-me",
+        })
+        settings_file.write_text(json.dumps(settings, indent=2) + "\n")
+
+        claude_install.uninstall()
+
+        settings = json.loads(settings_file.read_text())
+        env = settings.get("env", {})
+
+        # All Arize keys are gone
+        for key in (
+            "ARIZE_PROJECT_NAME",
+            "ARIZE_TRACE_ENABLED",
+            "ARIZE_USER_ID",
+            "ARIZE_API_KEY",
+            "ARIZE_SPACE_ID",
+            "PHOENIX_ENDPOINT",
+        ):
+            assert key not in env, f"{key} should have been removed from env"
+
+        # Non-Arize env survives
+        assert env.get("UNRELATED_VAR") == "keep-me"
+
+    def test_uninstall_drops_env_block_when_emptied(self, fake_home, monkeypatch):
+        """If removing Arize keys leaves env empty, the env block is dropped."""
+        import install as claude_install
+
+        _mock_prompts(monkeypatch)
+        claude_install.install(with_skills=False)
+        claude_install.uninstall()
+
+        settings_file = fake_home / ".claude" / "settings.json"
+        settings = json.loads(settings_file.read_text())
+        # install only set ARIZE_* keys, so removing them leaves env empty
+        assert "env" not in settings
+
     def test_uninstall_preserves_third_party_hooks(self, fake_home, monkeypatch):
         """Uninstall keeps hooks that don't belong to us."""
         import install as claude_install

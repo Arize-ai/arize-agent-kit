@@ -21,3 +21,19 @@ HOOK_EVENTS = {
     "PermissionRequest": "arize-hook-permission-request",
     "SessionEnd": "arize-hook-session-end",
 }
+
+# Env keys written into settings.json by the installer. Uninstall pops
+# any of these present so stale values don't linger after teardown.
+ARIZE_ENV_KEYS = (
+    "ARIZE_TRACE_ENABLED",
+    "ARIZE_PROJECT_NAME",
+    "ARIZE_USER_ID",
+    "ARIZE_API_KEY",
+    "ARIZE_SPACE_ID",
+    "ARIZE_OTLP_ENDPOINT",
+    "PHOENIX_ENDPOINT",
+    "PHOENIX_API_KEY",
+    "ARIZE_DRY_RUN",
+    "ARIZE_VERBOSE",
+    "ARIZE_LOG_FILE",
+)
