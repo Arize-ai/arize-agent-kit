@@ -5,7 +5,17 @@ requires-python = ">=3.9"
 dependencies = ["pyyaml"]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-timeout", "pytest-cov"]
+dev = [
+    "pytest",
+    "pytest-timeout",
+    "pytest-cov",
+    "pre-commit",
+    "ruff",
+    "black",
+    "isort",
+    "mypy",
+    "types-PyYAML",
+]
 
 [project.scripts]
 # Core tools
@@ -21,15 +31,26 @@ arize-hook-subagent-stop = "core.hooks.claude.handlers:subagent_stop"
 arize-hook-notification = "core.hooks.claude.handlers:notification"
 arize-hook-permission-request = "core.hooks.claude.handlers:permission_request"
 arize-hook-session-end = "core.hooks.claude.handlers:session_end"
-# Codex hook
+# Codex hooks
 arize-hook-codex-notify = "core.hooks.codex.handlers:notify"
+arize-hook-codex-drain = "core.hooks.codex.handlers:drain_idle"
 # Codex proxy
 arize-codex-proxy = "core.hooks.codex.proxy:main"
+# Copilot hooks
+arize-hook-copilot-session-start = "core.hooks.copilot.handlers:session_start"
+arize-hook-copilot-user-prompt = "core.hooks.copilot.handlers:user_prompt_submitted"
+arize-hook-copilot-pre-tool = "core.hooks.copilot.handlers:pre_tool_use"
+arize-hook-copilot-post-tool = "core.hooks.copilot.handlers:post_tool_use"
+arize-hook-copilot-stop = "core.hooks.copilot.handlers:stop"
+arize-hook-copilot-error = "core.hooks.copilot.handlers:error_occurred"
+arize-hook-copilot-session-end = "core.hooks.copilot.handlers:session_end"
+arize-hook-copilot-subagent-stop = "core.hooks.copilot.handlers:subagent_stop"
 # Cursor hook
 arize-hook-cursor = "core.hooks.cursor.handlers:main"
 # Setup wizards
 arize-setup-claude = "core.setup.claude:main"
 arize-setup-codex = "core.setup.codex:main"
+arize-setup-copilot = "core.setup.copilot:main"
 arize-setup-cursor = "core.setup.cursor:main"
 
 [tool.pytest.ini_options]
@@ -52,8 +73,28 @@ target-version = "py39"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I"]
+# I (isort) handled by isort pre-commit hook; formatting handled by black.
+select = ["E", "F", "W"]
 ignore = ["E501"]
+
+[tool.black]
+line-length = 120
+target-version = ["py39"]
+
+[tool.isort]
+profile = "black"
+line_length = 120
+known_first_party = ["core", "tests"]
+
+[tool.mypy]
+python_version = "3.9"
+ignore_missing_imports = true
+# Lenient baseline — tighten over time.
+check_untyped_defs = false
+disallow_untyped_defs = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+files = ["core"]
 
 [build-system]
 requires = ["setuptools>=64"]

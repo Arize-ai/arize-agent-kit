@@ -11,10 +11,10 @@ import pytest
 
 from core.hooks.codex.proxy import _find_real_codex, _load_env_file, main
 
-
 # ---------------------------------------------------------------------------
 # _find_real_codex tests
 # ---------------------------------------------------------------------------
+
 
 class TestFindRealCodex:
     """Tests for _find_real_codex PATH scanning."""
@@ -55,8 +55,7 @@ class TestFindRealCodex:
         codex.chmod(codex.stat().st_mode | stat.S_IEXEC)
 
         # Make sys.argv[0] resolve to the same file
-        with mock.patch.dict(os.environ, {"PATH": str(bin_dir)}), \
-             mock.patch.object(sys, "argv", [str(codex)]):
+        with mock.patch.dict(os.environ, {"PATH": str(bin_dir)}), mock.patch.object(sys, "argv", [str(codex)]):
             result = _find_real_codex()
 
         assert result is None
@@ -108,6 +107,7 @@ class TestFindRealCodex:
 # _load_env_file tests
 # ---------------------------------------------------------------------------
 
+
 class TestLoadEnvFile:
     """Tests for _load_env_file."""
 
@@ -122,7 +122,7 @@ class TestLoadEnvFile:
 
     def test_strips_quotes(self, tmp_path):
         env_file = tmp_path / "env.sh"
-        env_file.write_text('SINGLE=\'hello\'\nDOUBLE="world"\n')
+        env_file.write_text("SINGLE='hello'\nDOUBLE=\"world\"\n")
 
         with mock.patch.dict(os.environ, {}, clear=True):
             _load_env_file(env_file)
@@ -147,6 +147,7 @@ class TestLoadEnvFile:
 # ---------------------------------------------------------------------------
 # main() integration tests
 # ---------------------------------------------------------------------------
+
 
 class TestMain:
     """Tests for the main() entry point."""
@@ -175,12 +176,14 @@ class TestMain:
         codex.write_text("#!/bin/sh\nexit 0\n")
         codex.chmod(codex.stat().st_mode | stat.S_IEXEC)
 
-        with mock.patch("os.path.expanduser", return_value=str(tmp_path)), \
-             mock.patch("core.hooks.codex.proxy._load_env_file", side_effect=tracking_load), \
-             mock.patch("core.hooks.codex.proxy._quick_health_check", return_value=False), \
-             mock.patch("core.codex_buffer_ctl.buffer_ensure", side_effect=fake_ensure), \
-             mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=str(codex)), \
-             mock.patch("os.execvp"):
+        with (
+            mock.patch("os.path.expanduser", return_value=str(tmp_path)),
+            mock.patch("core.hooks.codex.proxy._load_env_file", side_effect=tracking_load),
+            mock.patch("core.hooks.codex.proxy._quick_health_check", return_value=False),
+            mock.patch("core.codex_buffer_ctl.buffer_ensure", side_effect=fake_ensure),
+            mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=str(codex)),
+            mock.patch("os.execvp"),
+        ):
             main()
 
         assert call_order == ["load_env", "buffer_ensure"]
@@ -193,10 +196,12 @@ class TestMain:
         codex.write_text("#!/bin/sh\nexit 0\n")
         codex.chmod(codex.stat().st_mode | stat.S_IEXEC)
 
-        with mock.patch("core.hooks.codex.proxy._quick_health_check", return_value=False), \
-             mock.patch("core.codex_buffer_ctl.buffer_ensure", side_effect=RuntimeError("boom")), \
-             mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=str(codex)), \
-             mock.patch("os.execvp") as mock_exec:
+        with (
+            mock.patch("core.hooks.codex.proxy._quick_health_check", return_value=False),
+            mock.patch("core.codex_buffer_ctl.buffer_ensure", side_effect=RuntimeError("boom")),
+            mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=str(codex)),
+            mock.patch("os.execvp") as mock_exec,
+        ):
             main()
 
         mock_exec.assert_called_once()
@@ -204,9 +209,11 @@ class TestMain:
 
     def test_no_codex_found_exits_1(self):
         """When no real codex is found, exit with code 1."""
-        with mock.patch("core.codex_buffer_ctl.buffer_ensure"), \
-             mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=None), \
-             pytest.raises(SystemExit) as exc_info:
+        with (
+            mock.patch("core.codex_buffer_ctl.buffer_ensure"),
+            mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=None),
+            pytest.raises(SystemExit) as exc_info,
+        ):
             main()
 
         assert exc_info.value.code == 1
@@ -219,9 +226,11 @@ class TestMain:
         codex.write_text("#!/bin/sh\nexit 0\n")
         codex.chmod(codex.stat().st_mode | stat.S_IEXEC)
 
-        with mock.patch("core.codex_buffer_ctl.buffer_ensure"), \
-             mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=codex), \
-             mock.patch("os.execvp") as mock_exec:
+        with (
+            mock.patch("core.codex_buffer_ctl.buffer_ensure"),
+            mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=codex),
+            mock.patch("os.execvp") as mock_exec,
+        ):
             # Default home won't have .codex/arize-env.sh
             main()
 
@@ -238,11 +247,13 @@ class TestMain:
         fake_result = mock.Mock()
         fake_result.returncode = 42
 
-        with mock.patch("core.hooks.codex.proxy._quick_health_check", return_value=True), \
-             mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=str(codex)), \
-             mock.patch("os.name", "nt"), \
-             mock.patch("subprocess.run", return_value=fake_result) as mock_run, \
-             pytest.raises(SystemExit) as exc_info:
+        with (
+            mock.patch("core.hooks.codex.proxy._quick_health_check", return_value=True),
+            mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=str(codex)),
+            mock.patch("os.name", "nt"),
+            mock.patch("subprocess.run", return_value=fake_result) as mock_run,
+            pytest.raises(SystemExit) as exc_info,
+        ):
             main()
 
         mock_run.assert_called_once()

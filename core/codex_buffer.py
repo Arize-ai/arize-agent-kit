@@ -17,8 +17,9 @@ import signal
 import sys
 import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
 import yaml
-from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 # --- Paths ---
 BASE_DIR = os.path.expanduser("~/.arize/harness")
@@ -39,8 +40,8 @@ _config = {}
 _shutting_down = False
 _log_lock = threading.Lock()
 _event_lock = threading.Lock()
-_event_buffers = {}   # conversation_id -> [event, ...]
-_event_timestamps = {}  # conversation_id -> last_update_time
+_event_buffers: "dict[str, list[dict]]" = {}  # conversation_id -> [event, ...]
+_event_timestamps: "dict[str, float]" = {}  # conversation_id -> last_update_time
 
 
 def _log(msg):
@@ -56,6 +57,7 @@ def _log(msg):
 
 
 # --- Event buffer ---
+
 
 def _expire_old_events():
     """Remove event buffers older than TTL."""
@@ -82,6 +84,22 @@ def _flush_events(conversation_id):
         events = _event_buffers.pop(conversation_id, [])
         _event_timestamps.pop(conversation_id, None)
     return events
+
+
+def _flush_idle(timeout_seconds=2.0):
+    """Flush conversations with no new events for timeout_seconds.
+
+    Returns dict of {conversation_id: [events, ...]} for all idle conversations.
+    Active conversations (with recent events) are left in the buffer.
+    """
+    now = time.time()
+    result = {}
+    with _event_lock:
+        idle = [k for k, t in _event_timestamps.items() if now - t >= timeout_seconds]
+        for k in idle:
+            result[k] = _event_buffers.pop(k, [])
+            _event_timestamps.pop(k, None)
+    return result
 
 
 def _drain_events(conversation_id, since_ns=0, wait_ms=0, quiet_ms=0):
@@ -168,11 +186,16 @@ def _extract_log_events(body):
                     except (TypeError, ValueError):
                         time_ns_int = 0
 
-                results.append((str(conv_id), {
-                    "event": event_name,
-                    "time_ns": time_ns_int,
-                    "attrs": attrs,
-                }))
+                results.append(
+                    (
+                        str(conv_id),
+                        {
+                            "event": event_name,
+                            "time_ns": time_ns_int,
+                            "attrs": attrs,
+                        },
+                    )
+                )
     return results
 
 
@@ -185,6 +208,7 @@ def _decode_otlp_logs(raw):
     try:
         from google.protobuf.json_format import MessageToDict
         from opentelemetry.proto.collector.logs.v1 import logs_service_pb2
+
         request = logs_service_pb2.ExportLogsServiceRequest()
         request.ParseFromString(raw)
         return MessageToDict(request)
@@ -193,6 +217,7 @@ def _decode_otlp_logs(raw):
 
 
 # --- HTTP Handler ---
+
 
 class CodexBufferHandler(BaseHTTPRequestHandler):
 
@@ -227,6 +252,7 @@ class CodexBufferHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         from urllib.parse import urlparse
+
         path = urlparse(self.path).path.rstrip("/")
 
         # POST /v1/logs or root (Codex sends to both)
@@ -254,21 +280,38 @@ class CodexBufferHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"status": "accepted", "buffered": len(events)})
 
     def do_GET(self):
-        from urllib.parse import urlparse, parse_qs
+        from urllib.parse import parse_qs, urlparse
+
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
 
         if path == "/health":
             self._handle_health()
         elif path.startswith("/flush/"):
-            conv_id = path[len("/flush/"):]
+            conv_id = path[len("/flush/") :]
             if not conv_id:
                 self._send_json(400, {"status": "error", "message": "missing conversation_id"})
                 return
             events = _flush_events(conv_id)
             self._send_json(200, events)
+        elif path == "/flush-idle":
+            query = parse_qs(parsed.query)
+            raw_timeout = query.get("timeout_seconds", ["2"])[0]
+            try:
+                timeout = float(raw_timeout)
+            except (TypeError, ValueError):
+                self._send_json(
+                    400,
+                    {
+                        "status": "error",
+                        "message": f"invalid timeout_seconds: {raw_timeout!r}",
+                    },
+                )
+                return
+            result = _flush_idle(timeout)
+            self._send_json(200, result)
         elif path.startswith("/drain/"):
-            conv_id = path[len("/drain/"):]
+            conv_id = path[len("/drain/") :]
             if not conv_id:
                 self._send_json(400, {"status": "error", "message": "missing conversation_id"})
                 return
@@ -298,6 +341,7 @@ class CodexBufferHandler(BaseHTTPRequestHandler):
 
 # --- Process lifecycle ---
 
+
 def _write_pid():
     os.makedirs(PID_DIR, exist_ok=True)
     with open(PID_FILE, "w") as f:
@@ -323,11 +367,11 @@ def main():
     except Exception:
         _config = {}
 
-    # Read buffer config with fallback to collector config
-    buffer_cfg = _config.get("buffer", {})
-    collector_cfg = _config.get("collector", {})
-    host = buffer_cfg.get("host") or collector_cfg.get("host", "127.0.0.1")
-    port = int(buffer_cfg.get("port") or collector_cfg.get("port", 4318))
+    # Read collector config from harnesses.codex.collector
+    codex_cfg = _config.get("harnesses", {}).get("codex", {})
+    collector_cfg = codex_cfg.get("collector", {})
+    host = collector_cfg.get("host", "127.0.0.1")
+    port = int(collector_cfg.get("port", 4318))
 
     os.makedirs(LOG_DIR, exist_ok=True)
     os.makedirs(PID_DIR, exist_ok=True)

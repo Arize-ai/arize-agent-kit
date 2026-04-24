@@ -28,8 +28,8 @@ except ImportError:
 
 from core.constants import CONFIG_FILE
 
-
 # --- Python API ---
+
 
 def load_config(config_path=None):
     """Load and return the config dict from the YAML file.
@@ -110,6 +110,7 @@ def save_config(config, config_path=None):
 
 # --- CLI helpers ---
 
+
 def _parse_value(raw):
     """Auto-detect type for CLI set values.
 
@@ -141,6 +142,7 @@ def _format_output(value):
 
 
 # --- CLI entrypoint ---
+
 
 def main():
     if len(sys.argv) < 2:

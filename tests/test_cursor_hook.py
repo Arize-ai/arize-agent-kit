@@ -9,17 +9,12 @@ from unittest import mock
 import pytest
 
 from core.hooks.cursor import adapter
-from core.hooks.cursor.handlers import (
-    _dispatch,
-    _jq_str,
-    _print_permissive,
-    main,
-)
-
+from core.hooks.cursor.handlers import _dispatch, _jq_str, _print_permissive, main
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
 def _mock_sleep(monkeypatch):
@@ -49,6 +44,7 @@ def captured_spans():
 # ---------------------------------------------------------------------------
 # _print_permissive tests
 # ---------------------------------------------------------------------------
+
 
 class TestPrintPermissive:
 
@@ -92,6 +88,7 @@ class TestPrintPermissive:
 # _jq_str tests
 # ---------------------------------------------------------------------------
 
+
 class TestJqStr:
 
     def test_returns_first_matching_key(self):
@@ -129,38 +126,50 @@ class TestJqStr:
 # _dispatch tests
 # ---------------------------------------------------------------------------
 
+
 class TestDispatch:
 
     def test_routes_to_correct_handler(self, monkeypatch):
         """Known event routes to correct handler function."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000), \
-             mock.patch("core.hooks.cursor.handlers._handle_before_submit_prompt") as h:
-            _dispatch("beforeSubmitPrompt", {
-                "conversation_id": "c1",
-                "generation_id": "g1",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("core.hooks.cursor.handlers._handle_before_submit_prompt") as h,
+        ):
+            _dispatch(
+                "beforeSubmitPrompt",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "g1",
+                },
+            )
             h.assert_called_once()
 
     def test_routes_after_agent_response(self, monkeypatch):
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000), \
-             mock.patch("core.hooks.cursor.handlers._handle_after_agent_response") as h:
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("core.hooks.cursor.handlers._handle_after_agent_response") as h,
+        ):
             _dispatch("afterAgentResponse", {"conversation_id": "c1", "generation_id": "g1"})
             h.assert_called_once()
 
     def test_routes_stop(self, monkeypatch):
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000), \
-             mock.patch("core.hooks.cursor.handlers._handle_stop") as h:
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("core.hooks.cursor.handlers._handle_stop") as h,
+        ):
             _dispatch("stop", {"conversation_id": "c1", "generation_id": "g1"})
             h.assert_called_once()
 
     def test_unknown_event_logs_warning(self, monkeypatch):
         """Unknown event logs warning, no crash."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000), \
-             mock.patch("core.hooks.cursor.handlers.log") as log_mock:
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("core.hooks.cursor.handlers.log") as log_mock,
+        ):
             _dispatch("unknownEvent", {"conversation_id": "c1", "generation_id": "g1"})
             log_mock.assert_called_once()
             assert "Unknown" in log_mock.call_args[0][0]
@@ -175,19 +184,27 @@ class TestDispatch:
     def test_no_backend_send_fails_gracefully(self, monkeypatch):
         """send_span failure doesn't crash — root span sent from afterAgentResponse."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.send_span", return_value=False) as send_mock, \
-             mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000):
-            _dispatch("beforeSubmitPrompt", {
-                "conversation_id": "c1",
-                "generation_id": "g1",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.send_span", return_value=False) as send_mock,
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000),
+        ):
+            _dispatch(
+                "beforeSubmitPrompt",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "g1",
+                },
+            )
             # Root span is deferred — not sent yet
             send_mock.assert_not_called()
-            _dispatch("afterAgentResponse", {
-                "conversation_id": "c1",
-                "generation_id": "g1",
-                "response": "done",
-            })
+            _dispatch(
+                "afterAgentResponse",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "g1",
+                    "response": "done",
+                },
+            )
             # LLM child span + deferred root span both sent
             assert send_mock.call_count == 2
 
@@ -196,36 +213,46 @@ class TestDispatch:
 # _handle_before_submit_prompt tests
 # ---------------------------------------------------------------------------
 
+
 class TestHandleBeforeSubmitPrompt:
 
     def test_deferred_root_span_sent_at_agent_response(self, captured_spans, monkeypatch):
         """Root span is deferred until afterAgentResponse, then sent with input+output."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=5000), \
-             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="aabb" * 4), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_save") as save_mock:
-            _dispatch("beforeSubmitPrompt", {
-                "conversation_id": "conv-1",
-                "generation_id": "gen-1",
-                "prompt": "fix the bug",
-                "model_name": "claude-4",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="aabb" * 4),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_save") as save_mock,
+        ):
+            _dispatch(
+                "beforeSubmitPrompt",
+                {
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "prompt": "fix the bug",
+                    "model_name": "claude-4",
+                },
+            )
 
         save_mock.assert_called_once_with("gen-1", "aabb" * 4)
         # Root span is deferred — not sent yet
         assert len(captured_spans) == 0
 
         with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=9000):
-            _dispatch("afterAgentResponse", {
-                "conversation_id": "conv-1",
-                "generation_id": "gen-1",
-                "response": "I fixed the bug",
-                "model_name": "claude-4",
-            })
+            _dispatch(
+                "afterAgentResponse",
+                {
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "response": "I fixed the bug",
+                    "model_name": "claude-4",
+                },
+            )
 
         # afterAgentResponse sends LLM child + deferred root
-        root_spans = [s for s in captured_spans
-                      if s["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["name"] == "User Prompt"]
+        root_spans = [
+            s for s in captured_spans if s["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["name"] == "User Prompt"
+        ]
         assert len(root_spans) == 1
         span = root_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
@@ -240,20 +267,26 @@ class TestHandleBeforeSubmitPrompt:
 # _handle_after_agent_response tests
 # ---------------------------------------------------------------------------
 
+
 class TestHandleAfterAgentResponse:
 
     def test_creates_llm_span_with_response(self, captured_spans, monkeypatch):
         """Creates LLM span with response and gets parent from gen_root_span_get."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
-             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="ccdd" * 4), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent123") as get_mock:
-            _dispatch("afterAgentResponse", {
-                "conversation_id": "conv-1",
-                "generation_id": "gen-1",
-                "response": "I found the issue",
-                "model_name": "claude-4",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="ccdd" * 4),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent123") as get_mock,
+        ):
+            _dispatch(
+                "afterAgentResponse",
+                {
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "response": "I found the issue",
+                    "model_name": "claude-4",
+                },
+            )
 
         get_mock.assert_called_once_with("gen-1")
         assert len(captured_spans) == 1
@@ -269,22 +302,28 @@ class TestHandleAfterAgentResponse:
 # _handle_after_shell_execution tests
 # ---------------------------------------------------------------------------
 
+
 class TestHandleAfterShellExecution:
 
     def test_creates_tool_span_with_popped_state(self, captured_spans, monkeypatch):
         """Creates TOOL span, merges with before state from state_pop."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         popped = {"command": "ls -la", "cwd": "/tmp", "start_ms": "1000", "trace_id": "t1", "conversation_id": "c1"}
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
-             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="eeff" * 4), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"), \
-             mock.patch("core.hooks.cursor.handlers.state_pop", return_value=popped):
-            _dispatch("afterShellExecution", {
-                "conversation_id": "conv-1",
-                "generation_id": "gen-1",
-                "output": "total 0",
-                "exit_code": "0",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="eeff" * 4),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"),
+            mock.patch("core.hooks.cursor.handlers.state_pop", return_value=popped),
+        ):
+            _dispatch(
+                "afterShellExecution",
+                {
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "output": "total 0",
+                    "exit_code": "0",
+                },
+            )
 
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
@@ -299,31 +338,43 @@ class TestHandleAfterShellExecution:
         """After-event command overrides before-event command."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         popped = {"command": "old_cmd", "start_ms": "1000"}
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""), \
-             mock.patch("core.hooks.cursor.handlers.state_pop", return_value=popped):
-            _dispatch("afterShellExecution", {
-                "conversation_id": "c1",
-                "generation_id": "g1",
-                "command": "new_cmd",
-                "output": "ok",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""),
+            mock.patch("core.hooks.cursor.handlers.state_pop", return_value=popped),
+        ):
+            _dispatch(
+                "afterShellExecution",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "g1",
+                    "command": "new_cmd",
+                    "output": "ok",
+                },
+            )
 
-        attrs = {a["key"]: a["value"] for a in
-                 captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
+        attrs = {
+            a["key"]: a["value"]
+            for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+        }
         assert attrs["input.value"]["stringValue"] == "new_cmd"
 
     def test_no_popped_state_uses_now(self, captured_spans, monkeypatch):
         """Without popped state, start_ms defaults to now_ms."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=3000), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""), \
-             mock.patch("core.hooks.cursor.handlers.state_pop", return_value=None):
-            _dispatch("afterShellExecution", {
-                "conversation_id": "c1",
-                "generation_id": "g1",
-                "output": "ok",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=3000),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""),
+            mock.patch("core.hooks.cursor.handlers.state_pop", return_value=None),
+        ):
+            _dispatch(
+                "afterShellExecution",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "g1",
+                    "output": "ok",
+                },
+            )
 
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         # start_ms = "3000" -> ns = "3000000000"
@@ -333,13 +384,17 @@ class TestHandleAfterShellExecution:
         """Works with cursor_after_shell fixture."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         fixture = cursor_after_shell_input
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""), \
-             mock.patch("core.hooks.cursor.handlers.state_pop", return_value=None):
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""),
+            mock.patch("core.hooks.cursor.handlers.state_pop", return_value=None),
+        ):
             _dispatch(fixture["hook_event_name"], fixture)
 
-        attrs = {a["key"]: a["value"] for a in
-                 captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
+        attrs = {
+            a["key"]: a["value"]
+            for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+        }
         assert attrs["input.value"]["stringValue"] == "ls -la"
         assert attrs["output.value"]["stringValue"] == "total 0"
         assert attrs["shell.exit_code"]["stringValue"] == "0"
@@ -349,20 +404,26 @@ class TestHandleAfterShellExecution:
 # _handle_stop tests
 # ---------------------------------------------------------------------------
 
+
 class TestHandleStop:
 
     def test_creates_chain_span_and_cleans_up(self, captured_spans, monkeypatch):
         """Creates CHAIN span and calls state_cleanup_generation."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=5000), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="root1"), \
-             mock.patch("core.hooks.cursor.handlers.state_cleanup_generation") as cleanup:
-            _dispatch("stop", {
-                "conversation_id": "conv-1",
-                "generation_id": "gen-1",
-                "status": "completed",
-                "loop_count": "3",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="root1"),
+            mock.patch("core.hooks.cursor.handlers.state_cleanup_generation") as cleanup,
+        ):
+            _dispatch(
+                "stop",
+                {
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "status": "completed",
+                    "loop_count": "3",
+                },
+            )
 
         cleanup.assert_called_once_with("gen-1")
         assert len(captured_spans) == 1
@@ -376,9 +437,11 @@ class TestHandleStop:
     def test_no_gen_id_skips_cleanup(self, captured_spans, monkeypatch):
         """Without gen_id, state_cleanup_generation is not called."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""), \
-             mock.patch("core.hooks.cursor.handlers.state_cleanup_generation") as cleanup:
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""),
+            mock.patch("core.hooks.cursor.handlers.state_cleanup_generation") as cleanup,
+        ):
             _dispatch("stop", {"conversation_id": "c1"})
 
         cleanup.assert_not_called()
@@ -387,13 +450,14 @@ class TestHandleStop:
     def test_optional_attrs_omitted(self, captured_spans, monkeypatch):
         """Status and loop_count omitted when empty."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""), \
-             mock.patch("core.hooks.cursor.handlers.state_cleanup_generation"):
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""),
+            mock.patch("core.hooks.cursor.handlers.state_cleanup_generation"),
+        ):
             _dispatch("stop", {"conversation_id": "c1", "generation_id": "g1"})
 
-        attr_keys = {a["key"] for a in
-                     captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
+        attr_keys = {a["key"] for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
         assert "cursor.stop.status" not in attr_keys
         assert "cursor.stop.loop_count" not in attr_keys
 
@@ -402,19 +466,25 @@ class TestHandleStop:
 # _handle_before_shell_execution tests
 # ---------------------------------------------------------------------------
 
+
 class TestHandleBeforeShellExecution:
 
     def test_pushes_state(self, monkeypatch):
         """Pushes command, cwd, start_ms, trace_id, conversation_id to state."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000), \
-             mock.patch("core.hooks.cursor.handlers.state_push") as push_mock:
-            _dispatch("beforeShellExecution", {
-                "conversation_id": "c1",
-                "generation_id": "gen-1",
-                "command": "ls -la",
-                "cwd": "/home",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("core.hooks.cursor.handlers.state_push") as push_mock,
+        ):
+            _dispatch(
+                "beforeShellExecution",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "gen-1",
+                    "command": "ls -la",
+                    "cwd": "/home",
+                },
+            )
 
         push_mock.assert_called_once()
         key, value = push_mock.call_args[0]
@@ -426,12 +496,17 @@ class TestHandleBeforeShellExecution:
     def test_no_gen_id_returns_early(self, monkeypatch):
         """Without gen_id, returns without pushing state."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000), \
-             mock.patch("core.hooks.cursor.handlers.state_push") as push_mock:
-            _dispatch("beforeShellExecution", {
-                "conversation_id": "c1",
-                "command": "ls",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("core.hooks.cursor.handlers.state_push") as push_mock,
+        ):
+            _dispatch(
+                "beforeShellExecution",
+                {
+                    "conversation_id": "c1",
+                    "command": "ls",
+                },
+            )
 
         push_mock.assert_not_called()
 
@@ -440,19 +515,25 @@ class TestHandleBeforeShellExecution:
 # _handle_after_agent_thought tests
 # ---------------------------------------------------------------------------
 
+
 class TestHandleAfterAgentThought:
 
     def test_creates_chain_span_with_thought(self, captured_spans, monkeypatch):
         """Creates CHAIN span with thought as output.value."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
-             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="abcd" * 4), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1") as get_mock:
-            _dispatch("afterAgentThought", {
-                "conversation_id": "conv-1",
-                "generation_id": "gen-1",
-                "thought": "thinking about the problem",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="abcd" * 4),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1") as get_mock,
+        ):
+            _dispatch(
+                "afterAgentThought",
+                {
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "thought": "thinking about the problem",
+                },
+            )
 
         get_mock.assert_called_once_with("gen-1")
         assert len(captured_spans) == 1
@@ -469,20 +550,26 @@ class TestHandleAfterAgentThought:
 # _handle_before_mcp_execution tests
 # ---------------------------------------------------------------------------
 
+
 class TestHandleBeforeMcpExecution:
 
     def test_pushes_state(self, monkeypatch):
         """Pushes tool_name, tool_input, url, command, start_ms to state."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1500), \
-             mock.patch("core.hooks.cursor.handlers.state_push") as push_mock:
-            _dispatch("beforeMCPExecution", {
-                "conversation_id": "c1",
-                "generation_id": "gen-1",
-                "tool_name": "search",
-                "tool_input": '{"query": "test"}',
-                "url": "http://localhost:3000",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1500),
+            mock.patch("core.hooks.cursor.handlers.state_push") as push_mock,
+        ):
+            _dispatch(
+                "beforeMCPExecution",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "gen-1",
+                    "tool_name": "search",
+                    "tool_input": '{"query": "test"}',
+                    "url": "http://localhost:3000",
+                },
+            )
 
         push_mock.assert_called_once()
         key, value = push_mock.call_args[0]
@@ -494,12 +581,17 @@ class TestHandleBeforeMcpExecution:
     def test_no_gen_id_returns_early(self, monkeypatch):
         """Without gen_id, returns without pushing state."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000), \
-             mock.patch("core.hooks.cursor.handlers.state_push") as push_mock:
-            _dispatch("beforeMCPExecution", {
-                "conversation_id": "c1",
-                "tool_name": "search",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("core.hooks.cursor.handlers.state_push") as push_mock,
+        ):
+            _dispatch(
+                "beforeMCPExecution",
+                {
+                    "conversation_id": "c1",
+                    "tool_name": "search",
+                },
+            )
 
         push_mock.assert_not_called()
 
@@ -507,6 +599,7 @@ class TestHandleBeforeMcpExecution:
 # ---------------------------------------------------------------------------
 # _handle_after_mcp_execution tests
 # ---------------------------------------------------------------------------
+
 
 class TestHandleAfterMcpExecution:
 
@@ -522,15 +615,20 @@ class TestHandleAfterMcpExecution:
             "trace_id": "t1",
             "conversation_id": "c1",
         }
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
-             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="ffaa" * 4), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"), \
-             mock.patch("core.hooks.cursor.handlers.state_pop", return_value=popped):
-            _dispatch("afterMCPExecution", {
-                "conversation_id": "conv-1",
-                "generation_id": "gen-1",
-                "result": "found 3 items",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="ffaa" * 4),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"),
+            mock.patch("core.hooks.cursor.handlers.state_pop", return_value=popped),
+        ):
+            _dispatch(
+                "afterMCPExecution",
+                {
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "result": "found 3 items",
+                },
+            )
 
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
@@ -545,16 +643,21 @@ class TestHandleAfterMcpExecution:
     def test_no_popped_state_uses_input(self, captured_spans, monkeypatch):
         """Without popped state, span still created from input_json fields."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=3000), \
-             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="bbcc" * 4), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""), \
-             mock.patch("core.hooks.cursor.handlers.state_pop", return_value=None):
-            _dispatch("afterMCPExecution", {
-                "conversation_id": "c1",
-                "generation_id": "g1",
-                "tool_name": "list_repos",
-                "result": "ok",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=3000),
+            mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="bbcc" * 4),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""),
+            mock.patch("core.hooks.cursor.handlers.state_pop", return_value=None),
+        ):
+            _dispatch(
+                "afterMCPExecution",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "g1",
+                    "tool_name": "list_repos",
+                    "result": "ok",
+                },
+            )
 
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
@@ -567,19 +670,25 @@ class TestHandleAfterMcpExecution:
 # _handle_before_read_file tests
 # ---------------------------------------------------------------------------
 
+
 class TestHandleBeforeReadFile:
 
     def test_creates_tool_span(self, captured_spans, monkeypatch):
         """Creates TOOL span with file path as input."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
-             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="1122" * 4), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"):
-            _dispatch("beforeReadFile", {
-                "conversation_id": "conv-1",
-                "generation_id": "gen-1",
-                "file_path": "/foo/bar.py",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="1122" * 4),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"),
+        ):
+            _dispatch(
+                "beforeReadFile",
+                {
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "file_path": "/foo/bar.py",
+                },
+            )
 
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
@@ -595,20 +704,26 @@ class TestHandleBeforeReadFile:
 # _handle_after_file_edit tests
 # ---------------------------------------------------------------------------
 
+
 class TestHandleAfterFileEdit:
 
     def test_creates_tool_span(self, captured_spans, monkeypatch):
         """Creates TOOL span with file path and diff."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
-             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="3344" * 4), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"):
-            _dispatch("afterFileEdit", {
-                "conversation_id": "conv-1",
-                "generation_id": "gen-1",
-                "file_path": "/foo/bar.py",
-                "diff": "+added line",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="3344" * 4),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"),
+        ):
+            _dispatch(
+                "afterFileEdit",
+                {
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "file_path": "/foo/bar.py",
+                    "diff": "+added line",
+                },
+            )
 
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
@@ -622,17 +737,24 @@ class TestHandleAfterFileEdit:
     def test_no_diff_uses_path_only(self, captured_spans, monkeypatch):
         """Without diff, input.value is just the file path."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
-             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="3344" * 4), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""):
-            _dispatch("afterFileEdit", {
-                "conversation_id": "c1",
-                "generation_id": "g1",
-                "file_path": "/foo/bar.py",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="3344" * 4),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""),
+        ):
+            _dispatch(
+                "afterFileEdit",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "g1",
+                    "file_path": "/foo/bar.py",
+                },
+            )
 
-        attrs = {a["key"]: a["value"] for a in
-                 captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
+        attrs = {
+            a["key"]: a["value"]
+            for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+        }
         assert attrs["input.value"]["stringValue"] == "/foo/bar.py"
 
 
@@ -640,19 +762,25 @@ class TestHandleAfterFileEdit:
 # _handle_before_tab_file_read tests
 # ---------------------------------------------------------------------------
 
+
 class TestHandleBeforeTabFileRead:
 
     def test_creates_tool_span(self, captured_spans, monkeypatch):
         """Creates TOOL span with file path as input for tab read."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
-             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="5566" * 4), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"):
-            _dispatch("beforeTabFileRead", {
-                "conversation_id": "conv-1",
-                "generation_id": "gen-1",
-                "file_path": "/src/main.ts",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="5566" * 4),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"),
+        ):
+            _dispatch(
+                "beforeTabFileRead",
+                {
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "file_path": "/src/main.ts",
+                },
+            )
 
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
@@ -668,20 +796,26 @@ class TestHandleBeforeTabFileRead:
 # _handle_after_tab_file_edit tests
 # ---------------------------------------------------------------------------
 
+
 class TestHandleAfterTabFileEdit:
 
     def test_creates_tool_span(self, captured_spans, monkeypatch):
         """Creates TOOL span with file path and edits for tab edit."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
-             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="7788" * 4), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"):
-            _dispatch("afterTabFileEdit", {
-                "conversation_id": "conv-1",
-                "generation_id": "gen-1",
-                "file_path": "/src/main.ts",
-                "edits": "replaced function",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="7788" * 4),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value="parent1"),
+        ):
+            _dispatch(
+                "afterTabFileEdit",
+                {
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "file_path": "/src/main.ts",
+                    "edits": "replaced function",
+                },
+            )
 
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
@@ -695,23 +829,31 @@ class TestHandleAfterTabFileEdit:
     def test_no_edits_uses_path_only(self, captured_spans, monkeypatch):
         """Without edits, input.value is just the file path."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000), \
-             mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="7788" * 4), \
-             mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""):
-            _dispatch("afterTabFileEdit", {
-                "conversation_id": "c1",
-                "generation_id": "g1",
-                "file_path": "/src/main.ts",
-            })
+        with (
+            mock.patch("core.hooks.cursor.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("core.hooks.cursor.handlers.span_id_16", return_value="7788" * 4),
+            mock.patch("core.hooks.cursor.handlers.gen_root_span_get", return_value=""),
+        ):
+            _dispatch(
+                "afterTabFileEdit",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "g1",
+                    "file_path": "/src/main.ts",
+                },
+            )
 
-        attrs = {a["key"]: a["value"] for a in
-                 captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
+        attrs = {
+            a["key"]: a["value"]
+            for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+        }
         assert attrs["input.value"]["stringValue"] == "/src/main.ts"
 
 
 # ---------------------------------------------------------------------------
 # main() entry point tests
 # ---------------------------------------------------------------------------
+
 
 class TestMain:
 
@@ -728,10 +870,12 @@ class TestMain:
         }
         stdout_buf = io.StringIO()
 
-        with mock.patch("sys.stdin", io.StringIO(json.dumps(input_data))), \
-             mock.patch.object(sys, "__stdout__", stdout_buf), \
-             mock.patch("core.hooks.cursor.handlers.check_requirements", return_value=True), \
-             mock.patch("core.hooks.cursor.handlers._dispatch") as dispatch_mock:
+        with (
+            mock.patch("sys.stdin", io.StringIO(json.dumps(input_data))),
+            mock.patch.object(sys, "__stdout__", stdout_buf),
+            mock.patch("core.hooks.cursor.handlers.check_requirements", return_value=True),
+            mock.patch("core.hooks.cursor.handlers._dispatch") as dispatch_mock,
+        ):
             main()
 
         dispatch_mock.assert_called_once_with("beforeSubmitPrompt", input_data)
@@ -745,9 +889,11 @@ class TestMain:
 
         stdout_buf = io.StringIO()
 
-        with mock.patch("sys.stdin", io.StringIO("not valid json")), \
-             mock.patch.object(sys, "__stdout__", stdout_buf), \
-             mock.patch("core.hooks.cursor.handlers.check_requirements", return_value=True):
+        with (
+            mock.patch("sys.stdin", io.StringIO("not valid json")),
+            mock.patch.object(sys, "__stdout__", stdout_buf),
+            mock.patch("core.hooks.cursor.handlers.check_requirements", return_value=True),
+        ):
             main()
 
         result = json.loads(stdout_buf.getvalue())
@@ -766,10 +912,12 @@ class TestMain:
         }
         stdout_buf = io.StringIO()
 
-        with mock.patch("sys.stdin", io.StringIO(json.dumps(input_data))), \
-             mock.patch.object(sys, "__stdout__", stdout_buf), \
-             mock.patch("core.hooks.cursor.handlers.check_requirements", return_value=True), \
-             mock.patch("core.hooks.cursor.handlers._dispatch", side_effect=RuntimeError("boom")):
+        with (
+            mock.patch("sys.stdin", io.StringIO(json.dumps(input_data))),
+            mock.patch.object(sys, "__stdout__", stdout_buf),
+            mock.patch("core.hooks.cursor.handlers.check_requirements", return_value=True),
+            mock.patch("core.hooks.cursor.handlers._dispatch", side_effect=RuntimeError("boom")),
+        ):
             main()
 
         result = json.loads(stdout_buf.getvalue())
@@ -782,9 +930,11 @@ class TestMain:
 
         stdout_buf = io.StringIO()
 
-        with mock.patch("sys.stdin", io.StringIO('{"hook_event_name":"beforeSubmitPrompt"}')), \
-             mock.patch.object(sys, "__stdout__", stdout_buf), \
-             mock.patch("core.hooks.cursor.handlers.check_requirements", return_value=False):
+        with (
+            mock.patch("sys.stdin", io.StringIO('{"hook_event_name":"beforeSubmitPrompt"}')),
+            mock.patch.object(sys, "__stdout__", stdout_buf),
+            mock.patch("core.hooks.cursor.handlers.check_requirements", return_value=False),
+        ):
             main()
 
         result = json.loads(stdout_buf.getvalue())
@@ -798,10 +948,12 @@ class TestMain:
 
         stdout_buf = io.StringIO()
 
-        with mock.patch("sys.stdin", io.StringIO("")), \
-             mock.patch.object(sys, "__stdout__", stdout_buf), \
-             mock.patch("core.hooks.cursor.handlers.check_requirements", return_value=True), \
-             mock.patch("core.hooks.cursor.handlers._dispatch") as dispatch_mock:
+        with (
+            mock.patch("sys.stdin", io.StringIO("")),
+            mock.patch.object(sys, "__stdout__", stdout_buf),
+            mock.patch("core.hooks.cursor.handlers.check_requirements", return_value=True),
+            mock.patch("core.hooks.cursor.handlers._dispatch") as dispatch_mock,
+        ):
             main()
 
         dispatch_mock.assert_called_once_with("", {})
@@ -817,10 +969,12 @@ class TestMain:
         stdout_buf = io.StringIO()
         original_stderr = sys.stderr
 
-        with mock.patch("sys.stdin", io.StringIO('{"hook_event_name":"stop"}')), \
-             mock.patch.object(sys, "__stdout__", stdout_buf), \
-             mock.patch("core.hooks.cursor.handlers.check_requirements", return_value=True), \
-             mock.patch("core.hooks.cursor.handlers._dispatch"):
+        with (
+            mock.patch("sys.stdin", io.StringIO('{"hook_event_name":"stop"}')),
+            mock.patch.object(sys, "__stdout__", stdout_buf),
+            mock.patch("core.hooks.cursor.handlers.check_requirements", return_value=True),
+            mock.patch("core.hooks.cursor.handlers._dispatch"),
+        ):
             main()
 
         # Restore stderr for safety

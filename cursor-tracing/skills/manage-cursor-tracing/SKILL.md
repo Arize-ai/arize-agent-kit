@@ -1,5 +1,5 @@
 ---
-name: setup-cursor-tracing
+name: manage-cursor-tracing
 description: Set up and configure Arize tracing for Cursor IDE sessions. Use when users want to set up tracing, configure Arize AX or Phoenix for Cursor, enable/disable tracing, or troubleshoot tracing issues. Triggers on "set up cursor tracing", "configure Arize for Cursor", "configure Phoenix for Cursor", "enable cursor tracing", "setup-cursor-tracing", or any request about connecting Cursor to Arize or Phoenix for observability.
 ---
 
@@ -100,30 +100,26 @@ The config file at `~/.arize/harness/config.yaml` is the single source of truth 
 
 **Phoenix:**
 ```yaml
-backend:
-  target: "phoenix"
-  phoenix:
-    endpoint: "<endpoint>"
-    api_key: ""
 harnesses:
   cursor:
-    project_name: "cursor"
+    project_name: cursor
+    target: phoenix
+    endpoint: <endpoint>
+    api_key: ""
 ```
 
 **Arize AX:**
 ```yaml
-backend:
-  target: "arize"
-  arize:
-    endpoint: "otlp.arize.com:443"
-    api_key: "<key>"
-    space_id: "<id>"
 harnesses:
   cursor:
-    project_name: "cursor"
+    project_name: cursor
+    target: arize
+    endpoint: otlp.arize.com:443
+    api_key: <key>
+    space_id: <id>
 ```
 
-If the user has a custom OTLP endpoint, set it in `backend.arize.endpoint`.
+If the user has a custom OTLP endpoint, set it in `harnesses.cursor.endpoint`.
 
 ### Activate Cursor hooks
 

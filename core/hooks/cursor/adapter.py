@@ -14,13 +14,13 @@ import re
 
 import yaml
 
+from core.common import FileLock, env
 from core.constants import HARNESSES, STATE_BASE_DIR
-from core.common import FileLock, env, log, error, get_timestamp_ms
 
 # --- Module-level constants from HARNESSES["cursor"] ---
 _HARNESS = HARNESSES["cursor"]
-SERVICE_NAME = _HARNESS["service_name"]       # "cursor"
-SCOPE_NAME = _HARNESS["scope_name"]           # "arize-cursor-plugin"
+SERVICE_NAME = _HARNESS["service_name"]  # "cursor"
+SCOPE_NAME = _HARNESS["scope_name"]  # "arize-cursor-plugin"
 STATE_DIR = STATE_BASE_DIR / _HARNESS["state_subdir"]  # ~/.arize/harness/state/cursor
 MAX_ATTR_CHARS = int(os.environ.get("CURSOR_TRACE_MAX_ATTR_CHARS", "100000"))
 
@@ -50,7 +50,7 @@ def sanitize(s: str) -> str:
 
     Matches bash: printf '%s' "$1" | tr -c '[:alnum:]._-' '_'
     """
-    return re.sub(r'[^a-zA-Z0-9._-]', '_', s)
+    return re.sub(r"[^a-zA-Z0-9._-]", "_", s)
 
 
 def truncate_attr(s: str, max_chars: "int | None" = None) -> str:

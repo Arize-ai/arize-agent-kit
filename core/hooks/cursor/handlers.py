@@ -9,19 +9,11 @@ stderr: redirected to ARIZE_LOG_FILE before dispatch.
 """
 import json
 import sys
-import urllib.request
 
-from core.common import (
-    build_span,
-    env,
-    error,
-    get_timestamp_ms,
-    log,
-    send_span,
-)
+from core.common import build_span, env, error, get_timestamp_ms, log, send_span
 from core.hooks.cursor.adapter import (
-    SERVICE_NAME,
     SCOPE_NAME,
+    SERVICE_NAME,
     check_requirements,
     gen_root_span_get,
     gen_root_span_save,
@@ -31,13 +23,12 @@ from core.hooks.cursor.adapter import (
     state_pop,
     state_push,
     trace_id_from_generation,
-
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _print_permissive(event: str) -> None:
     """Print the permissive JSON response to stdout.
@@ -48,11 +39,12 @@ def _print_permissive(event: str) -> None:
     Uses sys.__stdout__ (the original stdout saved by Python) in case
     sys.stdout has been redirected.
     """
+    stdout = sys.__stdout__ or sys.stdout
     if event.startswith("before"):
-        sys.__stdout__.write('{"permission": "allow"}')
+        stdout.write('{"permission": "allow"}')
     else:
-        sys.__stdout__.write('{"continue": true}')
-    sys.__stdout__.flush()
+        stdout.write('{"continue": true}')
+    stdout.flush()
 
 
 def _jq_str(input_json: dict, *keys, default: str = "") -> str:
@@ -70,6 +62,7 @@ def _jq_str(input_json: dict, *keys, default: str = "") -> str:
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
+
 
 def _dispatch(event: str, input_json: dict) -> None:
     """Route event to the appropriate handler."""
@@ -109,23 +102,27 @@ def _dispatch(event: str, input_json: dict) -> None:
 # Event handlers
 # ---------------------------------------------------------------------------
 
+
 def _handle_before_submit_prompt(input_json, conversation_id, gen_id, trace_id, now_ms):
     """Root span for the turn — deferred until afterAgentResponse so it gets output.value."""
     sid = span_id_16()
     gen_root_span_save(gen_id, sid)
 
-    prompt = (_jq_str(input_json, "prompt", "input", "text"))
+    prompt = _jq_str(input_json, "prompt", "input", "text")
     model = _jq_str(input_json, "model", "model_name")
 
     # Save root span state — sent by afterAgentResponse with output + timing
-    state_push(f"root_{sanitize(gen_id)}", {
-        "span_id": sid,
-        "trace_id": trace_id,
-        "conversation_id": conversation_id,
-        "start_ms": now_ms,
-        "prompt": prompt,
-        "model": model,
-    })
+    state_push(
+        f"root_{sanitize(gen_id)}",
+        {
+            "span_id": sid,
+            "trace_id": trace_id,
+            "conversation_id": conversation_id,
+            "start_ms": now_ms,
+            "prompt": prompt,
+            "model": model,
+        },
+    )
     log(f"beforeSubmitPrompt: deferred root span {sid} (trace={trace_id})")
 
 
@@ -135,7 +132,7 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
     parent = gen_root_span_get(gen_id)
 
     # "text" is the documented field; fall back to "response"/"output" for compat
-    response = (_jq_str(input_json, "text", "response", "output"))
+    response = _jq_str(input_json, "text", "response", "output")
     # "model" is a base field on all hook events
     model = _jq_str(input_json, "model", "model_name")
 
@@ -155,8 +152,16 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
         attrs["llm.model_name"] = model
 
     span = build_span(
-        "Agent Response", "LLM", sid, trace_id, parent,
-        now_ms, now_ms, attrs, SERVICE_NAME, SCOPE_NAME,
+        "Agent Response",
+        "LLM",
+        sid,
+        trace_id,
+        parent,
+        now_ms,
+        now_ms,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
     log(f"afterAgentResponse: child span {sid}")
@@ -174,10 +179,16 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
             root_attrs["llm.model_name"] = root_model
 
         root_span = build_span(
-            "User Prompt", "CHAIN",
-            root_state["span_id"], root_state.get("trace_id", trace_id), "",
-            root_state.get("start_ms", now_ms), now_ms, root_attrs,
-            SERVICE_NAME, SCOPE_NAME,
+            "User Prompt",
+            "CHAIN",
+            root_state["span_id"],
+            root_state.get("trace_id", trace_id),
+            "",
+            root_state.get("start_ms", now_ms),
+            now_ms,
+            root_attrs,
+            SERVICE_NAME,
+            SCOPE_NAME,
         )
         send_span(root_span)
         log(f"afterAgentResponse: sent deferred root span {root_state['span_id']}")
@@ -188,7 +199,7 @@ def _handle_after_agent_thought(input_json, conversation_id, gen_id, trace_id, n
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
-    thought = (_jq_str(input_json, "thought", "thinking", "text"))
+    thought = _jq_str(input_json, "thought", "thinking", "text")
 
     attrs = {
         "openinference.span.kind": "CHAIN",
@@ -197,8 +208,16 @@ def _handle_after_agent_thought(input_json, conversation_id, gen_id, trace_id, n
     }
 
     span = build_span(
-        "Agent Thinking", "CHAIN", sid, trace_id, parent,
-        now_ms, now_ms, attrs, SERVICE_NAME, SCOPE_NAME,
+        "Agent Thinking",
+        "CHAIN",
+        sid,
+        trace_id,
+        parent,
+        now_ms,
+        now_ms,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
     log(f"afterAgentThought: span {sid}")
@@ -212,13 +231,16 @@ def _handle_before_shell_execution(input_json, conversation_id, gen_id, trace_id
     command = _jq_str(input_json, "command", "shell_command")
     cwd = _jq_str(input_json, "cwd", "working_directory")
 
-    state_push(f"shell_{sanitize(gen_id)}", {
-        "command": command,
-        "cwd": cwd,
-        "start_ms": str(now_ms),
-        "trace_id": trace_id,
-        "conversation_id": conversation_id,
-    })
+    state_push(
+        f"shell_{sanitize(gen_id)}",
+        {
+            "command": command,
+            "cwd": cwd,
+            "start_ms": str(now_ms),
+            "trace_id": trace_id,
+            "conversation_id": conversation_id,
+        },
+    )
     log(f"beforeShellExecution: pushed state for gen={gen_id}")
 
 
@@ -241,7 +263,7 @@ def _handle_after_shell_execution(input_json, conversation_id, gen_id, trace_id,
     if after_cmd:
         command = after_cmd
 
-    output = (_jq_str(input_json, "output", "stdout", "result"))
+    output = _jq_str(input_json, "output", "stdout", "result")
     exit_code = _jq_str(input_json, "exit_code", "exitCode")
 
     attrs = {
@@ -255,8 +277,16 @@ def _handle_after_shell_execution(input_json, conversation_id, gen_id, trace_id,
         attrs["shell.exit_code"] = exit_code
 
     span = build_span(
-        "Shell", "TOOL", sid, trace_id, parent,
-        start_ms, now_ms, attrs, SERVICE_NAME, SCOPE_NAME,
+        "Shell",
+        "TOOL",
+        sid,
+        trace_id,
+        parent,
+        start_ms,
+        now_ms,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
     log(f"afterShellExecution: span {sid} (merged)")
@@ -272,15 +302,18 @@ def _handle_before_mcp_execution(input_json, conversation_id, gen_id, trace_id, 
     mcp_url = _jq_str(input_json, "url", "server_url", "serverUrl")
     mcp_cmd = _jq_str(input_json, "command")
 
-    state_push(f"mcp_{sanitize(gen_id)}", {
-        "tool_name": tool_name,
-        "tool_input": tool_input,
-        "url": mcp_url,
-        "command": mcp_cmd,
-        "start_ms": str(now_ms),
-        "trace_id": trace_id,
-        "conversation_id": conversation_id,
-    })
+    state_push(
+        f"mcp_{sanitize(gen_id)}",
+        {
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+            "url": mcp_url,
+            "command": mcp_cmd,
+            "start_ms": str(now_ms),
+            "trace_id": trace_id,
+            "conversation_id": conversation_id,
+        },
+    )
     log(f"beforeMCPExecution: pushed state for gen={gen_id}")
 
 
@@ -306,7 +339,7 @@ def _handle_after_mcp_execution(input_json, conversation_id, gen_id, trace_id, n
         tool_name = after_tool
     tool_name = tool_name or "unknown"
 
-    result = (_jq_str(input_json, "result", "output", "result_json"))
+    result = _jq_str(input_json, "result", "output", "result_json")
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -317,8 +350,16 @@ def _handle_after_mcp_execution(input_json, conversation_id, gen_id, trace_id, n
     }
 
     span = build_span(
-        f"MCP: {tool_name}", "TOOL", sid, trace_id, parent,
-        start_ms, now_ms, attrs, SERVICE_NAME, SCOPE_NAME,
+        f"MCP: {tool_name}",
+        "TOOL",
+        sid,
+        trace_id,
+        parent,
+        start_ms,
+        now_ms,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
     log(f"afterMCPExecution: span {sid} (merged, tool={tool_name})")
@@ -329,7 +370,7 @@ def _handle_before_read_file(input_json, conversation_id, gen_id, trace_id, now_
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
-    file_path = (_jq_str(input_json, "file_path", "filePath", "path"))
+    file_path = _jq_str(input_json, "file_path", "filePath", "path")
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -339,8 +380,16 @@ def _handle_before_read_file(input_json, conversation_id, gen_id, trace_id, now_
     }
 
     span = build_span(
-        "Read File", "TOOL", sid, trace_id, parent,
-        now_ms, now_ms, attrs, SERVICE_NAME, SCOPE_NAME,
+        "Read File",
+        "TOOL",
+        sid,
+        trace_id,
+        parent,
+        now_ms,
+        now_ms,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
     log(f"beforeReadFile: span {sid}")
@@ -363,8 +412,16 @@ def _handle_after_file_edit(input_json, conversation_id, gen_id, trace_id, now_m
     }
 
     span = build_span(
-        "File Edit", "TOOL", sid, trace_id, parent,
-        now_ms, now_ms, attrs, SERVICE_NAME, SCOPE_NAME,
+        "File Edit",
+        "TOOL",
+        sid,
+        trace_id,
+        parent,
+        now_ms,
+        now_ms,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
     log(f"afterFileEdit: span {sid}")
@@ -375,7 +432,7 @@ def _handle_before_tab_file_read(input_json, conversation_id, gen_id, trace_id, 
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
-    file_path = (_jq_str(input_json, "file_path", "filePath", "path"))
+    file_path = _jq_str(input_json, "file_path", "filePath", "path")
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -385,8 +442,16 @@ def _handle_before_tab_file_read(input_json, conversation_id, gen_id, trace_id, 
     }
 
     span = build_span(
-        "Tab Read File", "TOOL", sid, trace_id, parent,
-        now_ms, now_ms, attrs, SERVICE_NAME, SCOPE_NAME,
+        "Tab Read File",
+        "TOOL",
+        sid,
+        trace_id,
+        parent,
+        now_ms,
+        now_ms,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
     log(f"beforeTabFileRead: span {sid}")
@@ -409,8 +474,16 @@ def _handle_after_tab_file_edit(input_json, conversation_id, gen_id, trace_id, n
     }
 
     span = build_span(
-        "Tab File Edit", "TOOL", sid, trace_id, parent,
-        now_ms, now_ms, attrs, SERVICE_NAME, SCOPE_NAME,
+        "Tab File Edit",
+        "TOOL",
+        sid,
+        trace_id,
+        parent,
+        now_ms,
+        now_ms,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
     log(f"afterTabFileEdit: span {sid}")
@@ -434,8 +507,16 @@ def _handle_stop(input_json, conversation_id, gen_id, trace_id, now_ms):
         attrs["cursor.stop.loop_count"] = loop_count
 
     span = build_span(
-        "Agent Stop", "CHAIN", sid, trace_id, parent,
-        now_ms, now_ms, attrs, SERVICE_NAME, SCOPE_NAME,
+        "Agent Stop",
+        "CHAIN",
+        sid,
+        trace_id,
+        parent,
+        now_ms,
+        now_ms,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
     )
     send_span(span)
 
@@ -447,6 +528,7 @@ def _handle_stop(input_json, conversation_id, gen_id, trace_id, now_ms):
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main():
     """Entry point for arize-hook-cursor. Cursor hook.

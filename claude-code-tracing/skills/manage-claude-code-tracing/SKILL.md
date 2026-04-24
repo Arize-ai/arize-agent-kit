@@ -1,5 +1,5 @@
 ---
-name: setup-claude-code-tracing
+name: manage-claude-code-tracing
 description: Set up and configure Arize tracing for Claude Code sessions or Agent SDK applications. Use when users want to set up tracing, configure Arize AX or Phoenix, create a new Arize project, get an API key, enable/disable tracing, or troubleshoot tracing issues. Triggers on "set up tracing", "configure Arize", "configure Phoenix", "enable tracing", "setup-claude-code-tracing", "create Arize project", "get Arize API key", "agent sdk tracing", or any request about connecting Claude Code or the Agent SDK to Arize or Phoenix for observability.
 ---
 
@@ -110,30 +110,26 @@ The config file at `~/.arize/harness/config.yaml` is the single source of truth 
 
 **Phoenix:**
 ```yaml
-backend:
-  target: "phoenix"
-  phoenix:
-    endpoint: "<endpoint>"
-    api_key: ""
 harnesses:
   claude-code:
-    project_name: "claude-code"
+    project_name: claude-code
+    target: phoenix
+    endpoint: <endpoint>
+    api_key: ""
 ```
 
 **Arize AX:**
 ```yaml
-backend:
-  target: "arize"
-  arize:
-    endpoint: "otlp.arize.com:443"
-    api_key: "<key>"
-    space_id: "<id>"
 harnesses:
   claude-code:
-    project_name: "claude-code"
+    project_name: claude-code
+    target: arize
+    endpoint: otlp.arize.com:443
+    api_key: <key>
+    space_id: <id>
 ```
 
-If the user has a custom OTLP endpoint, set it in `backend.arize.endpoint`.
+If the user has a custom OTLP endpoint, set it in `harnesses.claude-code.endpoint`.
 
 ### Write the Claude settings
 

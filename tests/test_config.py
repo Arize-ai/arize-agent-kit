@@ -8,16 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from core.config import (
-    _format_output,
-    _parse_value,
-    delete_value,
-    get_value,
-    load_config,
-    main,
-    save_config,
-    set_value,
-)
+from core.config import _format_output, _parse_value, delete_value, get_value, load_config, main, save_config, set_value
 
 
 @pytest.fixture(autouse=True)
@@ -214,7 +205,7 @@ def cli_config(tmp_harness_dir, sample_config, monkeypatch):
 
 class TestMainGet:
     def test_get_existing_key(self, cli_config, monkeypatch, capsys):
-        monkeypatch.setattr("sys.argv", ["config.py", "get", "backend.target"])
+        monkeypatch.setattr("sys.argv", ["config.py", "get", "harnesses.claude-code.target"])
         with pytest.raises(SystemExit) as exc:
             main()
         assert exc.value.code == 0
@@ -236,12 +227,12 @@ class TestMainGet:
 
 class TestMainSet:
     def test_set_value(self, cli_config, monkeypatch):
-        monkeypatch.setattr("sys.argv", ["config.py", "set", "collector.port", "9999"])
+        monkeypatch.setattr("sys.argv", ["config.py", "set", "harnesses.codex.collector.port", "9999"])
         with pytest.raises(SystemExit) as exc:
             main()
         assert exc.value.code == 0
         data = yaml.safe_load(Path(cli_config).read_text())
-        assert data["collector"]["port"] == 9999
+        assert data["harnesses"]["codex"]["collector"]["port"] == 9999
 
     def test_set_missing_args(self, cli_config, monkeypatch):
         monkeypatch.setattr("sys.argv", ["config.py", "set", "key"])
@@ -274,7 +265,7 @@ class TestMainDump:
         assert exc.value.code == 0
         output = capsys.readouterr().out
         data = yaml.safe_load(output)
-        assert data["backend"]["target"] == "phoenix"
+        assert data["harnesses"]["claude-code"]["target"] == "phoenix"
 
 
 class TestMainExists:

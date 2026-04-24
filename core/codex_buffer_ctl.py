@@ -14,17 +14,17 @@ import time
 import urllib.request
 from pathlib import Path
 
+from core.config import get_value, load_config
 from core.constants import (
     CODEX_BUFFER_BIN,
     CODEX_BUFFER_LOG_FILE,
+    CODEX_BUFFER_PID_FILE,
     CONFIG_FILE,
     DEFAULT_BUFFER_HOST,
     DEFAULT_BUFFER_PORT,
     LOG_DIR,
     PID_DIR,
-    CODEX_BUFFER_PID_FILE,
 )
-from core.config import load_config, get_value
 
 
 def _log(msg: str) -> None:
@@ -49,12 +49,11 @@ def _is_process_alive(pid: int) -> bool:
         # Windows: try OpenProcess, fall back to tasklist
         try:
             import ctypes
+
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            handle = ctypes.windll.kernel32.OpenProcess(
-                PROCESS_QUERY_LIMITED_INFORMATION, False, pid
-            )
+            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)  # type: ignore[attr-defined]
             if handle:
-                ctypes.windll.kernel32.CloseHandle(handle)
+                ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]
                 return True
             return False
         except (AttributeError, OSError):
@@ -62,7 +61,9 @@ def _is_process_alive(pid: int) -> bool:
             try:
                 result = subprocess.run(
                     ["tasklist", "/FI", f"PID eq {pid}"],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
                 return str(pid) in result.stdout
             except (subprocess.SubprocessError, FileNotFoundError):
@@ -80,16 +81,10 @@ def _resolve_host_port() -> tuple:
     """Return (host, port) from config.yaml, falling back to defaults."""
     try:
         cfg = load_config(str(CONFIG_FILE))
-        # Try buffer.* first, fall back to collector.*
-        host = get_value(cfg, "buffer.host") or get_value(cfg, "collector.host")
-        port = get_value(cfg, "buffer.port") or get_value(cfg, "collector.port")
+        host = get_value(cfg, "harnesses.codex.collector.host") or DEFAULT_BUFFER_HOST
+        port = get_value(cfg, "harnesses.codex.collector.port") or DEFAULT_BUFFER_PORT
     except Exception:
-        host = None
-        port = None
-
-    if not host:
         host = DEFAULT_BUFFER_HOST
-    if not port:
         port = DEFAULT_BUFFER_PORT
     return (str(host), int(port))
 
@@ -175,7 +170,7 @@ def buffer_start() -> bool:
         # Port is open but health check failed — something else owns it
         _log(
             f"ERROR: Port {port} is already in use by another process. "
-            f"Set buffer.port in {CONFIG_FILE} to use a different port"
+            f"Set harnesses.codex.collector.port in {CONFIG_FILE} to use a different port"
         )
         return False
     except (ConnectionRefusedError, socket.timeout, OSError):
@@ -193,9 +188,7 @@ def buffer_start() -> bool:
                 cmd,
                 stdout=log_fd,
                 stderr=subprocess.STDOUT,
-                creationflags=(
-                    subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW
-                ),
+                creationflags=(subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW),  # type: ignore[attr-defined]
             )
         else:
             proc = subprocess.Popen(
@@ -251,7 +244,8 @@ def buffer_stop() -> str:
                 except OSError:
                     subprocess.run(
                         ["taskkill", "/PID", str(pid)],
-                        capture_output=True, timeout=5,
+                        capture_output=True,
+                        timeout=5,
                     )
             else:
                 os.kill(pid, signal.SIGTERM)
@@ -286,9 +280,7 @@ def buffer_ensure() -> None:
 def main() -> None:
     """CLI entrypoint for arize-codex-buffer."""
     if len(sys.argv) < 2 or sys.argv[1] not in ("start", "stop", "status"):
-        sys.stderr.write(
-            "usage: arize-codex-buffer <start|stop|status>\n"
-        )
+        sys.stderr.write("usage: arize-codex-buffer <start|stop|status>\n")
         sys.exit(1)
 
     command = sys.argv[1]

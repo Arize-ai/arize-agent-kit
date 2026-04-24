@@ -1,28 +1,57 @@
 #!/usr/bin/env python3
 """Arize Codex Tracing Plugin - Interactive Setup.
 
-Replaces codex-tracing/scripts/setup.sh.
 Writes config.yaml, ~/.codex/arize-env.sh, and ~/.codex/config.toml.
+
+The ``arize-setup-codex`` entry point calls ``main()`` here, which runs the
+legacy interactive wizard.  The new ``codex-tracing/install.py`` module
+provides the decomposed ``install()`` / ``uninstall()`` API used by the
+shell router.  ``install()`` and ``uninstall()`` below delegate to it.
 """
 
+import importlib.util
 import os
 import sys
 from pathlib import Path
 
-from core.config import load_config, get_value, set_value, save_config
-from core.setup import (
-    err,
-    info,
-    print_color,
-    prompt_backend,
-    prompt_project_name,
-    prompt_user_id,
-    write_config,
-)
+from core.config import get_value, load_config, save_config, set_value
+from core.setup import err, info, print_color, prompt_backend, prompt_project_name, prompt_user_id, write_config
 
 
-def _write_env_file(env_path: Path, target: str, credentials: dict,
-                    project_name: str = "codex") -> None:
+# ---------------------------------------------------------------------------
+# Delegation to codex-tracing/install.py
+# ---------------------------------------------------------------------------
+
+def _load_codex_install():
+    """Import codex-tracing/install.py by file path (hyphenated dir)."""
+    install_py = Path(__file__).resolve().parent.parent.parent / "codex-tracing" / "install.py"
+    spec = importlib.util.spec_from_file_location("codex_tracing_install", install_py)
+    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod
+
+
+_codex_mod = None
+
+
+def _get_codex_mod():
+    global _codex_mod
+    if _codex_mod is None:
+        _codex_mod = _load_codex_install()
+    return _codex_mod
+
+
+def install(with_skills: bool = False) -> None:
+    """Delegate to codex-tracing/install.py install()."""
+    _get_codex_mod().install(with_skills=with_skills)
+
+
+def uninstall() -> None:
+    """Delegate to codex-tracing/install.py uninstall()."""
+    _get_codex_mod().uninstall()
+
+
+def _write_env_file(env_path: Path, target: str, credentials: dict, project_name: str = "codex") -> None:
     """Write ~/.codex/arize-env.sh with export statements."""
     env_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -104,47 +133,52 @@ def _run() -> None:
 
     # Check for existing config
     config = load_config()
-    existing_backend = get_value(config, "backend.target")
+    existing_entry = get_value(config, "harnesses.codex")
 
     # Project name
     project_name = prompt_project_name("codex")
 
-    if existing_backend:
+    collector = {"host": "127.0.0.1", "port": 4318}
+
+    if existing_entry:
+        target = existing_entry.get("target", "")
         print_color(
-            f"Existing config found: backend={existing_backend} in ~/.arize/harness/config.yaml",
+            f"Existing config found: target={target} in ~/.arize/harness/config.yaml",
             "yellow",
         )
-        print("Skipping credential prompts — adding codex harness entry.")
+        print("Skipping credential prompts — updating codex harness entry.")
         print("")
 
-        # Add codex harness entry
+        # Update codex harness entry
         set_value(config, "harnesses.codex.project_name", project_name)
+        set_value(config, "harnesses.codex.collector", collector)
         save_config(config)
-        info("Added codex harness to existing config")
+        info("Updated codex harness in existing config")
 
         # Write env file from existing config
-        if existing_backend == "phoenix":
-            phoenix_ep = get_value(config, "backend.phoenix.endpoint") or "http://localhost:6006"
-            phoenix_key = get_value(config, "backend.phoenix.api_key") or ""
-            creds = {"endpoint": phoenix_ep, "api_key": phoenix_key}
-        elif existing_backend == "arize":
-            arize_ep = get_value(config, "backend.arize.endpoint") or "otlp.arize.com:443"
-            arize_key = get_value(config, "backend.arize.api_key") or ""
-            arize_space = get_value(config, "backend.arize.space_id") or ""
-            creds = {"endpoint": arize_ep, "api_key": arize_key, "space_id": arize_space}
+        endpoint = get_value(config, "harnesses.codex.endpoint") or ""
+        api_key = get_value(config, "harnesses.codex.api_key") or ""
+        if target == "phoenix":
+            creds = {"endpoint": endpoint or "http://localhost:6006", "api_key": api_key}
+        elif target == "arize":
+            space_id = get_value(config, "harnesses.codex.space_id") or ""
+            creds = {"endpoint": endpoint or "otlp.arize.com:443", "api_key": api_key, "space_id": space_id}
         else:
-            err(f"Unknown backend in config: {existing_backend}")
+            err(f"Unknown target in config: {target}")
             sys.exit(1)
 
-        _write_env_file(env_file, existing_backend, creds, project_name)
+        _write_env_file(env_file, target, creds, project_name)
         info(f"Wrote credentials to {env_file}")
     else:
         # No existing config — prompt for backend
-        target, credentials = prompt_backend()
-        info(f"Target: {'Phoenix at ' + credentials['endpoint'] if target == 'phoenix' else 'Arize AX (endpoint: ' + credentials['endpoint'] + ')'}")
+        existing_harnesses = config.get("harnesses", {}) if config else {}
+        target, credentials = prompt_backend(existing_harnesses=existing_harnesses)
+        info(
+            f"Target: {'Phoenix at ' + credentials['endpoint'] if target == 'phoenix' else 'Arize AX (endpoint: ' + credentials['endpoint'] + ')'}"
+        )
 
         # Write config.yaml
-        write_config(target, credentials, "codex", project_name)
+        write_config(target, credentials, "codex", project_name, collector=collector)
         info("Wrote config to ~/.arize/harness/config.yaml")
 
         # Write env file
@@ -153,7 +187,7 @@ def _run() -> None:
 
     # Configure OTLP exporter in ~/.codex/config.toml
     config = load_config()
-    collector_port = get_value(config, "collector.port") or 4318
+    collector_port = get_value(config, "harnesses.codex.collector.port") or 4318
     _update_toml_otel_section(codex_config, collector_port)
     info(f"Added [otel] exporter pointing to shared collector (port {collector_port})")
 

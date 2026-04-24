@@ -7,9 +7,9 @@ Contributor guide for adding new harness adapters and working with the shared co
 The system has two layers:
 
 1. **Harness adapters** — build OpenInference spans from harness-specific events (hook payloads, session lifecycle, tool calls) and send them directly to the backend.
-2. **Direct send** — `send_span()` in `core/common.py` sends spans directly to Phoenix (REST) or Arize AX (HTTP). Per-harness credential overrides are resolved automatically.
+2. **Direct send** — `send_span()` in `core/common.py` sends spans directly to Phoenix (REST) or Arize AX (HTTP). Per-harness credentials are read from `harnesses.<name>.*` in config.
 
-Harnesses are responsible for span construction and session state. The `send_span()` function handles backend export, credential resolution (per-harness overrides → global config → env vars), retries, and logging. Codex additionally uses a lightweight buffer service (`core/codex_buffer.py`) for native OTLP event buffering. See [TRACING_ARCHITECTURE.md](docs/TRACING_ARCHITECTURE.md) for the full architecture.
+Harnesses are responsible for span construction and session state. The `send_span()` function handles backend export, credential resolution (from `harnesses.<name>.*` in config), retries, and logging. Codex additionally uses a lightweight buffer service (`core/codex_buffer.py`) for native OTLP event buffering. See [TRACING_ARCHITECTURE.md](docs/TRACING_ARCHITECTURE.md) for the full architecture.
 
 ## Dev Setup
 
@@ -33,7 +33,7 @@ After `pip install -e .`, all CLI entry points are available in your PATH:
 
 ```bash
 arize-codex-buffer status        # Check Codex buffer service status
-arize-config get backend.target  # Read config values
+arize-config get harnesses.claude-code.target  # Read config values
 ```
 
 ## Repo Structure
