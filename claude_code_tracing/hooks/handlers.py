@@ -363,9 +363,8 @@ def _handle_subagent_stop(input_json: dict) -> None:
 
     transcript = resolve_transcript_path(input_json, session_id or "")
     if transcript is not None:
-        p = Path(transcript)
         # Get file creation time for start_time
-        st = p.stat()
+        st = transcript.stat()
         # st_birthtime is macOS/BSD only; fall back to ctime elsewhere.
         birth = getattr(st, "st_birthtime", st.st_ctime)
         start_ms = int(birth * 1000)

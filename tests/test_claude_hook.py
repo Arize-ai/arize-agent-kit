@@ -808,10 +808,21 @@ class TestSubagentStop:
         assert attrs["output.value"]["stringValue"] == "(No response)"
 
     def test_subagent_stop_prefers_agent_transcript_path(self, mock_resolve, state, captured_spans, tmp_path):
-        """When both transcript_path and agent_transcript_path are in input, resolver prefers agent_transcript_path."""
-        # Create agent transcript with distinct token counts
+        """When both transcript_path and agent_transcript_path are in input, resolver picks agent_transcript_path."""
+        # Create two transcripts with distinct token counts
+        main_tf = tmp_path / "main_transcript.jsonl"
+        main_entry = {
+            "message": {
+                "role": "assistant",
+                "content": "main output",
+                "model": "claude-main",
+                "usage": {"input_tokens": 999, "output_tokens": 999},
+            }
+        }
+        main_tf.write_text(json.dumps(main_entry) + "\n")
+
         agent_tf = tmp_path / "agent_transcript.jsonl"
-        entry = {
+        agent_entry = {
             "message": {
                 "role": "assistant",
                 "content": "agent output",
@@ -819,21 +830,22 @@ class TestSubagentStop:
                 "usage": {"input_tokens": 77, "output_tokens": 33},
             }
         }
-        agent_tf.write_text(json.dumps(entry) + "\n")
+        agent_tf.write_text(json.dumps(agent_entry) + "\n")
 
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
-        with mock.patch("claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=agent_tf):
-            _handle_subagent_stop(
-                {
-                    "agent_type": "explorer",
-                    "agent_id": "a5",
-                    "agent_transcript_path": str(agent_tf),
-                    "transcript_path": "/other/main_transcript.jsonl",
-                }
-            )
+        # Don't mock the resolver — let it exercise the real priority logic
+        _handle_subagent_stop(
+            {
+                "agent_type": "explorer",
+                "agent_id": "a5",
+                "agent_transcript_path": str(agent_tf),
+                "transcript_path": str(main_tf),
+            }
+        )
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        # Token counts must come from the agent transcript, not the main one
         assert attrs["llm.token_count.prompt"]["intValue"] == 77
         assert attrs["llm.token_count.completion"]["intValue"] == 33
 
@@ -939,6 +951,7 @@ class TestStopFailure:
         assert state.get("current_trace_span_id") is None
         assert state.get("current_trace_start_time") is None
         assert state.get("current_trace_prompt") is None
+        assert state.get("trace_start_line") is None
 
 
 # ---------------------------------------------------------------------------

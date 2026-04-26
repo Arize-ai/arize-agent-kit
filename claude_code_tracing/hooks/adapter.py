@@ -210,7 +210,9 @@ def resolve_transcript_path(input_json: dict, session_id: str) -> Optional[Path]
     the input we trust it; otherwise we derive the canonical path from cwd + session_id.
     Falls back to the current process cwd if the input has no ``cwd`` either.
     """
-    raw = input_json.get("transcript_path") or input_json.get("agent_transcript_path") or ""
+    # Prefer agent_transcript_path (subagent's own log) over transcript_path (main session)
+    # so SubagentStop resolves to the correct transcript.
+    raw = input_json.get("agent_transcript_path") or input_json.get("transcript_path") or ""
     if raw:
         p = Path(raw).expanduser()
         if p.is_file():

@@ -309,8 +309,8 @@ class TestResolveTranscriptPath:
         result = resolve_transcript_path({"agent_transcript_path": str(tf)}, "sess-1")
         assert result == tf
 
-    def test_transcript_path_takes_priority_over_agent(self, tmp_path):
-        """transcript_path is checked before agent_transcript_path."""
+    def test_agent_transcript_path_takes_priority_over_main(self, tmp_path):
+        """agent_transcript_path is checked before transcript_path."""
         main_tf = tmp_path / "main.jsonl"
         main_tf.write_text("{}\n")
         agent_tf = tmp_path / "agent.jsonl"
@@ -319,7 +319,7 @@ class TestResolveTranscriptPath:
             {"transcript_path": str(main_tf), "agent_transcript_path": str(agent_tf)},
             "sess-1",
         )
-        assert result == main_tf
+        assert result == agent_tf
 
     def test_falls_back_to_canonical_path(self, tmp_path, monkeypatch):
         """Derives canonical path from cwd + session_id when no transcript_path in input."""
