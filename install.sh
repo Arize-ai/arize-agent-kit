@@ -204,10 +204,10 @@ setup_venv() {
 # -- Harness name mapping ----------------------------------------------------
 harness_dir() {
     case "$1" in
-        claude)  echo "claude-code-tracing" ;;
-        codex)   echo "codex-tracing" ;;
-        copilot) echo "copilot-tracing" ;;
-        cursor)  echo "cursor-tracing" ;;
+        claude)  echo "claude_code_tracing" ;;
+        codex)   echo "codex_tracing" ;;
+        copilot) echo "copilot_tracing" ;;
+        cursor)  echo "cursor_tracing" ;;
         *)       return 1 ;;
     esac
 }

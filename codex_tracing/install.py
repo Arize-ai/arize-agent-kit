@@ -11,33 +11,26 @@ Self-contained module that handles:
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import re
 import sys
 from pathlib import Path
 
-# Load constants from the same directory (codex-tracing/ has a hyphen,
-# so it cannot be imported as a regular package).
-_constants_path = Path(__file__).parent / "constants.py"
-_spec = importlib.util.spec_from_file_location("codex_tracing_constants", _constants_path)
-_constants = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
-_spec.loader.exec_module(_constants)  # type: ignore[union-attr]
-
-HARNESS_NAME: str = _constants.HARNESS_NAME
-CODEX_CONFIG_DIR: Path = _constants.CODEX_CONFIG_DIR
-CODEX_CONFIG_FILE: Path = _constants.CODEX_CONFIG_FILE
-CODEX_ENV_FILE: Path = _constants.CODEX_ENV_FILE
-NOTIFY_BIN_NAME: str = _constants.NOTIFY_BIN_NAME
-BUFFER_PORT: int = _constants.BUFFER_PORT
-OTEL_ENDPOINT: str = _constants.OTEL_ENDPOINT
-DISPLAY_NAME: str = _constants.DISPLAY_NAME
-HARNESS_HOME: str = _constants.HARNESS_HOME
-HARNESS_BIN: str = _constants.HARNESS_BIN
-
-from core.codex_buffer_ctl import buffer_start, buffer_status, buffer_stop  # noqa: E402
-from core.config import get_value, load_config  # noqa: E402
-from core.setup import (  # noqa: E402
+from codex_tracing.constants import OTEL_ENDPOINT  # noqa: F401 — re-exported for backwards compat
+from codex_tracing.constants import (
+    BUFFER_PORT,
+    CODEX_CONFIG_DIR,
+    CODEX_CONFIG_FILE,
+    CODEX_ENV_FILE,
+    DISPLAY_NAME,
+    HARNESS_BIN,
+    HARNESS_HOME,
+    HARNESS_NAME,
+    NOTIFY_BIN_NAME,
+)
+from core.codex_buffer_ctl import buffer_start, buffer_status, buffer_stop
+from core.config import get_value, load_config
+from core.setup import (
     CONFIG_FILE,
     dry_run,
     ensure_harness_installed,

@@ -127,16 +127,16 @@ class TestHarnessMapping:
         self.text = _read_install_sh()
 
     def test_claude_maps_to_claude_code_tracing(self):
-        assert 'claude)  echo "claude-code-tracing"' in self.text
+        assert 'claude)  echo "claude_code_tracing"' in self.text
 
     def test_codex_maps_to_codex_tracing(self):
-        assert 'codex)   echo "codex-tracing"' in self.text
+        assert 'codex)   echo "codex_tracing"' in self.text
 
     def test_copilot_maps_to_copilot_tracing(self):
-        assert 'copilot) echo "copilot-tracing"' in self.text
+        assert 'copilot) echo "copilot_tracing"' in self.text
 
     def test_cursor_maps_to_cursor_tracing(self):
-        assert 'cursor)  echo "cursor-tracing"' in self.text
+        assert 'cursor)  echo "cursor_tracing"' in self.text
 
 
 # ---------------------------------------------------------------------------

@@ -288,13 +288,13 @@ class TestHarnessDir:
     def test_primary_path(self, fake_install):
         from core.setup import harness_dir
 
-        (fake_install / "copilot-tracing").mkdir()
-        assert harness_dir("copilot") == fake_install / "copilot-tracing"
+        (fake_install / "copilot_tracing").mkdir()
+        assert harness_dir("copilot") == fake_install / "copilot_tracing"
 
     def test_legacy_fallback(self, fake_install):
         from core.setup import harness_dir
 
-        legacy = fake_install / "plugins" / "copilot-tracing"
+        legacy = fake_install / "plugins" / "copilot_tracing"
         legacy.mkdir(parents=True)
         assert harness_dir("copilot") == legacy
 
@@ -302,7 +302,7 @@ class TestHarnessDir:
         from core.setup import harness_dir
 
         # Neither exists — returns primary path
-        assert harness_dir("copilot") == fake_install / "copilot-tracing"
+        assert harness_dir("copilot") == fake_install / "copilot_tracing"
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +315,7 @@ class TestSymlinkSkills:
         from core.setup import symlink_skills
 
         # Set up a harness with a skills dir
-        hdir = fake_install / "copilot-tracing" / "skills"
+        hdir = fake_install / "copilot_tracing" / "skills"
         hdir.mkdir(parents=True)
         (hdir / "my-skill.md").write_text("skill content")
 
@@ -331,7 +331,7 @@ class TestSymlinkSkills:
     def test_idempotent(self, fake_install, tmp_path):
         from core.setup import symlink_skills
 
-        hdir = fake_install / "copilot-tracing" / "skills"
+        hdir = fake_install / "copilot_tracing" / "skills"
         hdir.mkdir(parents=True)
         (hdir / "my-skill.md").write_text("skill content")
 
@@ -347,7 +347,7 @@ class TestSymlinkSkills:
     def test_no_skills_dir_noop(self, fake_install, tmp_path):
         from core.setup import symlink_skills
 
-        (fake_install / "copilot-tracing").mkdir(parents=True)
+        (fake_install / "copilot_tracing").mkdir(parents=True)
         target = tmp_path / "project"
         target.mkdir()
 
@@ -360,7 +360,7 @@ class TestUnlinkSkills:
     def test_removes_symlink(self, fake_install, tmp_path):
         from core.setup import symlink_skills, unlink_skills
 
-        hdir = fake_install / "copilot-tracing" / "skills"
+        hdir = fake_install / "copilot_tracing" / "skills"
         hdir.mkdir(parents=True)
         (hdir / "my-skill.md").write_text("skill content")
 
@@ -376,7 +376,7 @@ class TestUnlinkSkills:
     def test_preserves_regular_file(self, fake_install, tmp_path):
         from core.setup import unlink_skills
 
-        hdir = fake_install / "copilot-tracing" / "skills"
+        hdir = fake_install / "copilot_tracing" / "skills"
         hdir.mkdir(parents=True)
         (hdir / "my-skill.md").write_text("source skill")
 
@@ -396,7 +396,7 @@ class TestUnlinkSkills:
     def test_idempotent(self, fake_install, tmp_path):
         from core.setup import unlink_skills
 
-        hdir = fake_install / "copilot-tracing" / "skills"
+        hdir = fake_install / "copilot_tracing" / "skills"
         hdir.mkdir(parents=True)
         (hdir / "my-skill.md").write_text("skill")
 

@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Tests for core/setup/ — shared utilities and per-harness setup wizards."""
 
-import importlib.util
 import json
 import os
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -475,14 +474,13 @@ class TestClaudeSetup:
         monkeypatch.setattr(core.config, "CONFIG_FILE", str(config_path))
 
         # Create the harness plugin dir so harness_dir() resolves
-        plugin_dir = install_dir / "claude-code-tracing"
+        plugin_dir = install_dir / "claude_code_tracing"
         plugin_dir.mkdir(parents=True, exist_ok=True)
 
         # Patch SETTINGS_FILE in install module
         settings_file = tmp_path / ".claude" / "settings.json"
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-code-tracing"))
-        import constants as claude_constants
-        import install as claude_install
+        import claude_code_tracing.constants as claude_constants
+        import claude_code_tracing.install as claude_install
 
         monkeypatch.setattr(claude_install, "SETTINGS_FILE", settings_file)
         monkeypatch.setattr(claude_constants, "SETTINGS_FILE", settings_file)
@@ -913,16 +911,8 @@ class TestCursorSetup:
         monkeypatch.setattr(setup_mod, "STATE_DIR", install_dir / "state")
 
         # Patch HOOKS_FILE + INSTALL_DIR in the cursor install module.
-        # core.setup.cursor._run() imports via importlib as "cursor_tracing_install".
-        cursor_dir = Path(__file__).resolve().parents[1] / "cursor-tracing"
-        mod_name = "cursor_tracing_install"
+        import cursor_tracing.install as cursor_install
 
-        if mod_name not in sys.modules:
-            spec = importlib.util.spec_from_file_location(mod_name, cursor_dir / "install.py")
-            mod = importlib.util.module_from_spec(spec)
-            sys.modules[mod_name] = mod
-            spec.loader.exec_module(mod)
-        cursor_install = sys.modules[mod_name]
         monkeypatch.setattr(cursor_install, "HOOKS_FILE", hooks_file)
         monkeypatch.setattr(cursor_install, "INSTALL_DIR", install_dir)
 
@@ -1053,35 +1043,31 @@ class TestCopilotSetup:
             assert exc_info.value.code == 1
 
     def test_run_delegates_to_installer(self):
-        """_run() delegates to copilot-tracing/install.py install()."""
-        from core.setup.copilot import _run
+        """_run() delegates to copilot_tracing/install.py install()."""
+        import core.setup.copilot as copilot_mod
 
-        with patch("core.setup.copilot._load_installer") as mock_loader:
-            mock_mod = mock_loader.return_value
-            _run()
+        mock_mod = MagicMock()
+        with patch.object(copilot_mod, "_install_mod", mock_mod):
+            copilot_mod._run()
             mock_mod.install.assert_called_once()
 
     def test_install_delegates_to_installer(self):
-        """install() delegates to copilot-tracing/install.py install()."""
+        """install() delegates to copilot_tracing/install.py install()."""
         import core.setup.copilot as copilot_mod
 
-        copilot_mod._copilot_mod = None  # reset cached module
-        with patch.object(copilot_mod, "_load_installer") as mock_loader:
-            mock_mod = mock_loader.return_value
+        mock_mod = MagicMock()
+        with patch.object(copilot_mod, "_install_mod", mock_mod):
             copilot_mod.install()
             mock_mod.install.assert_called_once()
-        copilot_mod._copilot_mod = None  # cleanup
 
     def test_uninstall_delegates_to_installer(self):
-        """uninstall() delegates to copilot-tracing/install.py uninstall()."""
+        """uninstall() delegates to copilot_tracing/install.py uninstall()."""
         import core.setup.copilot as copilot_mod
 
-        copilot_mod._copilot_mod = None  # reset cached module
-        with patch.object(copilot_mod, "_load_installer") as mock_loader:
-            mock_mod = mock_loader.return_value
+        mock_mod = MagicMock()
+        with patch.object(copilot_mod, "_install_mod", mock_mod):
             copilot_mod.uninstall()
             mock_mod.uninstall.assert_called_once()
-        copilot_mod._copilot_mod = None  # cleanup
 
 
 # ---------------------------------------------------------------------------

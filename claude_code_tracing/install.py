@@ -4,8 +4,16 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
 
+from claude_code_tracing.constants import (
+    ARIZE_ENV_KEYS,
+    DISPLAY_NAME,
+    HARNESS_BIN,
+    HARNESS_HOME,
+    HARNESS_NAME,
+    HOOK_EVENTS,
+    SETTINGS_FILE,
+)
 from core.config import load_config
 from core.setup import (
     dry_run,
@@ -23,10 +31,6 @@ from core.setup import (
     venv_bin,
     write_config,
 )
-
-# constants.py is a sibling file — make sure sys.path includes this file's parent.
-sys.path.insert(0, str(Path(__file__).parent))
-from constants import ARIZE_ENV_KEYS, DISPLAY_NAME, HARNESS_BIN, HARNESS_HOME, HARNESS_NAME, HOOK_EVENTS, SETTINGS_FILE
 
 
 def install(with_skills: bool = False) -> None:

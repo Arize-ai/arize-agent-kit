@@ -84,7 +84,7 @@ target-version = ["py39"]
 [tool.isort]
 profile = "black"
 line_length = 120
-known_first_party = ["core", "tests"]
+known_first_party = ["core", "claude_code_tracing", "codex_tracing", "copilot_tracing", "cursor_tracing", "tests"]
 
 [tool.mypy]
 python_version = "3.9"
@@ -101,4 +101,4 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["core*"]
+include = ["core*", "claude_code_tracing*", "codex_tracing*", "copilot_tracing*", "cursor_tracing*"]
