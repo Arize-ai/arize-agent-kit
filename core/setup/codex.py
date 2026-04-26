@@ -17,17 +17,17 @@ from pathlib import Path
 from core.config import get_value, load_config, save_config, set_value
 from core.setup import err, info, print_color, prompt_backend, prompt_project_name, prompt_user_id, write_config
 
-
 # ---------------------------------------------------------------------------
 # Delegation to codex-tracing/install.py
 # ---------------------------------------------------------------------------
+
 
 def _load_codex_install():
     """Import codex-tracing/install.py by file path (hyphenated dir)."""
     install_py = Path(__file__).resolve().parent.parent.parent / "codex-tracing" / "install.py"
     spec = importlib.util.spec_from_file_location("codex_tracing_install", install_py)
-    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
     return mod
 
 

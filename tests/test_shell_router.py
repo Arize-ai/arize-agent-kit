@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-import textwrap
 
 import pytest
 
@@ -91,9 +90,7 @@ class TestFunctionsDefined:
     def test_function_defined(self, func):
         # Match "funcname() {" or "funcname ()" patterns
         pattern = rf"^{func}\s*\(\)"
-        assert re.search(pattern, self.text, re.MULTILINE), (
-            f"Function {func}() not defined in install.sh"
-        )
+        assert re.search(pattern, self.text, re.MULTILINE), f"Function {func}() not defined in install.sh"
 
     def test_no_old_setup_functions(self):
         """Old monolith functions should be removed."""
@@ -112,9 +109,9 @@ class TestFunctionsDefined:
             "stop_codex_buffer",
         ]:
             pattern = rf"^{old_func}\s*\(\)"
-            assert not re.search(pattern, self.text, re.MULTILINE), (
-                f"Old function {old_func}() should be removed from the router"
-            )
+            assert not re.search(
+                pattern, self.text, re.MULTILINE
+            ), f"Old function {old_func}() should be removed from the router"
 
 
 # ---------------------------------------------------------------------------
@@ -250,8 +247,8 @@ class TestDispatchLogic:
     def test_install_harness_defined(self):
         """install_harness must be defined if it's called."""
         # This is a critical check: the function is called but must exist
-        calls = re.findall(r'install_harness\b', self.text)
-        definitions = re.findall(r'^install_harness\s*\(\)', self.text, re.MULTILINE)
+        calls = re.findall(r"install_harness\b", self.text)
+        definitions = re.findall(r"^install_harness\s*\(\)", self.text, re.MULTILINE)
         if calls:
             assert len(definitions) > 0, (
                 "install_harness is called but never defined — "
@@ -289,12 +286,10 @@ class TestDispatchLogic:
         # wipe call, and an install.py uninstall dispatch must appear
         # between them.
         pre_wipe = text[:wipe_idx]
-        assert "list_installed_harnesses" in pre_wipe, (
-            "Full uninstall does not iterate installed harnesses before wipe"
-        )
-        assert 'install.py" uninstall' in pre_wipe, (
-            "Full uninstall does not invoke per-harness install.py uninstall before wipe"
-        )
+        assert "list_installed_harnesses" in pre_wipe, "Full uninstall does not iterate installed harnesses before wipe"
+        assert (
+            'install.py" uninstall' in pre_wipe
+        ), "Full uninstall does not invoke per-harness install.py uninstall before wipe"
 
     def test_update_calls_pip_install(self):
         assert "pip" in self.text and "install" in self.text
@@ -383,10 +378,10 @@ class TestConstants:
         assert "https://github.com/Arize-ai/arize-agent-kit.git" in self.text
 
     def test_install_dir(self):
-        assert '${HOME}/.arize/harness' in self.text
+        assert "${HOME}/.arize/harness" in self.text
 
     def test_venv_dir(self):
-        assert '${INSTALL_DIR}/venv' in self.text
+        assert "${INSTALL_DIR}/venv" in self.text
 
     def test_tarball_url(self):
         assert "archive/refs/heads/" in self.text

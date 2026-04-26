@@ -4,8 +4,8 @@ from pathlib import Path
 
 HARNESS_NAME = "claude-code"
 DISPLAY_NAME = "Claude Code"
-HARNESS_HOME = ".claude"   # ~/.claude — presence check for soft install detection
-HARNESS_BIN = "claude"     # binary name for shutil.which() fallback
+HARNESS_HOME = ".claude"  # ~/.claude — presence check for soft install detection
+HARNESS_BIN = "claude"  # binary name for shutil.which() fallback
 
 SETTINGS_FILE = Path.home() / ".claude" / "settings.json"
 

@@ -7,11 +7,12 @@ import json
 import sys
 from pathlib import Path
 
+from core.config import get_value, load_config
 from core.setup import (
     INSTALL_DIR,
+    dry_run,
     ensure_harness_installed,
     ensure_shared_runtime,
-    dry_run,
     info,
     merge_harness_entry,
     prompt_backend,
@@ -22,7 +23,6 @@ from core.setup import (
     unlink_skills,
     venv_bin,
 )
-from core.config import get_value, load_config
 
 # Load constants from the same directory (cursor-tracing/ has a hyphen,
 # so it cannot be imported as a regular package).
@@ -70,9 +70,7 @@ def install(with_skills: bool = False) -> None:
         else:
             info("would write config.yaml with backend credentials")
     else:
-        project_name = prompt_project_name(
-            get_value(config, f"harnesses.{HARNESS_NAME}.project_name") or HARNESS_NAME
-        )
+        project_name = prompt_project_name(get_value(config, f"harnesses.{HARNESS_NAME}.project_name") or HARNESS_NAME)
         merge_harness_entry(HARNESS_NAME, project_name)
 
     _register_cursor_hooks()

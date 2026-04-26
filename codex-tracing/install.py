@@ -35,9 +35,9 @@ DISPLAY_NAME: str = _constants.DISPLAY_NAME
 HARNESS_HOME: str = _constants.HARNESS_HOME
 HARNESS_BIN: str = _constants.HARNESS_BIN
 
-from core.codex_buffer_ctl import buffer_start, buffer_status, buffer_stop
-from core.config import get_value, load_config
-from core.setup import (
+from core.codex_buffer_ctl import buffer_start, buffer_status, buffer_stop  # noqa: E402
+from core.config import get_value, load_config  # noqa: E402
+from core.setup import (  # noqa: E402
     CONFIG_FILE,
     dry_run,
     ensure_harness_installed,
@@ -99,7 +99,7 @@ def _toml_line_parse(text: str) -> dict:
                 current_section = current_section[k]
             continue
         # Key = value
-        m = re.match(r'^([^=]+?)\s*=\s*(.+)$', line)
+        m = re.match(r"^([^=]+?)\s*=\s*(.+)$", line)
         if m:
             key = m.group(1).strip()
             val_raw = m.group(2).strip()
@@ -173,12 +173,7 @@ def _toml_string_literal(val: object) -> str:
     """
     s = str(val)
     if "'" in s or "\n" in s or "\r" in s:
-        escaped = (
-            s.replace("\\", "\\\\")
-            .replace('"', '\\"')
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-        )
+        escaped = s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
         return f'"{escaped}"'
     return f"'{s}'"
 
@@ -295,7 +290,7 @@ def _is_our_env_file(path: Path) -> bool:
         lines = [ln for ln in text.strip().splitlines() if ln.strip()]
         if len(lines) > 10:
             return False
-        return all(re.match(r"^export ARIZE_", l) for l in lines)
+        return all(re.match(r"^export ARIZE_", line) for line in lines)
     except OSError:
         return False
 

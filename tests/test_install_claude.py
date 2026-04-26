@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 import yaml
@@ -191,7 +189,6 @@ class TestExistingEntry:
     def test_install_existing_claude_entry_only_updates_project_name(self, fake_home, monkeypatch):
         """When harnesses.claude-code already exists, re-install updates only project_name."""
         import install as claude_install
-        import core.config as config_mod
 
         _mock_prompts(monkeypatch, backend=ARIZE_BACKEND)
 
@@ -353,13 +350,15 @@ class TestUninstall:
         # Inject extra Arize env keys + a non-Arize key that must be preserved.
         settings_file = fake_home / ".claude" / "settings.json"
         settings = json.loads(settings_file.read_text())
-        settings["env"].update({
-            "ARIZE_USER_ID": "user-42",
-            "ARIZE_API_KEY": "ak-secret",
-            "ARIZE_SPACE_ID": "sp-abc",
-            "PHOENIX_ENDPOINT": "http://localhost:6006",
-            "UNRELATED_VAR": "keep-me",
-        })
+        settings["env"].update(
+            {
+                "ARIZE_USER_ID": "user-42",
+                "ARIZE_API_KEY": "ak-secret",
+                "ARIZE_SPACE_ID": "sp-abc",
+                "PHOENIX_ENDPOINT": "http://localhost:6006",
+                "UNRELATED_VAR": "keep-me",
+            }
+        )
         settings_file.write_text(json.dumps(settings, indent=2) + "\n")
 
         claude_install.uninstall()
@@ -408,9 +407,7 @@ class TestUninstall:
         third_party = {"hooks": [{"type": "command", "command": "/usr/local/bin/my-hook"}]}
         settings["hooks"]["SessionStart"].append(third_party)
         # Also add a completely separate event
-        settings["hooks"]["CustomEvent"] = [
-            {"hooks": [{"type": "command", "command": "/usr/local/bin/other"}]}
-        ]
+        settings["hooks"]["CustomEvent"] = [{"hooks": [{"type": "command", "command": "/usr/local/bin/other"}]}]
         settings_file.write_text(json.dumps(settings, indent=2) + "\n")
 
         claude_install.uninstall()

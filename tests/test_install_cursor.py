@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -327,9 +326,7 @@ class TestUninstall:
         third_party = {"command": "/usr/local/bin/my-hook"}
         hooks_data["hooks"]["beforeSubmitPrompt"].append(third_party)
         # Also add a completely separate event
-        hooks_data["hooks"]["CustomEvent"] = [
-            {"command": "/usr/local/bin/other"}
-        ]
+        hooks_data["hooks"]["CustomEvent"] = [{"command": "/usr/local/bin/other"}]
         hooks_file.write_text(json.dumps(hooks_data, indent=2) + "\n")
 
         cursor_install.uninstall()

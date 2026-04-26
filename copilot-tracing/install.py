@@ -12,6 +12,9 @@ Usage (called by the shell router):
 
 from __future__ import annotations
 
+# The directory is named "copilot-tracing" (hyphenated) so standard Python
+# imports don't work.  Load constants from the sibling file via importlib.
+import importlib.util as _ilu
 import json
 import sys
 from pathlib import Path
@@ -30,10 +33,6 @@ from core.setup import (
     venv_bin,
     write_config,
 )
-
-# The directory is named "copilot-tracing" (hyphenated) so standard Python
-# imports don't work.  Load constants from the sibling file via importlib.
-import importlib.util as _ilu
 
 _spec = _ilu.spec_from_file_location("_copilot_constants", Path(__file__).with_name("constants.py"))
 _constants = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
@@ -217,9 +216,7 @@ def install() -> None:
         else:
             info("would write config.yaml with backend credentials")
     else:
-        project_name = prompt_project_name(
-            existing_entry.get("project_name") or HARNESS_NAME
-        )
+        project_name = prompt_project_name(existing_entry.get("project_name") or HARNESS_NAME)
         merge_harness_entry(HARNESS_NAME, project_name)
 
     hooks_dir = Path.cwd() / HOOKS_DIR

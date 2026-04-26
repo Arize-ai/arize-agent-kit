@@ -212,6 +212,7 @@ def _try_copy_from(target: str, existing_harnesses: dict | None) -> dict | None:
         # api_key must be present but may be empty string
         def _valid(entry: dict) -> bool:
             return "endpoint" in entry and "api_key" in entry
+
     else:
         _required_arize = {"endpoint", "api_key", "space_id"}
 

@@ -17,17 +17,17 @@ import importlib.util
 import sys
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # Delegation to copilot-tracing/install.py
 # ---------------------------------------------------------------------------
+
 
 def _load_installer():
     """Lazily import copilot-tracing/install.py (hyphenated dir)."""
     install_py = Path(__file__).resolve().parent.parent.parent / "copilot-tracing" / "install.py"
     spec = importlib.util.spec_from_file_location("_copilot_install", install_py)
-    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
     return mod
 
 

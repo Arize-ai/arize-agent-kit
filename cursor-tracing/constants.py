@@ -4,8 +4,8 @@ from pathlib import Path
 
 HARNESS_NAME = "cursor"
 DISPLAY_NAME = "Cursor"
-HARNESS_HOME = ".cursor"   # ~/.cursor — presence check for soft install detection
-HARNESS_BIN = "cursor"     # binary name for shutil.which() fallback
+HARNESS_HOME = ".cursor"  # ~/.cursor — presence check for soft install detection
+HARNESS_BIN = "cursor"  # binary name for shutil.which() fallback
 
 HOOKS_FILE = Path.home() / ".cursor" / "hooks.json"
 HOOK_BIN_NAME = "arize-hook-cursor"

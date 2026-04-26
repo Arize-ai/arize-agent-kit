@@ -6,12 +6,13 @@ import json
 import sys
 from pathlib import Path
 
+from core.config import load_config
 from core.setup import (
+    dry_run,
     ensure_harness_installed,
     ensure_shared_runtime,
     harness_dir,
     info,
-    dry_run,
     merge_harness_entry,
     prompt_backend,
     prompt_project_name,
@@ -22,19 +23,10 @@ from core.setup import (
     venv_bin,
     write_config,
 )
-from core.config import load_config
 
 # constants.py is a sibling file — make sure sys.path includes this file's parent.
 sys.path.insert(0, str(Path(__file__).parent))
-from constants import (
-    ARIZE_ENV_KEYS,
-    DISPLAY_NAME,
-    HARNESS_BIN,
-    HARNESS_HOME,
-    HARNESS_NAME,
-    HOOK_EVENTS,
-    SETTINGS_FILE,
-)
+from constants import ARIZE_ENV_KEYS, DISPLAY_NAME, HARNESS_BIN, HARNESS_HOME, HARNESS_NAME, HOOK_EVENTS, SETTINGS_FILE
 
 
 def install(with_skills: bool = False) -> None:
@@ -50,9 +42,7 @@ def install(with_skills: bool = False) -> None:
 
     if existing_entry:
         # Already configured — just let user update project_name.
-        project_name = prompt_project_name(
-            existing_entry.get("project_name") or HARNESS_NAME
-        )
+        project_name = prompt_project_name(existing_entry.get("project_name") or HARNESS_NAME)
         merge_harness_entry(HARNESS_NAME, project_name)
     else:
         # New install. Pass existing harnesses so prompt_backend can offer copy-from.
@@ -113,8 +103,7 @@ def _register_claude_hooks(project_name: str = HARNESS_NAME) -> None:
     # Add plugin reference
     plugins = settings.setdefault("plugins", [])
     has_plugin = any(
-        (isinstance(p, str) and p == plugin_dir)
-        or (isinstance(p, dict) and p.get("path") == plugin_dir)
+        (isinstance(p, str) and p == plugin_dir) or (isinstance(p, dict) and p.get("path") == plugin_dir)
         for p in plugins
     )
     if not has_plugin:
@@ -131,11 +120,7 @@ def _register_claude_hooks(project_name: str = HARNESS_NAME) -> None:
     for event, entry_point in HOOK_EVENTS.items():
         hook_cmd = str(venv_bin(entry_point))
         event_hooks = hooks.setdefault(event, [])
-        already = any(
-            h.get("command", "") == hook_cmd
-            for entry in event_hooks
-            for h in entry.get("hooks", [])
-        )
+        already = any(h.get("command", "") == hook_cmd for entry in event_hooks for h in entry.get("hooks", []))
         if not already:
             event_hooks.append({"hooks": [{"type": "command", "command": hook_cmd}]})
 
@@ -166,10 +151,7 @@ def _unregister_claude_hooks() -> None:
         settings["plugins"] = [
             p
             for p in settings["plugins"]
-            if not (
-                (isinstance(p, str) and p == plugin_dir)
-                or (isinstance(p, dict) and p.get("path") == plugin_dir)
-            )
+            if not ((isinstance(p, str) and p == plugin_dir) or (isinstance(p, dict) and p.get("path") == plugin_dir))
         ]
         if not settings["plugins"]:
             del settings["plugins"]

@@ -481,8 +481,8 @@ class TestClaudeSetup:
         # Patch SETTINGS_FILE in install module
         settings_file = tmp_path / ".claude" / "settings.json"
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-code-tracing"))
-        import install as claude_install
         import constants as claude_constants
+        import install as claude_install
 
         monkeypatch.setattr(claude_install, "SETTINGS_FILE", settings_file)
         monkeypatch.setattr(claude_constants, "SETTINGS_FILE", settings_file)

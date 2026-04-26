@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import importlib.util
-import os
 import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -12,10 +11,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
-
 # ---------------------------------------------------------------------------
 # Helpers to load the install module from a hyphenated directory
 # ---------------------------------------------------------------------------
+
 
 def _load_codex_install():
     """Import codex-tracing/install.py by file path."""
@@ -39,6 +38,7 @@ ARIZE_BACKEND = (
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def fake_home(tmp_path, monkeypatch):
@@ -85,9 +85,11 @@ def fake_home(tmp_path, monkeypatch):
 @pytest.fixture()
 def mock_buffer():
     """Mock the buffer service control functions."""
-    with patch.object(codex_install, "buffer_start", return_value=True) as m_start, \
-         patch.object(codex_install, "buffer_stop", return_value="stopped") as m_stop, \
-         patch.object(codex_install, "buffer_status", return_value=("stopped", None, None)) as m_status:
+    with (
+        patch.object(codex_install, "buffer_start", return_value=True) as m_start,
+        patch.object(codex_install, "buffer_stop", return_value="stopped") as m_stop,
+        patch.object(codex_install, "buffer_status", return_value=("stopped", None, None)) as m_status,
+    ):
         yield {"start": m_start, "stop": m_stop, "status": m_status}
 
 
@@ -118,6 +120,7 @@ def _mock_prompts_arize(monkeypatch):
 # TOML helper tests
 # ---------------------------------------------------------------------------
 
+
 class TestTomlHelpers:
     """Tests for the TOML read/write helpers."""
 
@@ -141,14 +144,16 @@ class TestTomlHelpers:
         assert parsed["otel"]["exporter"]["otlp-http"]["protocol"] == "json"
 
     def test_parse_preserves_unrelated_sections(self, tmp_path):
-        content = textwrap.dedent("""\
+        content = textwrap.dedent(
+            """\
             [model]
             name = "gpt-4"
 
             [otel.exporter.otlp-http]
             endpoint = "http://127.0.0.1:4318/v1/logs"
             protocol = "json"
-        """)
+        """
+        )
         parsed = codex_install._toml_line_parse(content)
         assert parsed["model"]["name"] == "gpt-4"
         assert parsed["otel"]["exporter"]["otlp-http"]["endpoint"] == "http://127.0.0.1:4318/v1/logs"
@@ -167,7 +172,7 @@ class TestTomlHelpers:
 
         raw = p.read_text()
         assert f"'{win_path}'" in raw  # literal string, no escape mangling
-        assert "\\\\" not in raw        # no accidental double-escaping
+        assert "\\\\" not in raw  # no accidental double-escaping
 
         parsed = codex_install._toml_line_parse(raw)
         assert parsed["notify"] == [win_path]
@@ -186,6 +191,7 @@ class TestTomlHelpers:
 # ---------------------------------------------------------------------------
 # Install tests — flat schema
 # ---------------------------------------------------------------------------
+
 
 class TestInstall:
     """Tests for install() using the flat config schema."""
@@ -262,23 +268,25 @@ class TestInstall:
         # Check buffer start was called
         mock_buffer["start"].assert_called_once()
 
-    def test_install_existing_codex_entry_only_updates_project_name(
-        self, fake_home, mock_buffer, monkeypatch
-    ):
+    def test_install_existing_codex_entry_only_updates_project_name(self, fake_home, mock_buffer, monkeypatch):
         """When harnesses.codex already exists, install reuses it and updates project_name."""
         config_file = fake_home / ".arize" / "harness" / "config.yaml"
-        config_file.write_text(yaml.safe_dump({
-            "harnesses": {
-                "codex": {
-                    "project_name": "old-name",
-                    "target": "arize",
-                    "endpoint": "otlp.arize.com:443",
-                    "api_key": "ak-existing",
-                    "space_id": "S123",
-                    "collector": {"host": "127.0.0.1", "port": 4318},
+        config_file.write_text(
+            yaml.safe_dump(
+                {
+                    "harnesses": {
+                        "codex": {
+                            "project_name": "old-name",
+                            "target": "arize",
+                            "endpoint": "otlp.arize.com:443",
+                            "api_key": "ak-existing",
+                            "space_id": "S123",
+                            "collector": {"host": "127.0.0.1", "port": 4318},
+                        }
+                    }
                 }
-            }
-        }))
+            )
+        )
 
         monkeypatch.setattr(codex_install, "prompt_project_name", lambda default: "new-name")
         monkeypatch.setattr(codex_install, "prompt_user_id", lambda: "")
@@ -293,33 +301,38 @@ class TestInstall:
         assert entry["api_key"] == "ak-existing"
         assert entry["space_id"] == "S123"
 
-    def test_install_offers_copy_from_existing_arize_harness(
-        self, fake_home, mock_buffer, monkeypatch
-    ):
+    def test_install_offers_copy_from_existing_arize_harness(self, fake_home, mock_buffer, monkeypatch):
         """Pre-populate harnesses.claude-code with arize; verify codex gets copied creds."""
         config_file = fake_home / ".arize" / "harness" / "config.yaml"
-        config_file.write_text(yaml.safe_dump({
-            "harnesses": {
-                "claude-code": {
-                    "project_name": "claude-code",
-                    "target": "arize",
-                    "endpoint": "otlp.arize.com:443",
-                    "api_key": "ak-shared",
-                    "space_id": "S-shared",
+        config_file.write_text(
+            yaml.safe_dump(
+                {
+                    "harnesses": {
+                        "claude-code": {
+                            "project_name": "claude-code",
+                            "target": "arize",
+                            "endpoint": "otlp.arize.com:443",
+                            "api_key": "ak-shared",
+                            "space_id": "S-shared",
+                        }
+                    }
                 }
-            }
-        }))
+            )
+        )
 
         # prompt_backend receives existing_harnesses and returns arize with copied creds
         captured_kwargs = {}
 
         def fake_prompt_backend(existing_harnesses=None):
             captured_kwargs["existing_harnesses"] = existing_harnesses
-            return ("arize", {
-                "endpoint": "otlp.arize.com:443",
-                "api_key": "ak-shared",
-                "space_id": "S-shared",
-            })
+            return (
+                "arize",
+                {
+                    "endpoint": "otlp.arize.com:443",
+                    "api_key": "ak-shared",
+                    "space_id": "S-shared",
+                },
+            )
 
         monkeypatch.setattr(codex_install, "prompt_project_name", lambda default: default)
         monkeypatch.setattr(codex_install, "prompt_user_id", lambda: "")
@@ -374,22 +387,24 @@ class TestInstall:
             codex_install.install(with_skills=True)
             m_symlink.assert_called_once_with("codex")
 
-    def test_install_reads_collector_port_from_codex_entry(
-        self, fake_home, mock_buffer, monkeypatch
-    ):
+    def test_install_reads_collector_port_from_codex_entry(self, fake_home, mock_buffer, monkeypatch):
         """Verify the TOML writer picks up collector port from harnesses.codex.collector.port."""
         config_file = fake_home / ".arize" / "harness" / "config.yaml"
-        config_file.write_text(yaml.safe_dump({
-            "harnesses": {
-                "codex": {
-                    "project_name": "codex",
-                    "target": "phoenix",
-                    "endpoint": "http://localhost:6006",
-                    "api_key": "",
-                    "collector": {"host": "127.0.0.1", "port": 4319},
+        config_file.write_text(
+            yaml.safe_dump(
+                {
+                    "harnesses": {
+                        "codex": {
+                            "project_name": "codex",
+                            "target": "phoenix",
+                            "endpoint": "http://localhost:6006",
+                            "api_key": "",
+                            "collector": {"host": "127.0.0.1", "port": 4319},
+                        }
+                    }
                 }
-            }
-        }))
+            )
+        )
 
         monkeypatch.setattr(codex_install, "prompt_project_name", lambda default: default)
         monkeypatch.setattr(codex_install, "prompt_user_id", lambda: "")
@@ -411,12 +426,11 @@ class TestInstall:
 # Uninstall tests
 # ---------------------------------------------------------------------------
 
+
 class TestUninstall:
     """Tests for uninstall()."""
 
-    def test_uninstall_removes_codex_entry_including_collector(
-        self, fake_home, mock_buffer, mock_prompts
-    ):
+    def test_uninstall_removes_codex_entry_including_collector(self, fake_home, mock_buffer, mock_prompts):
         """Uninstall removes harnesses.codex entirely (including collector sub-block)."""
         codex_install.install()
 
@@ -431,9 +445,7 @@ class TestUninstall:
         harnesses = config.get("harnesses", {})
         assert "codex" not in harnesses
 
-    def test_uninstall_removes_our_toml_entries_preserves_unrelated(
-        self, fake_home, mock_buffer, mock_prompts
-    ):
+    def test_uninstall_removes_our_toml_entries_preserves_unrelated(self, fake_home, mock_buffer, mock_prompts):
         """Uninstall removes notify + otel but preserves unrelated TOML content."""
         codex_install.install()
 
@@ -494,6 +506,7 @@ class TestUninstall:
 # Dry-run tests
 # ---------------------------------------------------------------------------
 
+
 class TestDryRun:
     """Tests for dry-run mode."""
 
@@ -513,9 +526,7 @@ class TestDryRun:
 
         mock_buffer["start"].assert_not_called()
 
-    def test_dry_run_uninstall_preserves_files(
-        self, fake_home, mock_buffer, mock_prompts, monkeypatch
-    ):
+    def test_dry_run_uninstall_preserves_files(self, fake_home, mock_buffer, mock_prompts, monkeypatch):
         """Dry-run uninstall does not remove existing files."""
         codex_install.install()
 
@@ -536,6 +547,7 @@ class TestDryRun:
 # ---------------------------------------------------------------------------
 # Env file heuristic tests
 # ---------------------------------------------------------------------------
+
 
 class TestEnvFileHeuristic:
     """Tests for _is_our_env_file()."""
@@ -564,6 +576,7 @@ class TestEnvFileHeuristic:
 # ---------------------------------------------------------------------------
 # Additional TOML helper unit tests
 # ---------------------------------------------------------------------------
+
 
 class TestTomlAddRemove:
     """Unit tests for _codex_toml_add and _codex_toml_remove."""
@@ -653,6 +666,7 @@ class TestTomlAddRemove:
 # TOML edge case tests
 # ---------------------------------------------------------------------------
 
+
 class TestTomlEdgeCases:
     """Edge cases for TOML parser/writer."""
 
@@ -686,6 +700,7 @@ class TestTomlEdgeCases:
 # ---------------------------------------------------------------------------
 # Write env file tests
 # ---------------------------------------------------------------------------
+
 
 class TestWriteEnvFile:
     """Tests for _write_env_file."""
@@ -725,6 +740,7 @@ class TestWriteEnvFile:
 # core/setup/codex.py delegation tests
 # ---------------------------------------------------------------------------
 
+
 class TestCoreSetupDelegation:
     """Test that core/setup/codex.py delegates to codex-tracing/install.py."""
 
@@ -748,6 +764,7 @@ class TestCoreSetupDelegation:
 # ---------------------------------------------------------------------------
 # CLI __main__ dispatch tests
 # ---------------------------------------------------------------------------
+
 
 class TestCLIDispatch:
     """Tests for cli_main() dispatch logic."""
@@ -781,6 +798,7 @@ class TestCLIDispatch:
 # ---------------------------------------------------------------------------
 # Buffer service interaction tests
 # ---------------------------------------------------------------------------
+
 
 class TestBufferInteraction:
     """Tests for buffer service control during install/uninstall."""

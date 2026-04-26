@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -426,9 +425,9 @@ class TestWipeSharedRuntime:
         assert not fake_install.exists()
 
     def test_idempotent_missing_dir(self, fake_install):
-        from core.setup.wipe import wipe_shared_runtime
-
         import shutil
+
+        from core.setup.wipe import wipe_shared_runtime
 
         shutil.rmtree(fake_install)
 
@@ -465,7 +464,9 @@ class TestIsHarnessInstalled:
         import core.setup as setup_mod
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setattr(setup_mod.shutil, "which", lambda name: "/usr/local/bin/claude" if name == "claude" else None)
+        monkeypatch.setattr(
+            setup_mod.shutil, "which", lambda name: "/usr/local/bin/claude" if name == "claude" else None
+        )
 
         assert setup_mod.is_harness_installed(home_subdir=".claude", bin_name="claude") is True
 
@@ -853,6 +854,7 @@ class TestPromptBackendMasking:
             return "secret-key"
 
         real_inputs = iter(["2", "my-space", ""])
+
         def mock_input(prompt=""):
             input_calls.append(prompt)
             return next(real_inputs)
@@ -882,6 +884,7 @@ class TestPromptBackendMasking:
             return ""
 
         real_inputs = iter(["1", ""])
+
         def mock_input(prompt=""):
             input_calls.append(prompt)
             return next(real_inputs)

@@ -29,4 +29,22 @@ repos:
     rev: v1.13.0
     hooks:
       - id: mypy
+        name: mypy (core)
+        files: ^core/
+        additional_dependencies: [types-PyYAML]
+      - id: mypy
+        name: mypy (claude-code-tracing)
+        files: ^claude-code-tracing/
+        additional_dependencies: [types-PyYAML]
+      - id: mypy
+        name: mypy (codex-tracing)
+        files: ^codex-tracing/
+        additional_dependencies: [types-PyYAML]
+      - id: mypy
+        name: mypy (copilot-tracing)
+        files: ^copilot-tracing/
+        additional_dependencies: [types-PyYAML]
+      - id: mypy
+        name: mypy (cursor-tracing)
+        files: ^cursor-tracing/
         additional_dependencies: [types-PyYAML]

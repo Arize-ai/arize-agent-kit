@@ -190,10 +190,7 @@ def resolve_backend(span_dict: dict) -> dict:
 
     harness_cfg = cfg.get("harnesses", {}).get(service_name)
     if harness_cfg is None:
-        error(
-            f"No config entry for harness '{service_name}'.  Run install.sh {service_name} "
-            "to configure it."
-        )
+        error(f"No config entry for harness '{service_name}'.  Run install.sh {service_name} " "to configure it.")
         return _none
 
     project_name = harness_cfg.get("project_name", "")
