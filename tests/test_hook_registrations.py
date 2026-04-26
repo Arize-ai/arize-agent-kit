@@ -188,6 +188,7 @@ class TestHooksJson:
         assert mapping["PostToolUse"] == "arize-hook-post-tool-use"
         assert mapping["Stop"] == "arize-hook-stop"
         assert mapping["SubagentStop"] == "arize-hook-subagent-stop"
+        assert mapping["StopFailure"] == "arize-hook-stop-failure"
         assert mapping["Notification"] == "arize-hook-notification"
         assert mapping["PermissionRequest"] == "arize-hook-permission-request"
         assert mapping["SessionEnd"] == "arize-hook-session-end"

@@ -20,6 +20,7 @@ from claude_code_tracing.hooks.handlers import (
     _handle_subagent_stop,
     _handle_user_prompt_submit,
     _read_stdin,
+    _scan_transcript_for_usage,
     notification,
     permission_request,
     post_tool_use,
@@ -430,6 +431,7 @@ class TestStop:
         assert state.get("current_trace_span_id") is None
         assert state.get("current_trace_start_time") is None
         assert state.get("current_trace_prompt") is None
+        assert state.get("trace_start_line") is None
 
     def test_gc_every_5_turns(self, mock_resolve, state, captured_spans):
         """GC runs every 5 turns."""
@@ -547,6 +549,145 @@ class TestStop:
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
         assert attrs["output.value"]["stringValue"] == "I found the issue."
+
+
+# ---------------------------------------------------------------------------
+# _scan_transcript_for_usage tests
+# ---------------------------------------------------------------------------
+
+
+class TestScanTranscriptForUsage:
+
+    def test_basic_extraction(self, transcript_file):
+        """Extracts text, tokens, and model from standard transcript."""
+        output, in_tok, out_tok, model = _scan_transcript_for_usage(Path(transcript_file), 0)
+        assert output == "I found the issue."
+        assert in_tok == 115  # 100 + 10 + 5
+        assert out_tok == 50
+        assert model == "claude-sonnet-4-20250514"
+
+    def test_skips_lines_before_start(self, transcript_file):
+        """Lines before start_line are skipped entirely."""
+        output, in_tok, out_tok, model = _scan_transcript_for_usage(Path(transcript_file), 3)
+        assert output == ""
+        assert in_tok == 0
+        assert out_tok == 0
+        assert model == ""
+
+    def test_handles_string_content(self, tmp_path):
+        """Handles content as a plain string (not a list)."""
+        tf = tmp_path / "str.jsonl"
+        entry = {
+            "message": {
+                "role": "assistant",
+                "content": "plain text",
+                "model": "m1",
+                "usage": {"input_tokens": 1, "output_tokens": 2},
+            }
+        }
+        tf.write_text(json.dumps(entry) + "\n")
+        output, in_tok, out_tok, model = _scan_transcript_for_usage(tf, 0)
+        assert output == "plain text"
+        assert in_tok == 1
+        assert out_tok == 2
+        assert model == "m1"
+
+    def test_handles_malformed_lines(self, tmp_path):
+        """Skips malformed JSONL lines without crashing."""
+        tf = tmp_path / "bad.jsonl"
+        lines = [
+            "not json at all",
+            json.dumps(
+                {"message": {"role": "assistant", "content": "good", "model": "m", "usage": {"output_tokens": 5}}}
+            ),
+            "",
+            "{invalid json",
+        ]
+        tf.write_text("\n".join(lines) + "\n")
+        output, in_tok, out_tok, model = _scan_transcript_for_usage(tf, 0)
+        assert output == "good"
+        assert out_tok == 5
+
+    def test_skips_non_assistant_messages(self, tmp_path):
+        """Only processes assistant messages, skips user/system."""
+        tf = tmp_path / "mixed.jsonl"
+        lines = [
+            json.dumps({"message": {"role": "user", "content": "user msg"}}),
+            json.dumps(
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "assistant msg",
+                        "model": "m",
+                        "usage": {"output_tokens": 3},
+                    }
+                }
+            ),
+            json.dumps({"message": {"role": "system", "content": "system msg"}}),
+        ]
+        tf.write_text("\n".join(lines) + "\n")
+        output, in_tok, out_tok, model = _scan_transcript_for_usage(tf, 0)
+        assert output == "assistant msg"
+        assert out_tok == 3
+
+    def test_concatenates_multiple_assistant_messages(self, tmp_path):
+        """Multiple assistant messages are concatenated with newlines."""
+        tf = tmp_path / "multi.jsonl"
+        lines = [
+            json.dumps(
+                {"message": {"role": "assistant", "content": "first", "model": "m1", "usage": {"output_tokens": 1}}}
+            ),
+            json.dumps(
+                {"message": {"role": "assistant", "content": "second", "model": "m2", "usage": {"output_tokens": 2}}}
+            ),
+        ]
+        tf.write_text("\n".join(lines) + "\n")
+        output, in_tok, out_tok, model = _scan_transcript_for_usage(tf, 0)
+        assert output == "first\nsecond"
+        assert out_tok == 3
+        # Model should be the last non-empty one
+        assert model == "m2"
+
+    def test_empty_content_skipped(self, tmp_path):
+        """Assistant messages with empty content don't contribute to output."""
+        tf = tmp_path / "empty.jsonl"
+        lines = [
+            json.dumps(
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": ""}],
+                        "model": "m",
+                        "usage": {"output_tokens": 1},
+                    }
+                }
+            ),
+        ]
+        tf.write_text("\n".join(lines) + "\n")
+        output, in_tok, out_tok, model = _scan_transcript_for_usage(tf, 0)
+        assert output == ""
+        assert out_tok == 1
+
+    def test_accumulates_all_token_types(self, tmp_path):
+        """Sums input_tokens, cache_read, and cache_creation for in_tokens."""
+        tf = tmp_path / "tokens.jsonl"
+        entry = {
+            "message": {
+                "role": "assistant",
+                "content": "x",
+                "model": "m",
+                "usage": {
+                    "input_tokens": 10,
+                    "cache_read_input_tokens": 20,
+                    "cache_creation_input_tokens": 30,
+                    "output_tokens": 40,
+                },
+            }
+        }
+        tf.write_text(json.dumps(entry) + "\n")
+        output, in_tok, out_tok, model = _scan_transcript_for_usage(tf, 0)
+        assert in_tok == 60  # 10 + 20 + 30
+        assert out_tok == 40
 
 
 # ---------------------------------------------------------------------------
@@ -695,6 +836,45 @@ class TestSubagentStop:
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
         assert attrs["llm.token_count.prompt"]["intValue"] == 77
         assert attrs["llm.token_count.completion"]["intValue"] == 33
+
+    def test_subagent_stop_uses_last_assistant_message(self, mock_resolve, state, captured_spans):
+        """SubagentStop prefers last_assistant_message from input when present."""
+        state.set("current_trace_id", "t" * 32)
+        state.set("current_trace_span_id", "s" * 16)
+        with mock.patch("claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=None):
+            _handle_subagent_stop(
+                {
+                    "agent_type": "explorer",
+                    "agent_id": "a6",
+                    "last_assistant_message": "Found the file at line 42",
+                }
+            )
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["output.value"]["stringValue"] == "Found the file at line 42"
+
+    def test_subagent_stop_tokens_from_transcript_with_last_msg(
+        self, mock_resolve, state, captured_spans, transcript_file
+    ):
+        """Token counts come from transcript even when last_assistant_message is set."""
+        state.set("current_trace_id", "t" * 32)
+        state.set("current_trace_span_id", "s" * 16)
+        with mock.patch(
+            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+        ):
+            _handle_subagent_stop(
+                {
+                    "agent_type": "explorer",
+                    "agent_id": "a7",
+                    "last_assistant_message": "overridden subagent text",
+                }
+            )
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["output.value"]["stringValue"] == "overridden subagent text"
+        assert attrs["llm.token_count.prompt"]["intValue"] == 115
+        assert attrs["llm.token_count.completion"]["intValue"] == 50
 
 
 # ---------------------------------------------------------------------------
