@@ -26,8 +26,8 @@ Harness hooks build OTLP JSON span payloads using `core.common.build_span()` and
 | File | Purpose |
 |------|---------|
 | `core/common.py` | Direct send (`send_span()`), per-harness credential resolution, span building |
-| `core/codex_buffer.py` | Codex-only HTTP buffer service for OTLP log events |
-| `core/codex_buffer_ctl.py` | Codex buffer lifecycle management: start, stop, status, ensure |
+| `codex_tracing/codex_buffer.py` | Codex-only HTTP buffer service for OTLP log events |
+| `codex_tracing/codex_buffer_ctl.py` | Codex buffer lifecycle management: start, stop, status, ensure |
 
 ## Configuration
 
@@ -71,7 +71,7 @@ Each harness owns its full backend configuration directly — `target`, `endpoin
 
 ## Codex Buffer Service
 
-The buffer service (`core/codex_buffer.py`) is a minimal HTTP server used only by Codex. It buffers native OTLP log events by thread ID so the notify handler can drain and assemble child spans.
+The buffer service (`codex_tracing/codex_buffer.py`) is a minimal HTTP server used only by Codex. It buffers native OTLP log events by thread ID so the notify handler can drain and assemble child spans.
 
 ### API Endpoints
 
@@ -84,7 +84,7 @@ The buffer service (`core/codex_buffer.py`) is a minimal HTTP server used only b
 
 ### Lifecycle Management
 
-The `arize-codex-buffer` CLI (or `core.codex_buffer_ctl` module) manages the buffer process:
+The `arize-codex-buffer` CLI (or `codex_tracing.codex_buffer_ctl` module) manages the buffer process:
 
 ```bash
 arize-codex-buffer start    # Start if not running

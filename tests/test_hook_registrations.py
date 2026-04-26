@@ -21,20 +21,20 @@ REPO_ROOT = Path(__file__).parent.parent
 HARNESS_DIRS = ["claude_code_tracing", "codex_tracing", "cursor_tracing"]
 
 EXPECTED_ENTRY_POINTS = {
-    "arize-codex-buffer": "core.codex_buffer_ctl:main",
+    "arize-codex-buffer": "codex_tracing.codex_buffer_ctl:main",
     "arize-config": "core.config:main",
-    "arize-hook-session-start": "core.hooks.claude.handlers:session_start",
-    "arize-hook-pre-tool-use": "core.hooks.claude.handlers:pre_tool_use",
-    "arize-hook-post-tool-use": "core.hooks.claude.handlers:post_tool_use",
-    "arize-hook-user-prompt-submit": "core.hooks.claude.handlers:user_prompt_submit",
-    "arize-hook-stop": "core.hooks.claude.handlers:stop",
-    "arize-hook-subagent-stop": "core.hooks.claude.handlers:subagent_stop",
-    "arize-hook-notification": "core.hooks.claude.handlers:notification",
-    "arize-hook-permission-request": "core.hooks.claude.handlers:permission_request",
-    "arize-hook-session-end": "core.hooks.claude.handlers:session_end",
-    "arize-hook-codex-notify": "core.hooks.codex.handlers:notify",
-    "arize-codex-proxy": "core.hooks.codex.proxy:main",
-    "arize-hook-cursor": "core.hooks.cursor.handlers:main",
+    "arize-hook-session-start": "claude_code_tracing.hooks.handlers:session_start",
+    "arize-hook-pre-tool-use": "claude_code_tracing.hooks.handlers:pre_tool_use",
+    "arize-hook-post-tool-use": "claude_code_tracing.hooks.handlers:post_tool_use",
+    "arize-hook-user-prompt-submit": "claude_code_tracing.hooks.handlers:user_prompt_submit",
+    "arize-hook-stop": "claude_code_tracing.hooks.handlers:stop",
+    "arize-hook-subagent-stop": "claude_code_tracing.hooks.handlers:subagent_stop",
+    "arize-hook-notification": "claude_code_tracing.hooks.handlers:notification",
+    "arize-hook-permission-request": "claude_code_tracing.hooks.handlers:permission_request",
+    "arize-hook-session-end": "claude_code_tracing.hooks.handlers:session_end",
+    "arize-hook-codex-notify": "codex_tracing.hooks.handlers:notify",
+    "arize-codex-proxy": "codex_tracing.hooks.proxy:main",
+    "arize-hook-cursor": "cursor_tracing.hooks.handlers:main",
 }
 
 

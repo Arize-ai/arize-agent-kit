@@ -293,12 +293,12 @@ class TestPyprojectToml:
         for pkg in HARNESS_PACKAGES:
             assert pkg in pyproject_text, f"isort known_first_party should include {pkg}"
 
-    def test_entry_points_unchanged(self, pyproject_text):
-        """Entry points still reference core.hooks.* (not moved yet — wave 3)."""
-        assert "core.hooks.claude.handlers:session_start" in pyproject_text
-        assert "core.hooks.codex.handlers:notify" in pyproject_text
-        assert "core.hooks.copilot.handlers:session_start" in pyproject_text
-        assert "core.hooks.cursor.handlers:main" in pyproject_text
+    def test_entry_points_updated(self, pyproject_text):
+        """Entry points reference <harness>_tracing.hooks.* after wave 3."""
+        assert "claude_code_tracing.hooks.handlers:session_start" in pyproject_text
+        assert "codex_tracing.hooks.handlers:notify" in pyproject_text
+        assert "copilot_tracing.hooks.handlers:session_start" in pyproject_text
+        assert "cursor_tracing.hooks.handlers:main" in pyproject_text
 
 
 # ---------------------------------------------------------------------------

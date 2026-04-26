@@ -21,7 +21,7 @@ Codex CLI
 
 1. **Direct send** (`core/common.py`) -- spans are sent directly to Phoenix or Arize AX from the notify handler via `send_span()`. Per-harness backend credentials are read from `harnesses.codex.*` in config.
 
-2. **Codex Buffer Service** (`core/codex_buffer.py`, default port 4318) -- a lightweight HTTP server that only buffers Codex OTLP log events between hook invocations. No export logic. Accepts events (`POST /v1/logs`) and serves buffered events (`GET /drain/{id}`, `GET /flush/{id}`). Managed via `arize-codex-buffer`.
+2. **Codex Buffer Service** (`codex_tracing/codex_buffer.py`, default port 4318) -- a lightweight HTTP server that only buffers Codex OTLP log events between hook invocations. No export logic. Accepts events (`POST /v1/logs`) and serves buffered events (`GET /drain/{id}`, `GET /flush/{id}`). Managed via `arize-codex-buffer`.
 
 3. **`arize-hook-codex-notify`** -- Codex calls this after every agent turn. It builds an OpenInference LLM span from the turn payload, drains buffered events from the buffer service, assembles child spans (TOOL, CHAIN), and sends the complete span tree directly to the backend.
 
