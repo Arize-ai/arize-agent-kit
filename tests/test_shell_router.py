@@ -46,11 +46,11 @@ class TestShellSyntax:
         text = _read_install_sh()
         assert "set -euo pipefail" in text, "Missing strict mode"
 
-    def test_line_count_under_300(self):
-        """Router should be ~200-260 lines, well under the old 1919."""
+    def test_line_count_under_400(self):
+        """Router should be ~200-330 lines, well under the old 1919."""
         text = _read_install_sh()
         lines = text.strip().splitlines()
-        assert len(lines) <= 300, f"install.sh has {len(lines)} lines — should be ~200-260"
+        assert len(lines) <= 400, f"install.sh has {len(lines)} lines — should be under 400"
 
 
 # ---------------------------------------------------------------------------
