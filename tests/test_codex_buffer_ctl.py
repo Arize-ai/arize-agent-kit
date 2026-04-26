@@ -1,4 +1,4 @@
-"""Tests for core.codex_buffer_ctl module."""
+"""Tests for codex_tracing.codex_buffer_ctl module."""
 
 import os
 import subprocess
@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
-from core.codex_buffer_ctl import (
+from codex_tracing.codex_buffer_ctl import (
     _health_check,
     _is_process_alive,
     _resolve_host_port,
@@ -27,7 +27,7 @@ from core.codex_buffer_ctl import (
 def _mock_ctl_sleep(monkeypatch):
     """Mock time.sleep in codex_buffer_ctl to prevent real delays in retry/poll loops."""
     sleep_calls = []
-    monkeypatch.setattr("core.codex_buffer_ctl.time.sleep", lambda s: sleep_calls.append(s))
+    monkeypatch.setattr("codex_tracing.codex_buffer_ctl.time.sleep", lambda s: sleep_calls.append(s))
     return sleep_calls
 
 
@@ -37,25 +37,25 @@ def _mock_ctl_health(monkeypatch):
 
     Tests that need a healthy endpoint use mock_collector which patches this back.
     """
-    monkeypatch.setattr("core.codex_buffer_ctl._health_check", lambda *a, **kw: False)
+    monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", lambda *a, **kw: False)
 
 
 # ---------------------------------------------------------------------------
 # Helper fixture: monkeypatch constants in BOTH core.constants AND
-# core.codex_buffer_ctl, because codex_buffer_ctl uses `from core.constants import`
+# codex_tracing.codex_buffer_ctl, because codex_buffer_ctl uses `from core.constants import`
 # which creates local bindings that won't see monkeypatches to core.constants.
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
 def ctl_paths(tmp_harness_dir, monkeypatch):
-    """Monkeypatch all path constants in core.codex_buffer_ctl to use temp paths.
+    """Monkeypatch all path constants in codex_tracing.codex_buffer_ctl to use temp paths.
 
     The base tmp_harness_dir fixture patches core.constants, but codex_buffer_ctl
     has its own local bindings from `from core.constants import ...`.
     This fixture patches those too.
     """
-    import core.codex_buffer_ctl as ctl
+    import codex_tracing.codex_buffer_ctl as ctl
     import core.constants as c
 
     monkeypatch.setattr(ctl, "CODEX_BUFFER_PID_FILE", c.CODEX_BUFFER_PID_FILE)
@@ -401,11 +401,11 @@ class TestBufferStart:
 
     def test_detects_existing_buffer_on_port(self, ctl_paths, mock_collector, monkeypatch):
         """If port has a healthy buffer already, start returns True."""
-        import core.codex_buffer_ctl as ctl
+        import codex_tracing.codex_buffer_ctl as ctl
         import core.constants as c
 
         # Restore real _health_check for this test (overrides autouse mock)
-        monkeypatch.setattr("core.codex_buffer_ctl._health_check", _health_check)
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", _health_check)
 
         config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}}}
         with open(c.CONFIG_FILE, "w") as f:
@@ -423,7 +423,7 @@ class TestBufferStart:
 
     def test_returns_false_when_no_buffer_runtime(self, ctl_paths, sample_config, monkeypatch):
         """If neither CODEX_BUFFER_BIN nor codex_buffer.py exist, start fails."""
-        import core.codex_buffer_ctl as ctl
+        import codex_tracing.codex_buffer_ctl as ctl
 
         # Point CODEX_BUFFER_BIN to nonexistent path
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
@@ -438,7 +438,7 @@ class TestBufferStart:
 
     def test_start_launches_subprocess(self, ctl_paths, sample_config, monkeypatch):
         """Successful launch via codex_buffer.py calls Popen with correct args."""
-        import core.codex_buffer_ctl as ctl
+        import codex_tracing.codex_buffer_ctl as ctl
 
         # Point CODEX_BUFFER_BIN to nonexistent so it falls through to codex_buffer.py
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
@@ -452,7 +452,7 @@ class TestBufferStart:
 
         # Mock socket to raise (port is free)
         monkeypatch.setattr(
-            "core.codex_buffer_ctl.socket.create_connection",
+            "codex_tracing.codex_buffer_ctl.socket.create_connection",
             MagicMock(side_effect=ConnectionRefusedError),
         )
 
@@ -460,7 +460,7 @@ class TestBufferStart:
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         mock_popen = MagicMock(return_value=mock_proc)
-        monkeypatch.setattr("core.codex_buffer_ctl.subprocess.Popen", mock_popen)
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.subprocess.Popen", mock_popen)
 
         # Mock _health_check: fail first calls (status + start pre-check), succeed after launch
         call_count = {"n": 0}
@@ -469,7 +469,7 @@ class TestBufferStart:
             call_count["n"] += 1
             return call_count["n"] >= 4  # 1=status, 2=start pre-check, 3=port-check, 4+=poll
 
-        monkeypatch.setattr("core.codex_buffer_ctl._health_check", fake_health_check)
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", fake_health_check)
 
         result = buffer_start()
         assert result is True
@@ -481,7 +481,7 @@ class TestBufferStart:
 
     def test_start_uses_buffer_bin_when_available(self, ctl_paths, sample_config, monkeypatch):
         """When CODEX_BUFFER_BIN exists and is executable, it is preferred over codex_buffer.py."""
-        import core.codex_buffer_ctl as ctl
+        import codex_tracing.codex_buffer_ctl as ctl
 
         # Create a fake CODEX_BUFFER_BIN
         buffer_bin = ctl_paths / "arize-codex-buffer"
@@ -491,7 +491,7 @@ class TestBufferStart:
 
         # Mock socket to raise (port is free)
         monkeypatch.setattr(
-            "core.codex_buffer_ctl.socket.create_connection",
+            "codex_tracing.codex_buffer_ctl.socket.create_connection",
             MagicMock(side_effect=ConnectionRefusedError),
         )
 
@@ -499,11 +499,13 @@ class TestBufferStart:
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         mock_popen = MagicMock(return_value=mock_proc)
-        monkeypatch.setattr("core.codex_buffer_ctl.subprocess.Popen", mock_popen)
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.subprocess.Popen", mock_popen)
 
         # Mock _health_check: False for status + start pre-checks, True after launch
         health_calls = iter([False, False, True])
-        monkeypatch.setattr("core.codex_buffer_ctl._health_check", lambda h, p, timeout=2.0: next(health_calls))
+        monkeypatch.setattr(
+            "codex_tracing.codex_buffer_ctl._health_check", lambda h, p, timeout=2.0: next(health_calls)
+        )
 
         result = buffer_start()
         assert result is True
@@ -513,7 +515,7 @@ class TestBufferStart:
 
     def test_start_returns_true_if_process_alive_but_unhealthy(self, ctl_paths, sample_config, monkeypatch):
         """If health check never passes but process is alive, returns True (benefit of the doubt)."""
-        import core.codex_buffer_ctl as ctl
+        import codex_tracing.codex_buffer_ctl as ctl
 
         # Point CODEX_BUFFER_BIN to nonexistent so it falls through to codex_buffer.py
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
@@ -526,7 +528,7 @@ class TestBufferStart:
 
         # Mock socket (port is free)
         monkeypatch.setattr(
-            "core.codex_buffer_ctl.socket.create_connection",
+            "codex_tracing.codex_buffer_ctl.socket.create_connection",
             MagicMock(side_effect=ConnectionRefusedError),
         )
 
@@ -534,20 +536,20 @@ class TestBufferStart:
         mock_proc = MagicMock()
         mock_proc.pid = 54321
         mock_popen = MagicMock(return_value=mock_proc)
-        monkeypatch.setattr("core.codex_buffer_ctl.subprocess.Popen", mock_popen)
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.subprocess.Popen", mock_popen)
 
         # Health check always fails
-        monkeypatch.setattr("core.codex_buffer_ctl._health_check", lambda h, p, timeout=2.0: False)
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", lambda h, p, timeout=2.0: False)
 
         # Process is alive
-        monkeypatch.setattr("core.codex_buffer_ctl._is_process_alive", lambda pid: pid == 54321)
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._is_process_alive", lambda pid: pid == 54321)
 
         result = buffer_start()
         assert result is True
 
     def test_start_returns_false_on_popen_failure(self, ctl_paths, sample_config, monkeypatch):
         """If Popen raises OSError, buffer_start returns False."""
-        import core.codex_buffer_ctl as ctl
+        import codex_tracing.codex_buffer_ctl as ctl
 
         # Point CODEX_BUFFER_BIN to nonexistent so it falls through to codex_buffer.py
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
@@ -560,13 +562,13 @@ class TestBufferStart:
 
         # Mock socket (port is free)
         monkeypatch.setattr(
-            "core.codex_buffer_ctl.socket.create_connection",
+            "codex_tracing.codex_buffer_ctl.socket.create_connection",
             MagicMock(side_effect=ConnectionRefusedError),
         )
 
         # Mock Popen to raise OSError
         monkeypatch.setattr(
-            "core.codex_buffer_ctl.subprocess.Popen",
+            "codex_tracing.codex_buffer_ctl.subprocess.Popen",
             MagicMock(side_effect=OSError("Permission denied")),
         )
 
@@ -659,8 +661,8 @@ class TestBufferStop:
         pid_file.write_text(str(os.getpid()) + "\n")
 
         # Mock os.kill to do nothing (simulate process that ignores SIGTERM)
-        with patch("core.codex_buffer_ctl.os.kill"):
-            with patch("core.codex_buffer_ctl._is_process_alive", return_value=True):
+        with patch("codex_tracing.codex_buffer_ctl.os.kill"):
+            with patch("codex_tracing.codex_buffer_ctl._is_process_alive", return_value=True):
                 result = buffer_stop()
 
         assert result == "stopped"
@@ -684,13 +686,13 @@ class TestBufferEnsure:
 
     def test_does_not_raise_on_status_error(self, ctl_paths):
         """ensure() swallows exceptions from buffer_status."""
-        with patch("core.codex_buffer_ctl.buffer_status", side_effect=RuntimeError("boom")):
+        with patch("codex_tracing.codex_buffer_ctl.buffer_status", side_effect=RuntimeError("boom")):
             buffer_ensure()  # should not raise
 
     def test_does_not_raise_on_start_error(self, ctl_paths):
         """ensure() swallows exceptions from buffer_start."""
-        with patch("core.codex_buffer_ctl.buffer_status", return_value=("stopped", None, None)):
-            with patch("core.codex_buffer_ctl.buffer_start", side_effect=RuntimeError("boom")):
+        with patch("codex_tracing.codex_buffer_ctl.buffer_status", return_value=("stopped", None, None)):
+            with patch("codex_tracing.codex_buffer_ctl.buffer_start", side_effect=RuntimeError("boom")):
                 buffer_ensure()  # should not raise
 
     def test_skips_start_when_running(self, ctl_paths, mock_collector):
@@ -704,13 +706,13 @@ class TestBufferEnsure:
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
 
-        with patch("core.codex_buffer_ctl.buffer_start") as mock_start:
+        with patch("codex_tracing.codex_buffer_ctl.buffer_start") as mock_start:
             buffer_ensure()
             mock_start.assert_not_called()
 
     def test_calls_start_when_stopped(self, ctl_paths):
         """ensure() calls start when buffer is stopped."""
-        with patch("core.codex_buffer_ctl.buffer_start") as mock_start:
+        with patch("codex_tracing.codex_buffer_ctl.buffer_start") as mock_start:
             buffer_ensure()
             mock_start.assert_called_once()
 
@@ -830,7 +832,7 @@ class TestEdgeCases:
 
     def test_log_output_goes_to_stderr(self, ctl_paths, capsys):
         """_log() writes to stderr, not stdout."""
-        from core.codex_buffer_ctl import _log
+        from codex_tracing.codex_buffer_ctl import _log
 
         _log("test message")
         captured = capsys.readouterr()
@@ -840,7 +842,7 @@ class TestEdgeCases:
 
     def test_buffer_start_with_config_but_no_runtime(self, ctl_paths, sample_config, monkeypatch):
         """Start with config but no buffer binary or codex_buffer.py fails gracefully."""
-        import core.codex_buffer_ctl as ctl
+        import codex_tracing.codex_buffer_ctl as ctl
 
         # Point both runtime locations to nonexistent paths
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
