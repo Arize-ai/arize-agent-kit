@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for core.hooks.copilot.handlers — the 8 Copilot hook handlers.
+"""Tests for copilot_tracing.hooks.handlers — the 8 Copilot hook handlers.
 
 Tests cover both VS Code mode (sessionId-based) and CLI mode (PID-based),
 dual-mode detection, response printing, deferred turn flushing, and all
@@ -13,8 +13,7 @@ from unittest import mock
 
 import pytest
 
-from core.common import StateManager
-from core.hooks.copilot.handlers import (
+from copilot_tracing.hooks.handlers import (
     _clear_pending_turn,
     _flush_pending_turn,
     _handle_error_occurred,
@@ -37,6 +36,7 @@ from core.hooks.copilot.handlers import (
     subagent_stop,
     user_prompt_submitted,
 )
+from core.common import StateManager
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -93,14 +93,14 @@ def state(tmp_path):
 @pytest.fixture
 def mock_resolve(state):
     """Mock resolve_session to return the test state fixture."""
-    with mock.patch("core.hooks.copilot.handlers.resolve_session", return_value=state) as m:
+    with mock.patch("copilot_tracing.hooks.handlers.resolve_session", return_value=state) as m:
         yield m
 
 
 @pytest.fixture
 def mock_ensure():
     """Mock ensure_session_initialized."""
-    with mock.patch("core.hooks.copilot.handlers.ensure_session_initialized") as m:
+    with mock.patch("copilot_tracing.hooks.handlers.ensure_session_initialized") as m:
         yield m
 
 
@@ -108,7 +108,7 @@ def mock_ensure():
 def captured_spans():
     """Mock send_span and collect all payloads sent."""
     sent = []
-    with mock.patch("core.hooks.copilot.handlers.send_span", side_effect=lambda s: sent.append(s)):
+    with mock.patch("copilot_tracing.hooks.handlers.send_span", side_effect=lambda s: sent.append(s)):
         yield sent
 
 
@@ -331,7 +331,7 @@ class TestPreToolUse:
 
     def test_missing_tool_id_generates_fallback(self, mock_resolve, state):
         """Missing tool_use_id generates a fallback ID."""
-        with mock.patch("core.hooks.copilot.handlers.generate_trace_id", return_value="gen-id-123"):
+        with mock.patch("copilot_tracing.hooks.handlers.generate_trace_id", return_value="gen-id-123"):
             inp = _vscode_base({})
             _handle_pre_tool_use(inp)
         val = state.get("tool_gen-id-123_start")
@@ -468,7 +468,7 @@ class TestPostToolUse:
     def test_no_session_id_returns_early(self, state, captured_spans):
         """If session_id is None, returns without sending span."""
         state.delete("session_id")
-        with mock.patch("core.hooks.copilot.handlers.resolve_session", return_value=state):
+        with mock.patch("copilot_tracing.hooks.handlers.resolve_session", return_value=state):
             _handle_post_tool_use(_vscode_base({"tool_name": "Bash", "tool_use_id": "t1"}))
         assert len(captured_spans) == 0
 
@@ -599,7 +599,7 @@ class TestStop:
         state.set("current_trace_prompt", "test")
         state.set("trace_count", "5")
         state.set("trace_start_line", "0")
-        with mock.patch("core.hooks.copilot.handlers.gc_stale_state_files") as gc_mock:
+        with mock.patch("copilot_tracing.hooks.handlers.gc_stale_state_files") as gc_mock:
             _handle_stop({"sessionId": "s1"})
             gc_mock.assert_called_once()
 
@@ -611,7 +611,7 @@ class TestStop:
         state.set("current_trace_prompt", "test")
         state.set("trace_count", "3")
         state.set("trace_start_line", "0")
-        with mock.patch("core.hooks.copilot.handlers.gc_stale_state_files") as gc_mock:
+        with mock.patch("copilot_tracing.hooks.handlers.gc_stale_state_files") as gc_mock:
             _handle_stop({"sessionId": "s1"})
             gc_mock.assert_not_called()
 
@@ -703,7 +703,7 @@ class TestErrorOccurred:
     def test_no_session_id_returns_early(self, state, captured_spans):
         """No session_id → no span sent."""
         state.delete("session_id")
-        with mock.patch("core.hooks.copilot.handlers.resolve_session", return_value=state):
+        with mock.patch("copilot_tracing.hooks.handlers.resolve_session", return_value=state):
             _handle_error_occurred(_cli_base({"error": {"message": "fail"}}))
         assert len(captured_spans) == 0
 
@@ -731,7 +731,7 @@ class TestSessionEnd:
         state.set("pending_turn_span_id", "s" * 16)
         state.set("pending_turn_start_time", "1000")
         state.set("pending_turn_trace_count", "3")
-        with mock.patch("core.hooks.copilot.handlers.gc_stale_state_files"):
+        with mock.patch("copilot_tracing.hooks.handlers.gc_stale_state_files"):
             inp = _cli_base({"reason": "complete"})
             _handle_session_end(inp)
         # Pending turn was flushed
@@ -745,7 +745,7 @@ class TestSessionEnd:
         state.set("pending_turn_prompt", "should not flush")
         state.set("pending_turn_trace_id", "t" * 32)
         state.set("pending_turn_span_id", "s" * 16)
-        with mock.patch("core.hooks.copilot.handlers.gc_stale_state_files"):
+        with mock.patch("copilot_tracing.hooks.handlers.gc_stale_state_files"):
             inp = _vscode_base({"reason": "complete"})
             _handle_session_end(inp)
         assert len(captured_spans) == 0
@@ -755,8 +755,8 @@ class TestSessionEnd:
         state.set("trace_count", "10")
         state.set("tool_count", "25")
         with (
-            mock.patch("core.hooks.copilot.handlers.error") as err_mock,
-            mock.patch("core.hooks.copilot.handlers.gc_stale_state_files"),
+            mock.patch("copilot_tracing.hooks.handlers.error") as err_mock,
+            mock.patch("copilot_tracing.hooks.handlers.gc_stale_state_files"),
         ):
             _handle_session_end(_cli_base({"reason": "complete"}))
         calls = [c[0][0] for c in err_mock.call_args_list]
@@ -767,8 +767,8 @@ class TestSessionEnd:
         """Removes state file."""
         assert state.state_file.exists()
         with (
-            mock.patch("core.hooks.copilot.handlers.error"),
-            mock.patch("core.hooks.copilot.handlers.gc_stale_state_files"),
+            mock.patch("copilot_tracing.hooks.handlers.error"),
+            mock.patch("copilot_tracing.hooks.handlers.gc_stale_state_files"),
         ):
             _handle_session_end(_cli_base({"reason": "complete"}))
         assert not state.state_file.exists()
@@ -776,8 +776,8 @@ class TestSessionEnd:
     def test_calls_gc(self, mock_resolve, state):
         """Calls gc_stale_state_files."""
         with (
-            mock.patch("core.hooks.copilot.handlers.error"),
-            mock.patch("core.hooks.copilot.handlers.gc_stale_state_files") as gc_mock,
+            mock.patch("copilot_tracing.hooks.handlers.error"),
+            mock.patch("copilot_tracing.hooks.handlers.gc_stale_state_files") as gc_mock,
         ):
             _handle_session_end(_cli_base())
         gc_mock.assert_called_once()
@@ -786,9 +786,9 @@ class TestSessionEnd:
         """Returns early when session_id is None."""
         state.delete("session_id")
         with (
-            mock.patch("core.hooks.copilot.handlers.resolve_session", return_value=state),
-            mock.patch("core.hooks.copilot.handlers.error") as err_mock,
-            mock.patch("core.hooks.copilot.handlers.gc_stale_state_files") as gc_mock,
+            mock.patch("copilot_tracing.hooks.handlers.resolve_session", return_value=state),
+            mock.patch("copilot_tracing.hooks.handlers.error") as err_mock,
+            mock.patch("copilot_tracing.hooks.handlers.gc_stale_state_files") as gc_mock,
         ):
             _handle_session_end(_cli_base())
         err_mock.assert_not_called()
@@ -912,7 +912,7 @@ class TestDeferredTurnPattern:
         _handle_user_prompt_submitted(_cli_base({"prompt": "the prompt"}))
         assert len(captured_spans) == 0
 
-        with mock.patch("core.hooks.copilot.handlers.gc_stale_state_files"):
+        with mock.patch("copilot_tracing.hooks.handlers.gc_stale_state_files"):
             _handle_session_end(_cli_base({"reason": "complete"}))
         assert len(captured_spans) == 1
         attrs = _get_span_attrs(captured_spans[0])
@@ -928,7 +928,7 @@ class TestDeferredTurnPattern:
     def test_flush_pending_turn_no_op_when_empty(self, state):
         """_flush_pending_turn is no-op when no pending turn exists."""
         # Should not raise or send anything
-        with mock.patch("core.hooks.copilot.handlers.send_span") as send_mock:
+        with mock.patch("copilot_tracing.hooks.handlers.send_span") as send_mock:
             _flush_pending_turn(state)
         send_mock.assert_not_called()
 
@@ -936,7 +936,7 @@ class TestDeferredTurnPattern:
         """_flush_pending_turn clears invalid pending turn (no trace/span id)."""
         state.set("pending_turn_prompt", "orphan")
         # No trace_id or span_id set
-        with mock.patch("core.hooks.copilot.handlers.send_span") as send_mock:
+        with mock.patch("copilot_tracing.hooks.handlers.send_span") as send_mock:
             _flush_pending_turn(state)
         send_mock.assert_not_called()
         assert state.get("pending_turn_prompt") is None
@@ -986,9 +986,9 @@ class TestErrorHandling:
         """Exception in handler → entry point catches, calls error()."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("core.hooks.copilot.handlers._read_stdin", return_value={}),
-            mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True),
-            mock.patch("core.hooks.copilot.handlers._handle_session_start", side_effect=RuntimeError("boom")),
+            mock.patch("copilot_tracing.hooks.handlers._read_stdin", return_value={}),
+            mock.patch("copilot_tracing.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("copilot_tracing.hooks.handlers._handle_session_start", side_effect=RuntimeError("boom")),
         ):
             session_start()
         captured = capsys.readouterr()
@@ -998,10 +998,10 @@ class TestErrorHandling:
         """Malformed stdin JSON doesn't crash entry point."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True),
+            mock.patch("copilot_tracing.hooks.handlers.check_requirements", return_value=True),
             mock.patch.object(sys, "stdin", new=io.StringIO("not json")),
-            mock.patch("core.hooks.copilot.handlers.resolve_session") as rs,
-            mock.patch("core.hooks.copilot.handlers.ensure_session_initialized"),
+            mock.patch("copilot_tracing.hooks.handlers.resolve_session") as rs,
+            mock.patch("copilot_tracing.hooks.handlers.ensure_session_initialized"),
         ):
             session_start()
         rs.assert_called_once_with({})
@@ -1030,10 +1030,10 @@ class TestEntryPoints:
         """Entry point calls the corresponding _handle_* with parsed stdin JSON."""
         input_data = {"sessionId": "s1", "hookEventName": event}
         with (
-            mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True),
-            mock.patch("core.hooks.copilot.handlers._read_stdin", return_value=input_data),
-            mock.patch(f"core.hooks.copilot.handlers.{handler_name}") as handler_mock,
-            mock.patch("core.hooks.copilot.handlers._print_response"),
+            mock.patch("copilot_tracing.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("copilot_tracing.hooks.handlers._read_stdin", return_value=input_data),
+            mock.patch(f"copilot_tracing.hooks.handlers.{handler_name}") as handler_mock,
+            mock.patch("copilot_tracing.hooks.handlers._print_response"),
         ):
             entry_fn()
         handler_mock.assert_called_once_with(input_data)
@@ -1042,10 +1042,10 @@ class TestEntryPoints:
     def test_requirements_not_met_skips_handler(self, name, entry_fn, handler_name, event):
         """When check_requirements returns False, handler is NOT called but response is still printed."""
         with (
-            mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=False),
-            mock.patch("core.hooks.copilot.handlers._read_stdin", return_value={}),
-            mock.patch(f"core.hooks.copilot.handlers.{handler_name}") as handler_mock,
-            mock.patch("core.hooks.copilot.handlers._print_response") as pr_mock,
+            mock.patch("copilot_tracing.hooks.handlers.check_requirements", return_value=False),
+            mock.patch("copilot_tracing.hooks.handlers._read_stdin", return_value={}),
+            mock.patch(f"copilot_tracing.hooks.handlers.{handler_name}") as handler_mock,
+            mock.patch("copilot_tracing.hooks.handlers._print_response") as pr_mock,
         ):
             entry_fn()
         handler_mock.assert_not_called()
@@ -1055,10 +1055,10 @@ class TestEntryPoints:
     def test_exception_caught_and_logged(self, name, entry_fn, handler_name, event, capsys):
         """Handler exception is caught; error is logged to stderr, response still printed."""
         with (
-            mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True),
-            mock.patch("core.hooks.copilot.handlers._read_stdin", return_value={}),
-            mock.patch(f"core.hooks.copilot.handlers.{handler_name}", side_effect=RuntimeError("test-boom")),
-            mock.patch("core.hooks.copilot.handlers._print_response") as pr_mock,
+            mock.patch("copilot_tracing.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("copilot_tracing.hooks.handlers._read_stdin", return_value={}),
+            mock.patch(f"copilot_tracing.hooks.handlers.{handler_name}", side_effect=RuntimeError("test-boom")),
+            mock.patch("copilot_tracing.hooks.handlers._print_response") as pr_mock,
         ):
             entry_fn()  # should not raise
         captured = capsys.readouterr()
@@ -1070,10 +1070,10 @@ class TestEntryPoints:
         """Entry point calls _print_response with correct event name."""
         input_data = {"sessionId": "s1", "hookEventName": event}
         with (
-            mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True),
-            mock.patch("core.hooks.copilot.handlers._read_stdin", return_value=input_data),
-            mock.patch(f"core.hooks.copilot.handlers.{handler_name}"),
-            mock.patch("core.hooks.copilot.handlers._print_response") as pr_mock,
+            mock.patch("copilot_tracing.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("copilot_tracing.hooks.handlers._read_stdin", return_value=input_data),
+            mock.patch(f"copilot_tracing.hooks.handlers.{handler_name}"),
+            mock.patch("copilot_tracing.hooks.handlers._print_response") as pr_mock,
         ):
             entry_fn()
         pr_mock.assert_called_once_with(input_data, event)
@@ -1081,9 +1081,9 @@ class TestEntryPoints:
     def test_pre_tool_use_prints_permission_on_exception(self, capsys):
         """pre_tool_use MUST print permission response even when handler crashes."""
         with (
-            mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=True),
-            mock.patch("core.hooks.copilot.handlers._read_stdin", return_value={}),
-            mock.patch("core.hooks.copilot.handlers._handle_pre_tool_use", side_effect=RuntimeError("boom")),
+            mock.patch("copilot_tracing.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("copilot_tracing.hooks.handlers._read_stdin", return_value={}),
+            mock.patch("copilot_tracing.hooks.handlers._handle_pre_tool_use", side_effect=RuntimeError("boom")),
         ):
             pre_tool_use()
         out = capsys.readouterr().out.strip()
@@ -1093,8 +1093,8 @@ class TestEntryPoints:
     def test_pre_tool_use_prints_permission_when_disabled(self, capsys):
         """pre_tool_use MUST print permission response even when tracing disabled."""
         with (
-            mock.patch("core.hooks.copilot.handlers.check_requirements", return_value=False),
-            mock.patch("core.hooks.copilot.handlers._read_stdin", return_value={}),
+            mock.patch("copilot_tracing.hooks.handlers.check_requirements", return_value=False),
+            mock.patch("copilot_tracing.hooks.handlers._read_stdin", return_value={}),
         ):
             pre_tool_use()
         out = capsys.readouterr().out.strip()

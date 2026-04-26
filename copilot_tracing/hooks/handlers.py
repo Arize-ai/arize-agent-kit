@@ -11,6 +11,15 @@ import json
 import sys
 from pathlib import Path
 
+from copilot_tracing.hooks.adapter import (
+    SCOPE_NAME,
+    SERVICE_NAME,
+    check_requirements,
+    ensure_session_initialized,
+    gc_stale_state_files,
+    is_vscode_mode,
+    resolve_session,
+)
 from core.common import (
     StateManager,
     build_span,
@@ -20,15 +29,6 @@ from core.common import (
     get_timestamp_ms,
     log,
     send_span,
-)
-from core.hooks.copilot.adapter import (
-    SCOPE_NAME,
-    SERVICE_NAME,
-    check_requirements,
-    ensure_session_initialized,
-    gc_stale_state_files,
-    is_vscode_mode,
-    resolve_session,
 )
 
 # ---------------------------------------------------------------------------
