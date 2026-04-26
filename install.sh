@@ -2,7 +2,7 @@
 # Arize Agent Kit — Thin shell router
 #
 # Handles Python discovery, repo clone/tarball, venv creation, and pip install.
-# All harness-specific logic lives in <harness>-tracing/install.py.
+# All harness-specific logic lives in <harness>_tracing/install.py.
 #
 # Usage:
 #   curl -sSL .../install.sh | bash -s -- claude [--with-skills] [--branch NAME]
@@ -184,14 +184,6 @@ setup_venv() {
             return 1
         }
     fi
-    if venv_python &>/dev/null \
-        && [[ -x "${VENV_DIR}/bin/arize-codex-buffer" ]]; then
-            info "Venv already has required packages"
-            local pip
-            pip=$(venv_pip 2>/dev/null) || true
-            [[ "$(uname)" == "Darwin" && -n "$pip" ]] && _fix_macos_ssl_certs "$pip"
-            return 0
-    fi
     local pip; pip=$(venv_pip) || { err "pip not found in venv"; return 1; }
     info "Installing arize-agent-kit into venv..."
     "$pip" install --quiet "$INSTALL_DIR" 2>/dev/null || { err "Failed to install arize-agent-kit package"; return 1; }
@@ -296,7 +288,7 @@ main() {
                 harnesses=$("$vp" -c 'from core.setup import list_installed_harnesses as L; print("\n".join(L()))' 2>/dev/null) || true
                 if [[ -n "$harnesses" ]]; then
                     while IFS= read -r key; do
-                        local dir="${key}-tracing"
+                        local dir; dir=$(harness_dir "$key") || { warn "Unknown harness: ${key} (skipping)"; continue; }
                         if [[ -f "${INSTALL_DIR}/${dir}/install.py" ]]; then
                             info "Uninstalling ${key} tracing..."
                             "$vp" "${INSTALL_DIR}/${dir}/install.py" uninstall || warn "${key} uninstall failed (continuing)"
@@ -321,7 +313,7 @@ main() {
             harnesses=$("$vp" -c 'from core.setup import list_installed_harnesses as L; print("\n".join(L()))' 2>/dev/null) || true
             if [[ -n "$harnesses" ]]; then
                 while IFS= read -r key; do
-                    local dir="${key}-tracing"
+                    local dir; dir=$(harness_dir "$key") || { warn "Unknown harness: ${key} (skipping)"; continue; }
                     if [[ -f "${INSTALL_DIR}/${dir}/install.py" ]]; then
                         info "Re-registering ${key}..."; "$vp" "${INSTALL_DIR}/${dir}/install.py" install
                     else warn "Harness directory not found: ${dir}"; fi

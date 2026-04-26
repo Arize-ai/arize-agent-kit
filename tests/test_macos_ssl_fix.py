@@ -190,12 +190,9 @@ class TestDarwinGuardInSetupVenv:
     def test_darwin_guard_present(self):
         assert '$(uname)" == "Darwin"' in self.body
 
-    def test_calls_fix_macos_ssl_certs_twice(self):
-        """SSL fix must be called from both early-return and fresh-install paths."""
-        count = self.body.count("_fix_macos_ssl_certs")
-        assert count == 2, (
-            f"_fix_macos_ssl_certs should appear twice in setup_venv(), found {count}"
-        )
+    def test_calls_fix_macos_ssl_certs(self):
+        """SSL fix must be called from setup_venv()."""
+        assert "_fix_macos_ssl_certs" in self.body
 
     def test_darwin_guard_wraps_all_ssl_calls(self):
         """Every _fix_macos_ssl_certs call must have a Darwin check on the same line."""
@@ -219,32 +216,6 @@ class TestDarwinGuardInSetupVenv:
         ready_idx = self.body.find("Venv ready")
         assert ssl_idx < ready_idx, (
             "_fix_macos_ssl_certs must be called before 'Venv ready' message"
-        )
-
-    def test_early_return_path_calls_ssl_fix(self):
-        """The 'Venv already has required packages' path must call _fix_macos_ssl_certs."""
-        early_return_idx = self.body.find("Venv already has required packages")
-        assert early_return_idx != -1, (
-            "Early-return path ('Venv already has required packages') not found"
-        )
-        # SSL fix should appear between the early-return message and the next return 0
-        after_early = self.body[early_return_idx:]
-        return_idx = after_early.find("return 0")
-        assert return_idx != -1, "return 0 not found after early-return message"
-        between = after_early[:return_idx]
-        assert "_fix_macos_ssl_certs" in between, (
-            "_fix_macos_ssl_certs must be called before return 0 in early-return path"
-        )
-
-    def test_early_return_pip_guard(self):
-        """Early-return path must guard against empty $pip with -n check."""
-        early_return_idx = self.body.find("Venv already has required packages")
-        assert early_return_idx != -1
-        after_early = self.body[early_return_idx:]
-        return_idx = after_early.find("return 0")
-        between = after_early[:return_idx]
-        assert '-n "$pip"' in between, (
-            "Early-return path must check -n $pip before calling _fix_macos_ssl_certs"
         )
 
 
