@@ -43,9 +43,7 @@ class TestFixMacOSSslCertsDefined:
 
     def test_function_defined(self):
         pattern = r"^_fix_macos_ssl_certs\s*\(\)"
-        assert re.search(pattern, self.text, re.MULTILINE), (
-            "_fix_macos_ssl_certs() not defined in install.sh"
-        )
+        assert re.search(pattern, self.text, re.MULTILINE), "_fix_macos_ssl_certs() not defined in install.sh"
 
     def test_accepts_pip_argument(self):
         assert 'local pip="$1"' in self.text
@@ -198,25 +196,19 @@ class TestDarwinGuardInSetupVenv:
         """Every _fix_macos_ssl_certs call must have a Darwin check on the same line."""
         for line in self.body.splitlines():
             if "_fix_macos_ssl_certs" in line:
-                assert "Darwin" in line, (
-                    "_fix_macos_ssl_certs must be guarded by Darwin check"
-                )
+                assert "Darwin" in line, "_fix_macos_ssl_certs must be guarded by Darwin check"
 
     def test_passes_pip_to_all_ssl_calls(self):
         """Every _fix_macos_ssl_certs call must receive $pip as its argument."""
         for line in self.body.splitlines():
             if "_fix_macos_ssl_certs" in line:
-                assert '"$pip"' in line, (
-                    '_fix_macos_ssl_certs must be called with "$pip"'
-                )
+                assert '"$pip"' in line, '_fix_macos_ssl_certs must be called with "$pip"'
 
     def test_ssl_fix_before_venv_ready_message(self):
         """SSL fix runs before the final info message."""
         ssl_idx = self.body.rfind("_fix_macos_ssl_certs")
         ready_idx = self.body.find("Venv ready")
-        assert ssl_idx < ready_idx, (
-            "_fix_macos_ssl_certs must be called before 'Venv ready' message"
-        )
+        assert ssl_idx < ready_idx, "_fix_macos_ssl_certs must be called before 'Venv ready' message"
 
 
 # ---------------------------------------------------------------------------
@@ -231,18 +223,14 @@ class TestFunctionPlacement:
         text = _read_install_sh()
         helper_idx = text.find("_fix_macos_ssl_certs()")
         setup_idx = text.find("setup_venv()")
-        assert helper_idx < setup_idx, (
-            "_fix_macos_ssl_certs must be defined before setup_venv"
-        )
+        assert helper_idx < setup_idx, "_fix_macos_ssl_certs must be defined before setup_venv"
 
     def test_helper_in_venv_setup_section(self):
         """The helper should be in the 'Venv setup' section."""
         text = _read_install_sh()
         section_idx = text.find("Venv setup")
         helper_idx = text.find("_fix_macos_ssl_certs()")
-        assert section_idx < helper_idx, (
-            "_fix_macos_ssl_certs should be in the 'Venv setup' section"
-        )
+        assert section_idx < helper_idx, "_fix_macos_ssl_certs should be in the 'Venv setup' section"
 
 
 # ---------------------------------------------------------------------------
@@ -284,13 +272,11 @@ class TestGitignoreUpdates:
                 comment_idx = i
                 break
         assert comment_idx is not None
-        remaining = self.lines[comment_idx + 1:]
+        remaining = self.lines[comment_idx + 1 :]
         # Filter out blank lines
-        entries = [l for l in remaining if l.strip()]
+        entries = [line for line in remaining if line.strip()]
         expected = {"state/", "config.yaml", "logs/", "run/"}
-        assert expected.issubset(set(entries)), (
-            f"Expected entries {expected} under comment, got {entries}"
-        )
+        assert expected.issubset(set(entries)), f"Expected entries {expected} under comment, got {entries}"
 
     def test_no_duplicate_entries(self):
         """Entries should not appear twice."""

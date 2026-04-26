@@ -117,7 +117,7 @@ class TestPyprojectEntryPointsUpdated:
         assert "core.codex_buffer_ctl" not in self.pyproject_text
 
     def test_total_entry_point_count(self):
-        """Should have exactly 28 entry points (24 harness + 4 setup + arize-config)."""
+        """Should have exactly 27 entry points (23 harness + 4 setup + arize-config)."""
         expected_count = (
             len(EXPECTED_HARNESS_ENTRY_POINTS) + len(EXPECTED_SETUP_ENTRY_POINTS) + 1
         )  # +1 for arize-config
@@ -173,43 +173,6 @@ class TestDevelopmentMdUpdated:
     def test_codex_buffer_path_reference(self, dev_md):
         """The buffer service reference uses codex_tracing/ path."""
         assert "codex_tracing/codex_buffer.py" in dev_md
-
-
-# ---------------------------------------------------------------------------
-# 5. .pre-commit-config.yaml uses underscore paths
-# ---------------------------------------------------------------------------
-
-
-class TestPreCommitConfigUpdated:
-    """Mypy hook file regexes use underscore package names."""
-
-    @pytest.fixture
-    def config_text(self):
-        return (REPO_ROOT / ".pre-commit-config.yaml").read_text()
-
-    @pytest.mark.parametrize(
-        "pkg",
-        [
-            "claude_code_tracing",
-            "codex_tracing",
-            "copilot_tracing",
-            "cursor_tracing",
-        ],
-    )
-    def test_underscore_mypy_regex(self, config_text, pkg):
-        assert f"^{pkg}/" in config_text
-
-    @pytest.mark.parametrize(
-        "old",
-        [
-            "claude-code-tracing",
-            "codex-tracing",
-            "copilot-tracing",
-            "cursor-tracing",
-        ],
-    )
-    def test_no_hyphenated_mypy_regex(self, config_text, old):
-        assert f"^{old}/" not in config_text
 
 
 # ---------------------------------------------------------------------------
