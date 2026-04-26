@@ -147,19 +147,19 @@ def test_install_bat_references_install_py():
 def test_install_sh_harness_dir_mapping():
     """Router must map each harness name to its <harness>-tracing directory."""
     text = INSTALL_SH.read_text()
-    assert "claude-code-tracing" in text
-    assert "codex-tracing" in text
-    assert "copilot-tracing" in text
-    assert "cursor-tracing" in text
+    assert "claude_code_tracing" in text
+    assert "codex_tracing" in text
+    assert "copilot_tracing" in text
+    assert "cursor_tracing" in text
 
 
 def test_install_bat_harness_dir_mapping():
-    """install.bat must map each harness name to its <harness>-tracing directory."""
+    """install.bat must map each harness name to its <harness>_tracing directory."""
     text = INSTALL_BAT.read_text()
-    assert "claude-code-tracing" in text
-    assert "codex-tracing" in text
-    assert "copilot-tracing" in text
-    assert "cursor-tracing" in text
+    assert "claude_code_tracing" in text
+    assert "codex_tracing" in text
+    assert "copilot_tracing" in text
+    assert "cursor_tracing" in text
 
 
 # ---------------------------------------------------------------------------

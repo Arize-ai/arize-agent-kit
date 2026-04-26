@@ -2,7 +2,7 @@
 """Arize Claude Code Plugin - Interactive Setup.
 
 Entry point for ``arize-setup-claude``.  The heavy lifting now lives in
-``claude-code-tracing/install.py``; this module is kept for backwards
+``claude_code_tracing/install.py``; this module is kept for backwards
 compatibility with the existing entry point and for helper functions used
 by tests.
 """
@@ -89,14 +89,12 @@ def main() -> None:
 
 
 def _run() -> None:
-    """Delegate to the new install module in claude-code-tracing/.
+    """Delegate to the install module in claude_code_tracing/.
 
     This replaces the old interactive flow so that ``arize-setup-claude``
     and the installer router share a single code path.
     """
-    plugin_dir = Path(__file__).resolve().parents[2] / "claude-code-tracing"
-    sys.path.insert(0, str(plugin_dir))
-    from install import install
+    from claude_code_tracing.install import install
 
     install(with_skills=False)
 

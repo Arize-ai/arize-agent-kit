@@ -1,30 +1,13 @@
-"""Tests for copilot-tracing/install.py: install and uninstall of Copilot hooks."""
+"""Tests for copilot_tracing/install.py: install and uninstall of Copilot hooks."""
 
 from __future__ import annotations
 
-import importlib.util
 import json
-from pathlib import Path
 
 import pytest
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-
-# ---------------------------------------------------------------------------
-# Import helpers (directory name is hyphenated)
-# ---------------------------------------------------------------------------
-
-
-def _load_module(name: str, filepath: Path):
-    spec = importlib.util.spec_from_file_location(name, filepath)
-    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-    spec.loader.exec_module(mod)  # type: ignore[union-attr]
-    return mod
-
-
-_constants = _load_module("copilot_constants", REPO_ROOT / "copilot-tracing" / "constants.py")
-_install = _load_module("copilot_install", REPO_ROOT / "copilot-tracing" / "install.py")
+import copilot_tracing.install as _install
 
 install = _install.install
 uninstall = _install.uninstall

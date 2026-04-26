@@ -6,19 +6,17 @@ Copilot is dual-mode: VS Code uses per-event JSON files, CLI uses a
 single hooks.json with version: 1.
 
 Usage (called by the shell router):
-    python copilot-tracing/install.py install   [--project NAME]
-    python copilot-tracing/install.py uninstall
+    python copilot_tracing/install.py install   [--project NAME]
+    python copilot_tracing/install.py uninstall
 """
 
 from __future__ import annotations
 
-# The directory is named "copilot-tracing" (hyphenated) so standard Python
-# imports don't work.  Load constants from the sibling file via importlib.
-import importlib.util as _ilu
 import json
 import sys
 from pathlib import Path
 
+from copilot_tracing.constants import CLI_EVENTS, CLI_HOOKS_FILE, HARNESS_NAME, HOOKS_DIR, VSCODE_EVENTS
 from core.config import get_value, load_config
 from core.setup import (
     dry_run,
@@ -33,17 +31,6 @@ from core.setup import (
     venv_bin,
     write_config,
 )
-
-_spec = _ilu.spec_from_file_location("_copilot_constants", Path(__file__).with_name("constants.py"))
-_constants = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
-_spec.loader.exec_module(_constants)  # type: ignore[union-attr]
-
-CLI_EVENTS: dict[str, str] = _constants.CLI_EVENTS
-CLI_HOOKS_FILE: Path = _constants.CLI_HOOKS_FILE
-HARNESS_NAME: str = _constants.HARNESS_NAME
-HOOKS_DIR: Path = _constants.HOOKS_DIR
-VSCODE_EVENTS: dict[str, tuple[str, str]] = _constants.VSCODE_EVENTS
-
 
 # ---------------------------------------------------------------------------
 # JSON helpers

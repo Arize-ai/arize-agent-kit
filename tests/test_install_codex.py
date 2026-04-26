@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -11,21 +10,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
+import codex_tracing.install as codex_install
+
 # ---------------------------------------------------------------------------
-# Helpers to load the install module from a hyphenated directory
+# Import the install module (now a proper Python package)
 # ---------------------------------------------------------------------------
-
-
-def _load_codex_install():
-    """Import codex-tracing/install.py by file path."""
-    install_py = Path(__file__).resolve().parent.parent / "codex-tracing" / "install.py"
-    spec = importlib.util.spec_from_file_location("codex_install", install_py)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-codex_install = _load_codex_install()
 
 
 PHOENIX_BACKEND = ("phoenix", {"endpoint": "http://localhost:6006", "api_key": ""})
@@ -742,13 +731,13 @@ class TestWriteEnvFile:
 
 
 class TestCoreSetupDelegation:
-    """Test that core/setup/codex.py delegates to codex-tracing/install.py."""
+    """Test that core/setup/codex.py delegates to codex_tracing/install.py."""
 
     def test_install_delegates(self, fake_home, mock_buffer, mock_prompts):
         import core.setup.codex as setup_codex
 
         mock_mod = MagicMock()
-        with patch.object(setup_codex, "_get_codex_mod", return_value=mock_mod):
+        with patch.object(setup_codex, "_install_mod", mock_mod):
             setup_codex.install(with_skills=True)
             mock_mod.install.assert_called_once_with(with_skills=True)
 
@@ -756,7 +745,7 @@ class TestCoreSetupDelegation:
         import core.setup.codex as setup_codex
 
         mock_mod = MagicMock()
-        with patch.object(setup_codex, "_get_codex_mod", return_value=mock_mod):
+        with patch.object(setup_codex, "_install_mod", mock_mod):
             setup_codex.uninstall()
             mock_mod.uninstall.assert_called_once()
 

@@ -6,7 +6,7 @@ tests the Python install()/uninstall() functions against a fake home.
 
 The embedded Python JSON-generation functional tests were also removed — the
 logic they tested (VS Code + CLI hooks JSON merging) now lives in
-copilot-tracing/install.py and is exercised by test_install_copilot.py.
+copilot_tracing/install.py and is exercised by test_install_copilot.py.
 """
 
 from pathlib import Path
