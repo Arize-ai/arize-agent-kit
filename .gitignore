@@ -40,3 +40,9 @@ Thumbs.db
 mempalace.yaml
 entities.json
 *.code-workspace
+
+# Runtime artifacts (generated at install/run time, not versioned)
+state/
+config.yaml
+logs/
+run/
