@@ -17,12 +17,10 @@ from __future__ import annotations
 
 import ast
 import importlib
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -92,13 +90,13 @@ class TestPackageImportability:
         assert hasattr(mod, "install")
 
     def test_claude_constants_values(self):
-        from claude_code_tracing.constants import HARNESS_NAME, DISPLAY_NAME
+        from claude_code_tracing.constants import DISPLAY_NAME, HARNESS_NAME
 
         assert HARNESS_NAME == "claude-code"
         assert DISPLAY_NAME == "Claude Code"
 
     def test_codex_constants_values(self):
-        from codex_tracing.constants import HARNESS_NAME, DISPLAY_NAME
+        from codex_tracing.constants import DISPLAY_NAME, HARNESS_NAME
 
         assert HARNESS_NAME == "codex"
         assert DISPLAY_NAME == "Codex CLI"
@@ -109,7 +107,7 @@ class TestPackageImportability:
         assert HARNESS_NAME == "copilot"
 
     def test_cursor_constants_values(self):
-        from cursor_tracing.constants import HARNESS_NAME, DISPLAY_NAME
+        from cursor_tracing.constants import DISPLAY_NAME, HARNESS_NAME
 
         assert HARNESS_NAME == "cursor"
         assert DISPLAY_NAME == "Cursor"
@@ -169,7 +167,10 @@ class TestAbsoluteImports:
     def test_claude_install_imports_from_package(self):
         text = (REPO_ROOT / "claude_code_tracing" / "install.py").read_text()
         assert "from claude_code_tracing.constants import" in text
-        assert "from claude_code_tracing import constants" not in text or "from claude_code_tracing.constants import" in text
+        assert (
+            "from claude_code_tracing import constants" not in text
+            or "from claude_code_tracing.constants import" in text
+        )
 
     def test_codex_install_imports_from_package(self):
         text = (REPO_ROOT / "codex_tracing" / "install.py").read_text()
@@ -215,7 +216,7 @@ class TestSetupDelegation:
 
     def test_claude_setup_imports_directly(self):
         text = (REPO_ROOT / "core" / "setup" / "claude.py").read_text()
-        assert "from claude_code_tracing.install import install" in text
+        assert "from claude_code_tracing import install as _install_mod" in text
 
     def test_codex_setup_install_delegates(self):
         import core.setup.codex as setup_codex
@@ -258,12 +259,13 @@ class TestSetupDelegation:
             mock_mod.install.assert_called_once_with(with_skills=False)
 
     def test_claude_setup_run_delegates(self):
-        """claude.py._run() imports and calls claude_code_tracing.install.install."""
-        with patch("claude_code_tracing.install.install") as mock_install:
-            from core.setup.claude import _run
+        """claude.py._run() delegates to _install_mod.install()."""
+        import core.setup.claude as setup_claude
 
-            _run()
-            mock_install.assert_called_once_with(with_skills=False)
+        mock_mod = MagicMock()
+        with patch.object(setup_claude, "_install_mod", mock_mod):
+            setup_claude._run()
+            mock_mod.install.assert_called_once_with(with_skills=False)
 
 
 # ---------------------------------------------------------------------------
@@ -280,9 +282,9 @@ class TestPyprojectToml:
 
     def test_packages_find_includes_all(self, pyproject_text):
         for pkg in HARNESS_PACKAGES:
-            assert f"{pkg}*" in pyproject_text or f'"{pkg}*"' in pyproject_text, (
-                f"pyproject.toml packages.find must include {pkg}*"
-            )
+            assert (
+                f"{pkg}*" in pyproject_text or f'"{pkg}*"' in pyproject_text
+            ), f"pyproject.toml packages.find must include {pkg}*"
 
     def test_packages_find_includes_core(self, pyproject_text):
         assert "core*" in pyproject_text
@@ -293,10 +295,10 @@ class TestPyprojectToml:
 
     def test_entry_points_unchanged(self, pyproject_text):
         """Entry points still reference core.hooks.* (not moved yet — wave 3)."""
-        assert 'core.hooks.claude.handlers:session_start' in pyproject_text
-        assert 'core.hooks.codex.handlers:notify' in pyproject_text
-        assert 'core.hooks.copilot.handlers:session_start' in pyproject_text
-        assert 'core.hooks.cursor.handlers:main' in pyproject_text
+        assert "core.hooks.claude.handlers:session_start" in pyproject_text
+        assert "core.hooks.codex.handlers:notify" in pyproject_text
+        assert "core.hooks.copilot.handlers:session_start" in pyproject_text
+        assert "core.hooks.cursor.handlers:main" in pyproject_text
 
 
 # ---------------------------------------------------------------------------
@@ -313,9 +315,7 @@ class TestPreCommitConfig:
 
     @pytest.mark.parametrize("pkg", HARNESS_PACKAGES)
     def test_mypy_hook_references_underscore(self, precommit_text, pkg):
-        assert f"^{pkg}/" in precommit_text, (
-            f".pre-commit-config.yaml mypy hook must reference ^{pkg}/"
-        )
+        assert f"^{pkg}/" in precommit_text, f".pre-commit-config.yaml mypy hook must reference ^{pkg}/"
 
     @pytest.mark.parametrize(
         "old_name",
@@ -477,9 +477,9 @@ class TestNoStaleHyphenatedReferences:
             tree = ast.parse(text)
             for node in ast.walk(tree):
                 if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                    assert old not in node.value, (
-                        f"{relpath} contains string literal with old dir name '{old}': {node.value!r}"
-                    )
+                    assert (
+                        old not in node.value
+                    ), f"{relpath} contains string literal with old dir name '{old}': {node.value!r}"
 
     INSTALL_FILES = [
         "claude_code_tracing/install.py",
@@ -492,9 +492,9 @@ class TestNoStaleHyphenatedReferences:
     def test_install_files_no_hyphenated_imports(self, relpath):
         """Install files should not import from hyphenated module names."""
         text = (REPO_ROOT / relpath).read_text()
-        assert "import constants" not in text or "from" in text.split("import constants")[0].split("\n")[-1], (
-            f"{relpath} has bare 'import constants' (should use absolute import)"
-        )
+        assert (
+            "import constants" not in text or "from" in text.split("import constants")[0].split("\n")[-1]
+        ), f"{relpath} has bare 'import constants' (should use absolute import)"
 
 
 # ---------------------------------------------------------------------------

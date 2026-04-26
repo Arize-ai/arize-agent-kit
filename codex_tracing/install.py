@@ -16,6 +16,7 @@ import re
 import sys
 from pathlib import Path
 
+from codex_tracing.constants import OTEL_ENDPOINT  # noqa: F401 — re-exported for backwards compat
 from codex_tracing.constants import (
     BUFFER_PORT,
     CODEX_CONFIG_DIR,

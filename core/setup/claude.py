@@ -13,6 +13,7 @@ import json
 import sys
 from pathlib import Path
 
+from claude_code_tracing import install as _install_mod
 from core.setup import print_color
 
 # ---------------------------------------------------------------------------
@@ -94,9 +95,7 @@ def _run() -> None:
     This replaces the old interactive flow so that ``arize-setup-claude``
     and the installer router share a single code path.
     """
-    from claude_code_tracing.install import install
-
-    install(with_skills=False)
+    _install_mod.install(with_skills=False)
 
 
 if __name__ == "__main__":
