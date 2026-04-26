@@ -184,6 +184,14 @@ setup_venv() {
             return 1
         }
     fi
+    if venv_python &>/dev/null \
+        && [[ -x "${VENV_DIR}/bin/arize-codex-buffer" ]]; then
+            info "Venv already has required packages"
+            local pip
+            pip=$(venv_pip 2>/dev/null) || true
+            [[ "$(uname)" == "Darwin" && -n "$pip" ]] && _fix_macos_ssl_certs "$pip"
+            return 0
+    fi
     local pip; pip=$(venv_pip) || { err "pip not found in venv"; return 1; }
     info "Installing arize-agent-kit into venv..."
     "$pip" install --quiet "$INSTALL_DIR" 2>/dev/null || { err "Failed to install arize-agent-kit package"; return 1; }
