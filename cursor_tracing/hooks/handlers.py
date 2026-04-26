@@ -11,7 +11,7 @@ import json
 import sys
 
 from core.common import build_span, env, error, get_timestamp_ms, log, send_span
-from core.hooks.cursor.adapter import (
+from cursor_tracing.hooks.adapter import (
     SCOPE_NAME,
     SERVICE_NAME,
     check_requirements,
