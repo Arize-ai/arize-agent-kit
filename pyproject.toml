@@ -55,11 +55,11 @@ arize-setup-cursor = "core.setup.cursor:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=core --cov-report=term-missing --cov-report=xml"
+addopts = "--cov=core --cov=claude_code_tracing --cov=codex_tracing --cov=copilot_tracing --cov=cursor_tracing --cov-report=term-missing --cov-report=xml"
 markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 
 [tool.coverage.run]
-source = ["core"]
+source = ["core", "claude_code_tracing", "codex_tracing", "copilot_tracing", "cursor_tracing"]
 omit = [
     "codex_tracing/codex_buffer.py",
 ]

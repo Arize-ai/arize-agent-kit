@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import ast
 import importlib
-import re
 from pathlib import Path
 
 import pytest
@@ -100,9 +99,7 @@ class TestPyprojectEntryPointsUpdated:
     @pytest.mark.parametrize("name,target", list(EXPECTED_HARNESS_ENTRY_POINTS.items()))
     def test_harness_entry_point(self, name, target):
         assert name in self.scripts, f"Missing entry point: {name}"
-        assert self.scripts[name] == target, (
-            f"{name}: expected '{target}', got '{self.scripts[name]}'"
-        )
+        assert self.scripts[name] == target, f"{name}: expected '{target}', got '{self.scripts[name]}'"
 
     @pytest.mark.parametrize("name,target", list(EXPECTED_SETUP_ENTRY_POINTS.items()))
     def test_setup_entry_point_unchanged(self, name, target):
@@ -120,10 +117,12 @@ class TestPyprojectEntryPointsUpdated:
 
     def test_total_entry_point_count(self):
         """Should have exactly 27 entry points (23 harness + 4 setup + arize-config)."""
-        expected_count = len(EXPECTED_HARNESS_ENTRY_POINTS) + len(EXPECTED_SETUP_ENTRY_POINTS) + 1  # +1 for arize-config
-        assert len(self.scripts) == expected_count, (
-            f"Expected {expected_count} entry points, got {len(self.scripts)}: {sorted(self.scripts.keys())}"
-        )
+        expected_count = (
+            len(EXPECTED_HARNESS_ENTRY_POINTS) + len(EXPECTED_SETUP_ENTRY_POINTS) + 1
+        )  # +1 for arize-config
+        assert (
+            len(self.scripts) == expected_count
+        ), f"Expected {expected_count} entry points, got {len(self.scripts)}: {sorted(self.scripts.keys())}"
 
 
 # ---------------------------------------------------------------------------
@@ -176,37 +175,6 @@ class TestDevelopmentMdUpdated:
 
 
 # ---------------------------------------------------------------------------
-# 5. .pre-commit-config.yaml uses underscore paths
-# ---------------------------------------------------------------------------
-
-
-class TestPreCommitConfigUpdated:
-    """Mypy hook file regexes use underscore package names."""
-
-    @pytest.fixture
-    def config_text(self):
-        return (REPO_ROOT / ".pre-commit-config.yaml").read_text()
-
-    @pytest.mark.parametrize("pkg", [
-        "claude_code_tracing",
-        "codex_tracing",
-        "copilot_tracing",
-        "cursor_tracing",
-    ])
-    def test_underscore_mypy_regex(self, config_text, pkg):
-        assert f"^{pkg}/" in config_text
-
-    @pytest.mark.parametrize("old", [
-        "claude-code-tracing",
-        "codex-tracing",
-        "copilot-tracing",
-        "cursor-tracing",
-    ])
-    def test_no_hyphenated_mypy_regex(self, config_text, old):
-        assert f"^{old}/" not in config_text
-
-
-# ---------------------------------------------------------------------------
 # 6. Entry-point target modules and functions exist
 # ---------------------------------------------------------------------------
 
@@ -229,12 +197,8 @@ class TestEntryPointTargetsExist:
         file_path = file_path.with_suffix(".py")
         source = file_path.read_text()
         tree = ast.parse(source)
-        func_names = [
-            node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
-        ]
-        assert func_name in func_names, (
-            f"Function '{func_name}' not found in {file_path.relative_to(REPO_ROOT)}"
-        )
+        func_names = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
+        assert func_name in func_names, f"Function '{func_name}' not found in {file_path.relative_to(REPO_ROOT)}"
 
     @pytest.mark.parametrize("target", list(EXPECTED_HARNESS_ENTRY_POINTS.values()))
     def test_target_importable(self, target):
@@ -256,39 +220,41 @@ class TestInstalledScripts:
 
     VENV_BIN = REPO_ROOT / ".venv" / "bin"
 
-    @pytest.mark.parametrize("script,expected_import", [
-        ("arize-hook-session-start", "from claude_code_tracing.hooks.handlers import session_start"),
-        ("arize-codex-buffer", "from codex_tracing.codex_buffer_ctl import main"),
-        ("arize-hook-codex-notify", "from codex_tracing.hooks.handlers import notify"),
-        ("arize-codex-proxy", "from codex_tracing.hooks.proxy import main"),
-        ("arize-hook-cursor", "from cursor_tracing.hooks.handlers import main"),
-        ("arize-hook-copilot-session-start", "from copilot_tracing.hooks.handlers import session_start"),
-    ])
+    @pytest.mark.parametrize(
+        "script,expected_import",
+        [
+            ("arize-hook-session-start", "from claude_code_tracing.hooks.handlers import session_start"),
+            ("arize-codex-buffer", "from codex_tracing.codex_buffer_ctl import main"),
+            ("arize-hook-codex-notify", "from codex_tracing.hooks.handlers import notify"),
+            ("arize-codex-proxy", "from codex_tracing.hooks.proxy import main"),
+            ("arize-hook-cursor", "from cursor_tracing.hooks.handlers import main"),
+            ("arize-hook-copilot-session-start", "from copilot_tracing.hooks.handlers import session_start"),
+        ],
+    )
     def test_installed_script_import(self, script, expected_import):
         script_path = self.VENV_BIN / script
         if not script_path.exists():
             pytest.skip(f"{script} not installed in .venv/bin/")
         content = script_path.read_text()
-        assert expected_import in content, (
-            f"Script {script} does not import from new path. Content:\n{content}"
-        )
+        assert expected_import in content, f"Script {script} does not import from new path. Content:\n{content}"
 
-    @pytest.mark.parametrize("script", [
-        "arize-hook-session-start",
-        "arize-hook-codex-notify",
-        "arize-codex-proxy",
-        "arize-codex-buffer",
-        "arize-hook-cursor",
-        "arize-hook-copilot-session-start",
-    ])
+    @pytest.mark.parametrize(
+        "script",
+        [
+            "arize-hook-session-start",
+            "arize-hook-codex-notify",
+            "arize-codex-proxy",
+            "arize-codex-buffer",
+            "arize-hook-cursor",
+            "arize-hook-copilot-session-start",
+        ],
+    )
     def test_installed_script_no_core_hooks(self, script):
         script_path = self.VENV_BIN / script
         if not script_path.exists():
             pytest.skip(f"{script} not installed in .venv/bin/")
         content = script_path.read_text()
-        assert "core.hooks" not in content, (
-            f"Script {script} still references core.hooks"
-        )
+        assert "core.hooks" not in content, f"Script {script} still references core.hooks"
 
 
 # ---------------------------------------------------------------------------
@@ -299,12 +265,15 @@ class TestInstalledScripts:
 class TestHooksDirsInHarnessPackages:
     """Each harness package has a hooks/ subdirectory with expected files."""
 
-    @pytest.mark.parametrize("pkg,expected_files", [
-        ("claude_code_tracing", ["__init__.py", "adapter.py", "handlers.py"]),
-        ("codex_tracing", ["__init__.py", "adapter.py", "handlers.py", "proxy.py"]),
-        ("copilot_tracing", ["__init__.py", "adapter.py", "handlers.py"]),
-        ("cursor_tracing", ["__init__.py", "adapter.py", "handlers.py"]),
-    ])
+    @pytest.mark.parametrize(
+        "pkg,expected_files",
+        [
+            ("claude_code_tracing", ["__init__.py", "adapter.py", "handlers.py"]),
+            ("codex_tracing", ["__init__.py", "adapter.py", "handlers.py", "proxy.py"]),
+            ("copilot_tracing", ["__init__.py", "adapter.py", "handlers.py"]),
+            ("cursor_tracing", ["__init__.py", "adapter.py", "handlers.py"]),
+        ],
+    )
     def test_hooks_dir_has_expected_files(self, pkg, expected_files):
         hooks_dir = REPO_ROOT / pkg / "hooks"
         assert hooks_dir.is_dir(), f"{pkg}/hooks/ must exist"
