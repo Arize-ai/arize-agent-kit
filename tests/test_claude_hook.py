@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for claude_code_tracing.hooks.handlers — the 9 Claude Code hook handlers."""
+"""Tests for claude_code_tracing.hooks.handlers — the 10 Claude Code hook handlers."""
 
 import json
 import sys
@@ -16,6 +16,7 @@ from claude_code_tracing.hooks.handlers import (
     _handle_session_end,
     _handle_session_start,
     _handle_stop,
+    _handle_stop_failure,
     _handle_subagent_stop,
     _handle_user_prompt_submit,
     _read_stdin,
@@ -26,6 +27,7 @@ from claude_code_tracing.hooks.handlers import (
     session_end,
     session_start,
     stop,
+    stop_failure,
     subagent_stop,
     user_prompt_submit,
 )
@@ -331,7 +333,10 @@ class TestStop:
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "fix the bug")
         state.set("trace_start_line", "0")
-        _handle_stop({"transcript_path": transcript_file})
+        with mock.patch(
+            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+        ):
+            _handle_stop({})
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
@@ -355,7 +360,8 @@ class TestStop:
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "test")
         state.set("trace_start_line", "0")
-        _handle_stop({"transcript_path": str(tf)})
+        with mock.patch("claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=tf):
+            _handle_stop({})
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
         assert attrs["output.value"]["stringValue"] == "Hello from string format"
@@ -367,7 +373,10 @@ class TestStop:
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "fix the bug")
         state.set("trace_start_line", "0")
-        _handle_stop({"transcript_path": transcript_file})
+        with mock.patch(
+            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+        ):
+            _handle_stop({})
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
         # input_tokens=100, cache_read=10, cache_creation=5 → 115 prompt
@@ -385,19 +394,23 @@ class TestStop:
         state.set("current_trace_prompt", "test")
         # Set start_line past all entries (3 lines in fixture)
         state.set("trace_start_line", "3")
-        _handle_stop({"transcript_path": transcript_file})
+        with mock.patch(
+            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+        ):
+            _handle_stop({})
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
         assert attrs["output.value"]["stringValue"] == "(No response)"
 
     def test_no_transcript_file(self, mock_resolve, state, captured_spans):
-        """No transcript file → output is '(No response)'."""
+        """No transcript file and no last_assistant_message → output is '(No response)'."""
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "test")
         state.set("trace_start_line", "0")
-        _handle_stop({"transcript_path": "/nonexistent/file.jsonl"})
+        with mock.patch("claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=None):
+            _handle_stop({})
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
         assert attrs["output.value"]["stringValue"] == "(No response)"
@@ -409,7 +422,10 @@ class TestStop:
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "fix the bug")
         state.set("trace_start_line", "0")
-        _handle_stop({"transcript_path": transcript_file})
+        with mock.patch(
+            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+        ):
+            _handle_stop({})
         assert state.get("current_trace_id") is None
         assert state.get("current_trace_span_id") is None
         assert state.get("current_trace_start_time") is None
@@ -451,7 +467,10 @@ class TestStop:
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "fix the bug")
         state.set("trace_start_line", "0")
-        _handle_stop({"transcript_path": transcript_file})
+        with mock.patch(
+            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+        ):
+            _handle_stop({})
 
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
@@ -465,6 +484,69 @@ class TestStop:
         assert attrs["output.value"]["stringValue"] == "I found the issue."
         # Model
         assert attrs["llm.model_name"]["stringValue"] == "claude-sonnet-4-20250514"
+
+    def test_stop_uses_last_assistant_message(self, mock_resolve, state, captured_spans):
+        """Stop prefers last_assistant_message from input when present."""
+        state.set("current_trace_id", "t" * 32)
+        state.set("current_trace_span_id", "s" * 16)
+        state.set("current_trace_start_time", "1000")
+        state.set("current_trace_prompt", "test")
+        with mock.patch("claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=None):
+            _handle_stop({"last_assistant_message": "hello world"})
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["output.value"]["stringValue"] == "hello world"
+
+    def test_stop_falls_back_to_no_response_when_no_input(self, mock_resolve, state, captured_spans):
+        """No last_assistant_message and no transcript → (No response)."""
+        state.set("current_trace_id", "t" * 32)
+        state.set("current_trace_span_id", "s" * 16)
+        state.set("current_trace_start_time", "1000")
+        state.set("current_trace_prompt", "test")
+        with mock.patch("claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=None):
+            _handle_stop({})
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["output.value"]["stringValue"] == "(No response)"
+
+    def test_stop_extracts_tokens_from_transcript_with_last_msg(
+        self, mock_resolve, state, captured_spans, transcript_file
+    ):
+        """Token counts come from transcript even when last_assistant_message is set."""
+        state.set("current_trace_id", "t" * 32)
+        state.set("current_trace_span_id", "s" * 16)
+        state.set("current_trace_start_time", "1000")
+        state.set("current_trace_prompt", "test")
+        state.set("trace_start_line", "0")
+        with mock.patch(
+            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+        ):
+            _handle_stop({"last_assistant_message": "overridden text"})
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        # Output comes from last_assistant_message
+        assert attrs["output.value"]["stringValue"] == "overridden text"
+        # Token counts still come from the transcript
+        assert attrs["llm.token_count.prompt"]["intValue"] == 115
+        assert attrs["llm.token_count.completion"]["intValue"] == 50
+
+    def test_stop_uses_transcript_text_when_last_assistant_message_missing(
+        self, mock_resolve, state, captured_spans, transcript_file
+    ):
+        """When last_assistant_message is absent, output comes from transcript scan."""
+        state.set("current_trace_id", "t" * 32)
+        state.set("current_trace_span_id", "s" * 16)
+        state.set("current_trace_start_time", "1000")
+        state.set("current_trace_prompt", "test")
+        state.set("trace_start_line", "0")
+        with mock.patch(
+            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+        ):
+            _handle_stop({})
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["output.value"]["stringValue"] == "I found the issue."
 
 
 # ---------------------------------------------------------------------------
@@ -490,13 +572,16 @@ class TestSubagentStop:
         """Parses subagent transcript same as stop."""
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
-        _handle_subagent_stop(
-            {
-                "agent_type": "code-review",
-                "agent_id": "agent-1",
-                "agent_transcript_path": transcript_file,
-            }
-        )
+        with mock.patch(
+            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+        ):
+            _handle_subagent_stop(
+                {
+                    "agent_type": "code-review",
+                    "agent_id": "agent-1",
+                    "agent_transcript_path": transcript_file,
+                }
+            )
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
@@ -514,14 +599,17 @@ class TestSubagentStop:
         mock_stat.st_birthtime = 1700000.0  # seconds → 1700000000 ms
         mock_stat.st_mode = real_stat.st_mode
 
-        with mock.patch.object(Path, "stat", return_value=mock_stat):
-            _handle_subagent_stop(
-                {
-                    "agent_type": "explorer",
-                    "agent_id": "a2",
-                    "agent_transcript_path": transcript_file,
-                }
-            )
+        with mock.patch(
+            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+        ):
+            with mock.patch.object(Path, "stat", return_value=mock_stat):
+                _handle_subagent_stop(
+                    {
+                        "agent_type": "explorer",
+                        "agent_id": "a2",
+                        "agent_transcript_path": transcript_file,
+                    }
+                )
 
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["startTimeUnixNano"] == "1700000000000000"  # 1700000000 ms -> ns
@@ -540,14 +628,17 @@ class TestSubagentStop:
             st_size = real_stat.st_size
             st_ctime = 1600000.0
 
-        with mock.patch.object(Path, "stat", return_value=FakeStat()):
-            _handle_subagent_stop(
-                {
-                    "agent_type": "explorer",
-                    "agent_id": "a3",
-                    "agent_transcript_path": transcript_file,
-                }
-            )
+        with mock.patch(
+            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+        ):
+            with mock.patch.object(Path, "stat", return_value=FakeStat()):
+                _handle_subagent_stop(
+                    {
+                        "agent_type": "explorer",
+                        "agent_id": "a3",
+                        "agent_transcript_path": transcript_file,
+                    }
+                )
 
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["startTimeUnixNano"] == "1600000000000000"
@@ -556,6 +647,118 @@ class TestSubagentStop:
         """No current_trace_id → returns without sending."""
         _handle_subagent_stop({"agent_type": "explorer"})
         assert len(captured_spans) == 0
+
+    def test_subagent_stop_always_sets_output_value(self, mock_resolve, state, captured_spans):
+        """Regression: output.value is always set, even when empty (was conditional)."""
+        state.set("current_trace_id", "t" * 32)
+        state.set("current_trace_span_id", "s" * 16)
+        with mock.patch("claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=None):
+            _handle_subagent_stop(
+                {
+                    "agent_type": "explorer",
+                    "agent_id": "a4",
+                    "last_assistant_message": "",
+                }
+            )
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert "output.value" in attrs
+        assert attrs["output.value"]["stringValue"] == "(No response)"
+
+    def test_subagent_stop_prefers_agent_transcript_path(self, mock_resolve, state, captured_spans, tmp_path):
+        """When both transcript_path and agent_transcript_path are in input, resolver prefers agent_transcript_path."""
+        # Create agent transcript with distinct token counts
+        agent_tf = tmp_path / "agent_transcript.jsonl"
+        entry = {
+            "message": {
+                "role": "assistant",
+                "content": "agent output",
+                "model": "claude-test",
+                "usage": {"input_tokens": 77, "output_tokens": 33},
+            }
+        }
+        agent_tf.write_text(json.dumps(entry) + "\n")
+
+        state.set("current_trace_id", "t" * 32)
+        state.set("current_trace_span_id", "s" * 16)
+        with mock.patch("claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=agent_tf):
+            _handle_subagent_stop(
+                {
+                    "agent_type": "explorer",
+                    "agent_id": "a5",
+                    "agent_transcript_path": str(agent_tf),
+                    "transcript_path": "/other/main_transcript.jsonl",
+                }
+            )
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["llm.token_count.prompt"]["intValue"] == 77
+        assert attrs["llm.token_count.completion"]["intValue"] == 33
+
+
+# ---------------------------------------------------------------------------
+# stop_failure tests
+# ---------------------------------------------------------------------------
+
+
+class TestStopFailure:
+
+    def test_stop_failure_sends_error_span(self, mock_resolve, state, captured_spans):
+        """StopFailure sends a span with error attributes."""
+        state.set("current_trace_id", "t" * 32)
+        state.set("current_trace_span_id", "s" * 16)
+        state.set("current_trace_start_time", "1000")
+        state.set("current_trace_prompt", "test")
+        _handle_stop_failure(
+            {
+                "error": "rate_limit",
+                "error_details": "429",
+                "last_assistant_message": "API Error: Rate limit reached",
+            }
+        )
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["error.type"]["stringValue"] == "rate_limit"
+        assert attrs["error.message"]["stringValue"] == "429"
+        assert attrs["output.value"]["stringValue"] == "API Error: Rate limit reached"
+        assert "(failed)" in span["name"]
+
+    def test_stop_failure_returns_early_without_trace_state(self, mock_resolve, state, captured_spans):
+        """No current_trace_id → returns without sending."""
+        _handle_stop_failure(
+            {
+                "error": "rate_limit",
+                "error_details": "429",
+                "last_assistant_message": "API Error",
+            }
+        )
+        assert len(captured_spans) == 0
+
+    def test_stop_failure_fallback_output(self, mock_resolve, state, captured_spans):
+        """When last_assistant_message is empty, output falls back to error description."""
+        state.set("current_trace_id", "t" * 32)
+        state.set("current_trace_span_id", "s" * 16)
+        state.set("current_trace_start_time", "1000")
+        state.set("current_trace_prompt", "test")
+        _handle_stop_failure({"error": "timeout", "error_details": "timed out"})
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["output.value"]["stringValue"] == "(Stop failed: timeout)"
+
+    def test_stop_failure_cleans_up_state(self, mock_resolve, state, captured_spans):
+        """StopFailure cleans up trace state like Stop does."""
+        state.set("current_trace_id", "t" * 32)
+        state.set("current_trace_span_id", "s" * 16)
+        state.set("current_trace_start_time", "1000")
+        state.set("current_trace_prompt", "test")
+        state.set("trace_start_line", "0")
+        _handle_stop_failure({"error": "crash", "error_details": "segfault"})
+        assert state.get("current_trace_id") is None
+        assert state.get("current_trace_span_id") is None
+        assert state.get("current_trace_start_time") is None
+        assert state.get("current_trace_prompt") is None
 
 
 # ---------------------------------------------------------------------------
@@ -734,6 +937,7 @@ ENTRY_POINTS = [
     ("user_prompt_submit", user_prompt_submit, "_handle_user_prompt_submit"),
     ("stop", stop, "_handle_stop"),
     ("subagent_stop", subagent_stop, "_handle_subagent_stop"),
+    ("stop_failure", stop_failure, "_handle_stop_failure"),
     ("notification", notification, "_handle_notification"),
     ("permission_request", permission_request, "_handle_permission_request"),
     ("session_end", session_end, "_handle_session_end"),

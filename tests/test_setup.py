@@ -521,7 +521,7 @@ class TestClaudeSetup:
         result = json.loads(settings_file.read_text())
         assert result["env"]["ARIZE_TRACE_ENABLED"] == "true"
         assert result["env"]["ARIZE_PROJECT_NAME"] == "claude-code"
-        assert len(result.get("hooks", {})) == 9
+        assert len(result.get("hooks", {})) == 10
 
     def test_run_arize_flow(self, tmp_path, monkeypatch):
         """Full Claude _run() flow for Arize AX backend."""
@@ -543,7 +543,7 @@ class TestClaudeSetup:
         # settings.json should have hooks and env vars
         result = json.loads(settings_file.read_text())
         assert result["env"]["ARIZE_TRACE_ENABLED"] == "true"
-        assert len(result.get("hooks", {})) == 9
+        assert len(result.get("hooks", {})) == 10
         assert config["user_id"] == "alice"
 
 

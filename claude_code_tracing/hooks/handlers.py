@@ -15,6 +15,7 @@ from claude_code_tracing.hooks.adapter import (
     ensure_session_initialized,
     gc_stale_state_files,
     resolve_session,
+    resolve_transcript_path,
 )
 from core.common import build_span, error, generate_span_id, generate_trace_id, get_timestamp_ms, log, send_span
 
@@ -195,8 +196,61 @@ def _handle_user_prompt_submit(input_json: dict) -> None:
         state.set("trace_start_line", "0")
 
 
+def _scan_transcript_for_usage(
+    transcript: Path,
+    start_line: int,
+) -> "tuple[str, int, int, str]":
+    """Walk the transcript JSONL from *start_line* forward and return:
+    (combined_text, in_tokens, out_tokens, model_name)
+    """
+    output = ""
+    in_tokens = 0
+    out_tokens = 0
+    model = ""
+
+    with open(transcript) as f:
+        for i, line in enumerate(f):
+            if i < start_line:
+                continue
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            msg = entry.get("message")
+            if not isinstance(msg, dict) or msg.get("role") != "assistant":
+                continue
+
+            content = msg.get("content")
+            if isinstance(content, list):
+                text = "\n".join(
+                    item.get("text", "") for item in content if isinstance(item, dict) and item.get("type") == "text"
+                )
+            elif isinstance(content, str):
+                text = content
+            else:
+                text = ""
+            if text:
+                output = f"{output}\n{text}" if output else text
+
+            model = msg.get("model", "") or model
+
+            usage = msg.get("usage", {})
+            for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
+                val = usage.get(key, 0)
+                if isinstance(val, int):
+                    in_tokens += val
+            val = usage.get("output_tokens", 0)
+            if isinstance(val, int):
+                out_tokens += val
+
+    return output, in_tokens, out_tokens, model
+
+
 def _handle_stop(input_json: dict) -> None:
-    """Handle stop: parse transcript and send LLM span for the completed turn."""
+    """Handle Stop: send the LLM span for the completed turn and clean up trace state."""
     state = resolve_session(input_json)
     session_id = state.get("session_id")
     trace_id = state.get("current_trace_id")
@@ -210,55 +264,26 @@ def _handle_stop(input_json: dict) -> None:
     trace_count = state.get("trace_count") or "0"
     user_id = state.get("user_id") or ""
 
-    # Parse transcript
-    transcript_path = input_json.get("transcript_path", "")
-    output = ""
-    model = ""
+    # Claude Code v2 ships the assistant's final text directly.  Earlier versions
+    # didn't, so we still scan the transcript when last_assistant_message is empty.
+    last_msg = input_json.get("last_assistant_message", "") or ""
+    output = last_msg
+
     in_tokens = 0
     out_tokens = 0
+    model = ""
 
-    if transcript_path and Path(transcript_path).is_file():
+    transcript = resolve_transcript_path(input_json, session_id)
+    if transcript is not None:
         start_line = int(state.get("trace_start_line") or "0")
-        with open(transcript_path) as f:
-            for i, line in enumerate(f):
-                if i < start_line:
-                    continue
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if entry.get("message", {}).get("role") != "assistant":
-                    continue
-                # Extract text from message.content
-                content = entry.get("message", {}).get("content")
-                if isinstance(content, list):
-                    text = "\n".join(
-                        item.get("text", "")
-                        for item in content
-                        if isinstance(item, dict) and item.get("type") == "text"
-                    )
-                elif isinstance(content, str):
-                    text = content
-                else:
-                    text = ""
-                if text:
-                    output = f"{output}\n{text}" if output else text
-                # Extract model
-                model = entry.get("message", {}).get("model", "") or model
-                # Accumulate tokens
-                usage = entry.get("message", {}).get("usage", {})
-                for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
-                    val = usage.get(key, 0)
-                    if isinstance(val, int):
-                        in_tokens += val
-                val = usage.get("output_tokens", 0)
-                if isinstance(val, int):
-                    out_tokens += val
+        scanned_output, in_tokens, out_tokens, scanned_model = _scan_transcript_for_usage(transcript, start_line)
+        if not output:
+            output = scanned_output
+        model = scanned_model
 
-    output = output or "(No response)"
+    if not output:
+        output = "(No response)"
+
     total_tokens = in_tokens + out_tokens
 
     # Build and send LLM span
@@ -298,6 +323,7 @@ def _handle_stop(input_json: dict) -> None:
     state.delete("current_trace_span_id")
     state.delete("current_trace_start_time")
     state.delete("current_trace_prompt")
+    state.delete("trace_start_line")
 
     # Periodic GC
     try:
@@ -326,16 +352,18 @@ def _handle_subagent_stop(input_json: dict) -> None:
     end_time = str(get_timestamp_ms())
     parent = state.get("current_trace_span_id")
 
-    # Parse subagent transcript
-    output = ""
+    # Claude Code v2 ships the assistant's final text directly.
+    last_msg = input_json.get("last_assistant_message", "") or ""
+    output = last_msg
+
     model = ""
     in_tokens = 0
     out_tokens = 0
     start_time = end_time
 
-    transcript_path = input_json.get("agent_transcript_path", "")
-    if transcript_path and Path(transcript_path).is_file():
-        p = Path(transcript_path)
+    transcript = resolve_transcript_path(input_json, session_id or "")
+    if transcript is not None:
+        p = Path(transcript)
         # Get file creation time for start_time
         st = p.stat()
         # st_birthtime is macOS/BSD only; fall back to ctime elsewhere.
@@ -343,40 +371,13 @@ def _handle_subagent_stop(input_json: dict) -> None:
         start_ms = int(birth * 1000)
         start_time = str(start_ms)
 
-        # Parse JSONL
-        with open(transcript_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if entry.get("message", {}).get("role") != "assistant":
-                    continue
-                content = entry.get("message", {}).get("content")
-                if isinstance(content, list):
-                    text = "\n".join(
-                        item.get("text", "")
-                        for item in content
-                        if isinstance(item, dict) and item.get("type") == "text"
-                    )
-                elif isinstance(content, str):
-                    text = content
-                else:
-                    text = ""
-                if text:
-                    output = f"{output}\n{text}" if output else text
-                model = entry.get("message", {}).get("model", "") or model
-                usage = entry.get("message", {}).get("usage", {})
-                for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
-                    val = usage.get(key, 0)
-                    if isinstance(val, int):
-                        in_tokens += val
-                val = usage.get("output_tokens", 0)
-                if isinstance(val, int):
-                    out_tokens += val
+        scanned_output, in_tokens, out_tokens, scanned_model = _scan_transcript_for_usage(transcript, 0)
+        if not output:
+            output = scanned_output
+        model = scanned_model
+
+    if not output:
+        output = "(No response)"
 
     total_tokens = in_tokens + out_tokens
 
@@ -390,9 +391,8 @@ def _handle_subagent_stop(input_json: dict) -> None:
         "llm.token_count.prompt": in_tokens,
         "llm.token_count.completion": out_tokens,
         "llm.token_count.total": total_tokens,
+        "output.value": output,
     }
-    if output:
-        attrs["output.value"] = output
     user_id = state.get("user_id") or ""
     if user_id:
         attrs["user.id"] = user_id
@@ -410,6 +410,63 @@ def _handle_subagent_stop(input_json: dict) -> None:
         SCOPE_NAME,
     )
     send_span(span)
+
+
+def _handle_stop_failure(input_json: dict) -> None:
+    """Handle StopFailure: emit a span describing the failed turn so it doesn't disappear silently."""
+    state = resolve_session(input_json)
+    session_id = state.get("session_id")
+    trace_id = state.get("current_trace_id")
+    if session_id is None or trace_id is None:
+        return
+
+    trace_span_id = state.get("current_trace_span_id") or generate_span_id()
+    trace_start_time = state.get("current_trace_start_time") or str(get_timestamp_ms())
+    user_prompt = state.get("current_trace_prompt") or ""
+    project_name = state.get("project_name") or ""
+    trace_count = state.get("trace_count") or "0"
+    user_id = state.get("user_id") or ""
+
+    error_type = input_json.get("error", "") or ""
+    error_details = input_json.get("error_details", "") or ""
+    last_msg = input_json.get("last_assistant_message", "") or ""
+
+    output_text = last_msg or f"(Stop failed: {error_type})"
+    output_messages = [{"message.role": "assistant", "message.content": output_text}]
+
+    attrs = {
+        "session.id": session_id,
+        "trace.number": trace_count,
+        "project.name": project_name,
+        "openinference.span.kind": "LLM",
+        "input.value": user_prompt,
+        "output.value": output_text,
+        "llm.output_messages": json.dumps(output_messages),
+        "error.type": error_type,
+        "error.message": error_details,
+    }
+    if user_id:
+        attrs["user.id"] = user_id
+
+    span = build_span(
+        f"Turn {trace_count} (failed)",
+        "LLM",
+        trace_span_id,
+        trace_id,
+        "",
+        trace_start_time,
+        str(get_timestamp_ms()),
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
+    )
+    send_span(span)
+
+    state.delete("current_trace_id")
+    state.delete("current_trace_span_id")
+    state.delete("current_trace_start_time")
+    state.delete("current_trace_prompt")
+    state.delete("trace_start_line")
 
 
 def _handle_notification(input_json: dict) -> None:
@@ -587,6 +644,17 @@ def subagent_stop():
         _handle_subagent_stop(input_json)
     except Exception as e:
         error(f"subagent_stop hook failed: {e}")
+
+
+def stop_failure():
+    """Entry point for arize-hook-stop-failure."""
+    try:
+        if not check_requirements():
+            return
+        input_json = _read_stdin()
+        _handle_stop_failure(input_json)
+    except Exception as e:
+        error(f"stop_failure hook failed: {e}")
 
 
 def notification():

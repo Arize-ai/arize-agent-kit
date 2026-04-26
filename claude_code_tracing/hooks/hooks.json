@@ -60,6 +60,16 @@
         ]
       }
     ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/run-hook\" arize-hook-stop-failure"
+          }
+        ]
+      }
+    ],
     "Notification": [
       {
         "hooks": [

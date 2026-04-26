@@ -17,6 +17,7 @@ HOOK_EVENTS = {
     "PostToolUse": "arize-hook-post-tool-use",
     "Stop": "arize-hook-stop",
     "SubagentStop": "arize-hook-subagent-stop",
+    "StopFailure": "arize-hook-stop-failure",
     "Notification": "arize-hook-notification",
     "PermissionRequest": "arize-hook-permission-request",
     "SessionEnd": "arize-hook-session-end",

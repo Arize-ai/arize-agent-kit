@@ -127,7 +127,7 @@ class TestFreshInstall:
         assert settings["plugins"][0]["type"] == "local"
 
         hooks = settings.get("hooks", {})
-        assert len(hooks) == 9
+        assert len(hooks) == 10
 
         env = settings.get("env", {})
         assert env.get("ARIZE_TRACE_ENABLED") == "true"

@@ -272,6 +272,7 @@ After `pip install .`, the following commands are available:
 | `arize-hook-user-prompt-submit` | `claude_code_tracing.hooks.handlers:user_prompt_submit` | Claude UserPromptSubmit hook |
 | `arize-hook-stop` | `claude_code_tracing.hooks.handlers:stop` | Claude Stop hook |
 | `arize-hook-subagent-stop` | `claude_code_tracing.hooks.handlers:subagent_stop` | Claude SubagentStop hook |
+| `arize-hook-stop-failure` | `claude_code_tracing.hooks.handlers:stop_failure` | Claude StopFailure hook |
 | `arize-hook-notification` | `claude_code_tracing.hooks.handlers:notification` | Claude Notification hook |
 | `arize-hook-permission-request` | `claude_code_tracing.hooks.handlers:permission_request` | Claude PermissionRequest hook |
 | `arize-hook-session-end` | `claude_code_tracing.hooks.handlers:session_end` | Claude SessionEnd hook |
