@@ -16,6 +16,7 @@ import re
 import sys
 from pathlib import Path
 
+from codex_tracing.codex_buffer_ctl import buffer_start, buffer_status, buffer_stop
 from codex_tracing.constants import OTEL_ENDPOINT  # noqa: F401 — re-exported for backwards compat
 from codex_tracing.constants import (
     BUFFER_PORT,
@@ -28,7 +29,6 @@ from codex_tracing.constants import (
     HARNESS_NAME,
     NOTIFY_BIN_NAME,
 )
-from core.codex_buffer_ctl import buffer_start, buffer_status, buffer_stop
 from core.config import get_value, load_config
 from core.setup import (
     CONFIG_FILE,
