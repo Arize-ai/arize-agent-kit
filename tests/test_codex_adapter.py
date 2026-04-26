@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for core.hooks.codex.adapter — session resolution, init, GC, requirements."""
+"""Tests for codex_tracing.hooks.adapter — session resolution, init, GC, requirements."""
 import os
 import time
 
