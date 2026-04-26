@@ -1,31 +1,24 @@
-"""Tests for cursor-tracing/install.py — install/uninstall module."""
+"""Tests for cursor_tracing/install.py — install/uninstall module."""
 
 from __future__ import annotations
 
-import importlib
-import importlib.util
 import json
-import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
-# Use importlib to load the cursor-tracing modules by file path, avoiding
-# name collisions with claude-code-tracing's bare "constants" / "install" modules.
-_CURSOR_DIR = Path(__file__).resolve().parents[1] / "cursor-tracing"
+import cursor_tracing.constants
+import cursor_tracing.install
 
 
 def _load_cursor_module(name: str):
-    """Import a module from cursor-tracing/ by absolute file path."""
-    mod_name = f"cursor_tracing_{name}"
-    if mod_name in sys.modules:
-        return sys.modules[mod_name]
-    spec = importlib.util.spec_from_file_location(mod_name, _CURSOR_DIR / f"{name}.py")
-    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-    sys.modules[mod_name] = mod
-    spec.loader.exec_module(mod)  # type: ignore[union-attr]
-    return mod
+    """Import a module from cursor_tracing package by name."""
+    if name == "constants":
+        return cursor_tracing.constants
+    elif name == "install":
+        return cursor_tracing.install
+    raise ValueError(f"Unknown cursor_tracing module: {name}")
 
 
 @pytest.fixture()
@@ -68,7 +61,7 @@ def fake_home(tmp_path, monkeypatch):
     monkeypatch.setattr(cursor_install, "INSTALL_DIR", install_dir)
 
     # Create the harness plugin dir so harness_dir() resolves
-    plugin_dir = install_dir / "cursor-tracing"
+    plugin_dir = install_dir / "cursor_tracing"
     plugin_dir.mkdir(parents=True, exist_ok=True)
 
     return tmp_path

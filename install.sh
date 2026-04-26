@@ -2,7 +2,7 @@
 # Arize Agent Kit — Thin shell router
 #
 # Handles Python discovery, repo clone/tarball, venv creation, and pip install.
-# All harness-specific logic lives in <harness>-tracing/install.py.
+# All harness-specific logic lives in <harness>_tracing/install.py.
 #
 # Usage:
 #   curl -sSL .../install.sh | bash -s -- claude [--with-skills] [--branch NAME]
@@ -133,6 +133,47 @@ install_repo() {
 }
 
 # -- Venv setup --------------------------------------------------------------
+
+# Fix SSL certificate verification on macOS.
+#
+# Python.org installers ship their own OpenSSL that doesn't trust the macOS
+# system keychain, so urllib (used by every arize-hook-*) fails with
+# "CERTIFICATE_VERIFY_FAILED" against https://otlp.arize.com.
+#
+# Fix: install certifi into the venv and write a sitecustomize.py that sets
+# SSL_CERT_FILE before any hook code runs. Idempotent — safe to call repeatedly.
+_fix_macos_ssl_certs() {
+    local pip="$1"
+    local vp
+    vp=$(venv_python 2>/dev/null) || return 0
+
+    if ! "$pip" install --quiet certifi 2>/dev/null; then
+        warn "Could not install certifi — SSL verification may fail on macOS"
+        return 0
+    fi
+
+    local certifi_where site_dir sc
+    certifi_where=$("$vp" -c "import certifi; print(certifi.where())" 2>/dev/null) || return 0
+    [[ -z "$certifi_where" ]] && return 0
+
+    site_dir=$("$vp" -c "import site; print(site.getsitepackages()[0])" 2>/dev/null) || return 0
+    sc="${site_dir}/sitecustomize.py"
+
+    cat > "$sc" <<'PYEOF'
+# Arize Agent Kit: point Python's SSL stack at certifi's CA bundle on macOS.
+# This runs automatically at interpreter startup, before any hook code.
+import os as _os
+try:
+    import certifi as _certifi
+    _bundle = _certifi.where()
+    _os.environ.setdefault("SSL_CERT_FILE", _bundle)
+    _os.environ.setdefault("REQUESTS_CA_BUNDLE", _bundle)
+except ImportError:
+    pass
+PYEOF
+    info "SSL certificates configured via certifi"
+}
+
 setup_venv() {
     local python_cmd="$1"
     if ! venv_python &>/dev/null; then
@@ -146,16 +187,19 @@ setup_venv() {
     local pip; pip=$(venv_pip) || { err "pip not found in venv"; return 1; }
     info "Installing arize-agent-kit into venv..."
     "$pip" install --quiet "$INSTALL_DIR" 2>/dev/null || { err "Failed to install arize-agent-kit package"; return 1; }
+
+    [[ "$(uname)" == "Darwin" ]] && _fix_macos_ssl_certs "$pip"
+
     info "Venv ready at ${VENV_DIR}"
 }
 
 # -- Harness name mapping ----------------------------------------------------
 harness_dir() {
     case "$1" in
-        claude)  echo "claude-code-tracing" ;;
-        codex)   echo "codex-tracing" ;;
-        copilot) echo "copilot-tracing" ;;
-        cursor)  echo "cursor-tracing" ;;
+        claude)  echo "claude_code_tracing" ;;
+        codex)   echo "codex_tracing" ;;
+        copilot) echo "copilot_tracing" ;;
+        cursor)  echo "cursor_tracing" ;;
         *)       return 1 ;;
     esac
 }
@@ -244,7 +288,7 @@ main() {
                 harnesses=$("$vp" -c 'from core.setup import list_installed_harnesses as L; print("\n".join(L()))' 2>/dev/null) || true
                 if [[ -n "$harnesses" ]]; then
                     while IFS= read -r key; do
-                        local dir="${key}-tracing"
+                        local dir; dir=$(harness_dir "$key") || { warn "Unknown harness: ${key} (skipping)"; continue; }
                         if [[ -f "${INSTALL_DIR}/${dir}/install.py" ]]; then
                             info "Uninstalling ${key} tracing..."
                             "$vp" "${INSTALL_DIR}/${dir}/install.py" uninstall || warn "${key} uninstall failed (continuing)"
@@ -269,7 +313,7 @@ main() {
             harnesses=$("$vp" -c 'from core.setup import list_installed_harnesses as L; print("\n".join(L()))' 2>/dev/null) || true
             if [[ -n "$harnesses" ]]; then
                 while IFS= read -r key; do
-                    local dir="${key}-tracing"
+                    local dir; dir=$(harness_dir "$key") || { warn "Unknown harness: ${key} (skipping)"; continue; }
                     if [[ -f "${INSTALL_DIR}/${dir}/install.py" ]]; then
                         info "Re-registering ${key}..."; "$vp" "${INSTALL_DIR}/${dir}/install.py" install
                     else warn "Harness directory not found: ${dir}"; fi

@@ -6,49 +6,26 @@ Writes config.yaml to ~/.arize/harness/config.yaml and installs hooks
 into .github/hooks/ (project-local).
 
 The ``arize-setup-copilot`` entry point calls ``main()`` here, which runs the
-legacy interactive wizard.  The new ``copilot-tracing/install.py`` module
+legacy interactive wizard.  The new ``copilot_tracing/install.py`` module
 provides the decomposed ``install()`` / ``uninstall()`` API used by the
 shell router.  ``install()`` and ``uninstall()`` below delegate to it.
 """
 
 from __future__ import annotations
 
-import importlib.util
 import sys
-from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Delegation to copilot-tracing/install.py
-# ---------------------------------------------------------------------------
-
-
-def _load_installer():
-    """Lazily import copilot-tracing/install.py (hyphenated dir)."""
-    install_py = Path(__file__).resolve().parent.parent.parent / "copilot-tracing" / "install.py"
-    spec = importlib.util.spec_from_file_location("_copilot_install", install_py)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-_copilot_mod = None
-
-
-def _get_copilot_mod():
-    global _copilot_mod
-    if _copilot_mod is None:
-        _copilot_mod = _load_installer()
-    return _copilot_mod
+from copilot_tracing import install as _install_mod
 
 
 def install() -> None:
-    """Delegate to copilot-tracing/install.py install()."""
-    _get_copilot_mod().install()
+    """Delegate to copilot_tracing/install.py install()."""
+    _install_mod.install()
 
 
 def uninstall() -> None:
-    """Delegate to copilot-tracing/install.py uninstall()."""
-    _get_copilot_mod().uninstall()
+    """Delegate to copilot_tracing/install.py uninstall()."""
+    _install_mod.uninstall()
 
 
 def main() -> None:
@@ -61,13 +38,12 @@ def main() -> None:
 
 
 def _run() -> None:
-    """Delegate to the new install module in copilot-tracing/.
+    """Delegate to the install module in copilot_tracing/.
 
     This replaces the old interactive flow so that ``arize-setup-copilot``
     and the installer router share a single code path.
     """
-    installer = _load_installer()
-    installer.install()
+    _install_mod.install()
 
 
 if __name__ == "__main__":

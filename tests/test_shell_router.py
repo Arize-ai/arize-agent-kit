@@ -46,11 +46,11 @@ class TestShellSyntax:
         text = _read_install_sh()
         assert "set -euo pipefail" in text, "Missing strict mode"
 
-    def test_line_count_under_300(self):
-        """Router should be ~200-260 lines, well under the old 1919."""
+    def test_line_count_under_400(self):
+        """Router should be ~200-330 lines, well under the old 1919."""
         text = _read_install_sh()
         lines = text.strip().splitlines()
-        assert len(lines) <= 300, f"install.sh has {len(lines)} lines — should be ~200-260"
+        assert len(lines) <= 400, f"install.sh has {len(lines)} lines — should be under 400"
 
 
 # ---------------------------------------------------------------------------
@@ -127,16 +127,16 @@ class TestHarnessMapping:
         self.text = _read_install_sh()
 
     def test_claude_maps_to_claude_code_tracing(self):
-        assert 'claude)  echo "claude-code-tracing"' in self.text
+        assert 'claude)  echo "claude_code_tracing"' in self.text
 
     def test_codex_maps_to_codex_tracing(self):
-        assert 'codex)   echo "codex-tracing"' in self.text
+        assert 'codex)   echo "codex_tracing"' in self.text
 
     def test_copilot_maps_to_copilot_tracing(self):
-        assert 'copilot) echo "copilot-tracing"' in self.text
+        assert 'copilot) echo "copilot_tracing"' in self.text
 
     def test_cursor_maps_to_cursor_tracing(self):
-        assert 'cursor)  echo "cursor-tracing"' in self.text
+        assert 'cursor)  echo "cursor_tracing"' in self.text
 
 
 # ---------------------------------------------------------------------------

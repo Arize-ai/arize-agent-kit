@@ -8,8 +8,7 @@ import json
 import sys
 from pathlib import Path
 
-from core.common import build_span, error, generate_span_id, generate_trace_id, get_timestamp_ms, log, send_span
-from core.hooks.claude.adapter import (
+from claude_code_tracing.hooks.adapter import (
     SCOPE_NAME,
     SERVICE_NAME,
     check_requirements,
@@ -17,6 +16,7 @@ from core.hooks.claude.adapter import (
     gc_stale_state_files,
     resolve_session,
 )
+from core.common import build_span, error, generate_span_id, generate_trace_id, get_timestamp_ms, log, send_span
 
 # ---------------------------------------------------------------------------
 # Shared helper

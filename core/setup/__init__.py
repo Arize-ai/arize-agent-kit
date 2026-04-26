@@ -466,25 +466,37 @@ def list_installed_harnesses() -> list[str]:
 
 
 def harness_dir(harness: str) -> Path:
-    """Return the absolute path of <install-dir>/<harness>-tracing/.
+    """Return the absolute path of <install-dir>/<harness>_tracing/.
 
-    Prefers ~/.arize/harness/<harness>-tracing, falls back to
-    ~/.arize/harness/plugins/<harness>-tracing (legacy plugin layout).
+    Prefers ~/.arize/harness/<harness>_tracing, falls back to
+    ~/.arize/harness/plugins/<harness>_tracing (legacy plugin layout).
+    Also checks the old hyphenated names for backwards compatibility.
     """
-    primary = INSTALL_DIR / f"{harness}-tracing"
+    dir_name = f"{harness.replace('-', '_')}_tracing"
+    primary = INSTALL_DIR / dir_name
     if primary.is_dir():
         return primary
 
-    legacy = INSTALL_DIR / "plugins" / f"{harness}-tracing"
+    legacy = INSTALL_DIR / "plugins" / dir_name
     if legacy.is_dir():
         return legacy
+
+    # Backwards compat: check old hyphenated layout
+    old_name = f"{harness}-tracing"
+    old_primary = INSTALL_DIR / old_name
+    if old_primary.is_dir():
+        return old_primary
+
+    old_legacy = INSTALL_DIR / "plugins" / old_name
+    if old_legacy.is_dir():
+        return old_legacy
 
     # Default to primary even if it doesn't exist yet
     return primary
 
 
 def symlink_skills(harness: str, target_dir: Path | None = None) -> None:
-    """Symlink <install-dir>/<harness>-tracing/skills/* into target_dir/.agents/skills/.
+    """Symlink <install-dir>/<harness>_tracing/skills/* into target_dir/.agents/skills/.
 
     target_dir defaults to the current working directory. Idempotent (skip
     existing links pointing at the right target). Does nothing if the harness

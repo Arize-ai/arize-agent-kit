@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
@@ -43,15 +42,14 @@ def fake_home(tmp_path, monkeypatch):
     settings_file = tmp_path / ".claude" / "settings.json"
 
     # We need to patch both the constants module and the install module's reference
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "claude-code-tracing"))
-    import constants as claude_constants
-    import install as claude_install
+    import claude_code_tracing.constants as claude_constants
+    import claude_code_tracing.install as claude_install
 
     monkeypatch.setattr(claude_constants, "SETTINGS_FILE", settings_file)
     monkeypatch.setattr(claude_install, "SETTINGS_FILE", settings_file)
 
     # Create the harness plugin dir so harness_dir() resolves
-    plugin_dir = install_dir / "claude-code-tracing"
+    plugin_dir = install_dir / "claude_code_tracing"
     plugin_dir.mkdir(parents=True, exist_ok=True)
 
     return tmp_path
@@ -79,7 +77,7 @@ ARIZE_BACKEND = (
 
 def _mock_prompts(monkeypatch, backend=None):
     """Patch prompt functions on the install module (where they're bound after import)."""
-    import install as claude_install
+    import claude_code_tracing.install as claude_install
 
     if backend is None:
         backend = PHOENIX_BACKEND
@@ -107,7 +105,7 @@ class TestFreshInstall:
     )
     def test_fresh_install_creates_config_and_hooks(self, fake_home, monkeypatch, backend, expected_target):
         """With no existing config, install() prompts and writes config.yaml + settings.json."""
-        import install as claude_install
+        import claude_code_tracing.install as claude_install
 
         _mock_prompts(monkeypatch, backend=backend)
 
@@ -137,7 +135,7 @@ class TestFreshInstall:
 
     def test_install_fresh_writes_flat_harness_entry(self, fake_home, monkeypatch):
         """Fresh install writes all backend fields directly under harnesses.claude-code."""
-        import install as claude_install
+        import claude_code_tracing.install as claude_install
 
         _mock_prompts(monkeypatch, backend=ARIZE_BACKEND)
 
@@ -165,7 +163,7 @@ class TestIdempotent:
 
     def test_double_install_no_duplicates(self, fake_home, monkeypatch):
         """Running install() twice does not duplicate hooks or plugins."""
-        import install as claude_install
+        import claude_code_tracing.install as claude_install
 
         _mock_prompts(monkeypatch)
 
@@ -188,7 +186,7 @@ class TestExistingEntry:
 
     def test_install_existing_claude_entry_only_updates_project_name(self, fake_home, monkeypatch):
         """When harnesses.claude-code already exists, re-install updates only project_name."""
-        import install as claude_install
+        import claude_code_tracing.install as claude_install
 
         _mock_prompts(monkeypatch, backend=ARIZE_BACKEND)
 
@@ -226,7 +224,7 @@ class TestCopyFrom:
 
     def test_install_second_harness_offers_copy_from(self, fake_home, monkeypatch):
         """Pre-populate codex with arize creds; verify claude-code gets them via copy-from."""
-        import install as claude_install
+        import claude_code_tracing.install as claude_install
 
         # Pre-populate config with a codex entry using arize
         config_file = fake_home / ".arize" / "harness" / "config.yaml"
@@ -276,7 +274,7 @@ class TestUninstall:
 
     def test_uninstall_removes_hooks_and_config(self, fake_home, monkeypatch):
         """Uninstall removes hooks, plugin, and harness entry from config.yaml."""
-        import install as claude_install
+        import claude_code_tracing.install as claude_install
 
         _mock_prompts(monkeypatch)
 
@@ -297,7 +295,7 @@ class TestUninstall:
 
     def test_uninstall_removes_harness_entry_preserves_others(self, fake_home, monkeypatch):
         """Uninstall removes claude-code but preserves other harness entries."""
-        import install as claude_install
+        import claude_code_tracing.install as claude_install
 
         _mock_prompts(monkeypatch)
 
@@ -324,7 +322,7 @@ class TestUninstall:
 
     def test_uninstall_idempotent(self, fake_home, monkeypatch):
         """Calling uninstall twice does not error."""
-        import install as claude_install
+        import claude_code_tracing.install as claude_install
 
         _mock_prompts(monkeypatch)
 
@@ -341,7 +339,7 @@ class TestUninstall:
         settings.json on uninstall. The Python port only removed hooks
         and plugins, leaving stale env entries.
         """
-        import install as claude_install
+        import claude_code_tracing.install as claude_install
 
         _mock_prompts(monkeypatch)
 
@@ -382,7 +380,7 @@ class TestUninstall:
 
     def test_uninstall_drops_env_block_when_emptied(self, fake_home, monkeypatch):
         """If removing Arize keys leaves env empty, the env block is dropped."""
-        import install as claude_install
+        import claude_code_tracing.install as claude_install
 
         _mock_prompts(monkeypatch)
         claude_install.install(with_skills=False)
@@ -395,7 +393,7 @@ class TestUninstall:
 
     def test_uninstall_preserves_third_party_hooks(self, fake_home, monkeypatch):
         """Uninstall keeps hooks that don't belong to us."""
-        import install as claude_install
+        import claude_code_tracing.install as claude_install
 
         _mock_prompts(monkeypatch)
 
@@ -430,7 +428,7 @@ class TestDryRun:
 
     def test_install_dry_run_writes_nothing(self, fake_home, monkeypatch):
         """With ARIZE_DRY_RUN=true, install() logs but does not write files."""
-        import install as claude_install
+        import claude_code_tracing.install as claude_install
 
         monkeypatch.setenv("ARIZE_DRY_RUN", "true")
         _mock_prompts(monkeypatch)

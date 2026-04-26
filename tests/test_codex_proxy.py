@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for core.hooks.codex.proxy — the Codex proxy wrapper."""
+"""Tests for codex_tracing.hooks.proxy — the Codex proxy wrapper."""
 
 import os
 import stat
@@ -9,7 +9,7 @@ from unittest import mock
 
 import pytest
 
-from core.hooks.codex.proxy import _find_real_codex, _load_env_file, main
+from codex_tracing.hooks.proxy import _find_real_codex, _load_env_file, main
 
 # ---------------------------------------------------------------------------
 # _find_real_codex tests
@@ -39,7 +39,7 @@ class TestFindRealCodex:
         bin_dir.mkdir()
         # Create a symlink pointing at our own module file
         proxy_link = bin_dir / "codex"
-        proxy_link.symlink_to(Path(__file__).resolve().parent.parent / "core" / "hooks" / "codex" / "proxy.py")
+        proxy_link.symlink_to(Path(__file__).resolve().parent.parent / "codex_tracing" / "hooks" / "proxy.py")
 
         with mock.patch.dict(os.environ, {"PATH": str(bin_dir)}):
             result = _find_real_codex()
@@ -178,10 +178,10 @@ class TestMain:
 
         with (
             mock.patch("os.path.expanduser", return_value=str(tmp_path)),
-            mock.patch("core.hooks.codex.proxy._load_env_file", side_effect=tracking_load),
-            mock.patch("core.hooks.codex.proxy._quick_health_check", return_value=False),
-            mock.patch("core.codex_buffer_ctl.buffer_ensure", side_effect=fake_ensure),
-            mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=str(codex)),
+            mock.patch("codex_tracing.hooks.proxy._load_env_file", side_effect=tracking_load),
+            mock.patch("codex_tracing.hooks.proxy._quick_health_check", return_value=False),
+            mock.patch("codex_tracing.codex_buffer_ctl.buffer_ensure", side_effect=fake_ensure),
+            mock.patch("codex_tracing.hooks.proxy._find_real_codex", return_value=str(codex)),
             mock.patch("os.execvp"),
         ):
             main()
@@ -197,9 +197,9 @@ class TestMain:
         codex.chmod(codex.stat().st_mode | stat.S_IEXEC)
 
         with (
-            mock.patch("core.hooks.codex.proxy._quick_health_check", return_value=False),
-            mock.patch("core.codex_buffer_ctl.buffer_ensure", side_effect=RuntimeError("boom")),
-            mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=str(codex)),
+            mock.patch("codex_tracing.hooks.proxy._quick_health_check", return_value=False),
+            mock.patch("codex_tracing.codex_buffer_ctl.buffer_ensure", side_effect=RuntimeError("boom")),
+            mock.patch("codex_tracing.hooks.proxy._find_real_codex", return_value=str(codex)),
             mock.patch("os.execvp") as mock_exec,
         ):
             main()
@@ -210,8 +210,8 @@ class TestMain:
     def test_no_codex_found_exits_1(self):
         """When no real codex is found, exit with code 1."""
         with (
-            mock.patch("core.codex_buffer_ctl.buffer_ensure"),
-            mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=None),
+            mock.patch("codex_tracing.codex_buffer_ctl.buffer_ensure"),
+            mock.patch("codex_tracing.hooks.proxy._find_real_codex", return_value=None),
             pytest.raises(SystemExit) as exc_info,
         ):
             main()
@@ -227,8 +227,8 @@ class TestMain:
         codex.chmod(codex.stat().st_mode | stat.S_IEXEC)
 
         with (
-            mock.patch("core.codex_buffer_ctl.buffer_ensure"),
-            mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=codex),
+            mock.patch("codex_tracing.codex_buffer_ctl.buffer_ensure"),
+            mock.patch("codex_tracing.hooks.proxy._find_real_codex", return_value=codex),
             mock.patch("os.execvp") as mock_exec,
         ):
             # Default home won't have .codex/arize-env.sh
@@ -248,8 +248,8 @@ class TestMain:
         fake_result.returncode = 42
 
         with (
-            mock.patch("core.hooks.codex.proxy._quick_health_check", return_value=True),
-            mock.patch("core.hooks.codex.proxy._find_real_codex", return_value=str(codex)),
+            mock.patch("codex_tracing.hooks.proxy._quick_health_check", return_value=True),
+            mock.patch("codex_tracing.hooks.proxy._find_real_codex", return_value=str(codex)),
             mock.patch("os.name", "nt"),
             mock.patch("subprocess.run", return_value=fake_result) as mock_run,
             pytest.raises(SystemExit) as exc_info,

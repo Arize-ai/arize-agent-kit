@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for core.hooks.claude.adapter — session resolution, init, GC, requirements."""
+"""Tests for claude_code_tracing.hooks.adapter — session resolution, init, GC, requirements."""
 import os
 import subprocess
 from unittest.mock import mock_open, patch
@@ -7,8 +7,8 @@ from unittest.mock import mock_open, patch
 import pytest
 import yaml
 
+from claude_code_tracing.hooks import adapter
 from core.common import StateManager
-from core.hooks.claude import adapter
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 

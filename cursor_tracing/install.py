@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import sys
-from pathlib import Path
 
 from core.config import get_value, load_config
 from core.setup import (
@@ -23,21 +21,15 @@ from core.setup import (
     unlink_skills,
     venv_bin,
 )
-
-# Load constants from the same directory (cursor-tracing/ has a hyphen,
-# so it cannot be imported as a regular package).
-_constants_path = Path(__file__).parent / "constants.py"
-_spec = importlib.util.spec_from_file_location("cursor_tracing_constants", _constants_path)
-_constants = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
-_spec.loader.exec_module(_constants)  # type: ignore[union-attr]
-
-HARNESS_NAME: str = _constants.HARNESS_NAME
-DISPLAY_NAME: str = _constants.DISPLAY_NAME
-HARNESS_HOME: str = _constants.HARNESS_HOME
-HARNESS_BIN: str = _constants.HARNESS_BIN
-HOOK_BIN_NAME: str = _constants.HOOK_BIN_NAME
-HOOK_EVENTS: tuple = _constants.HOOK_EVENTS
-HOOKS_FILE: Path = _constants.HOOKS_FILE
+from cursor_tracing.constants import (
+    DISPLAY_NAME,
+    HARNESS_BIN,
+    HARNESS_HOME,
+    HARNESS_NAME,
+    HOOK_BIN_NAME,
+    HOOK_EVENTS,
+    HOOKS_FILE,
+)
 
 
 def install(with_skills: bool = False) -> None:
