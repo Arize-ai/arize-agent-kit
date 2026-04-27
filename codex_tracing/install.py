@@ -92,7 +92,7 @@ def _toml_line_parse(text: str) -> dict:
         # Section header
         m = re.match(r"^\[([^\]]+)\]$", line)
         if m:
-            keys = [k.strip() for k in m.group(1).split(".")]
+            keys = _toml_split_key_path(m.group(1))
             current_section = result
             for k in keys:
                 if k not in current_section:
@@ -102,7 +102,7 @@ def _toml_line_parse(text: str) -> dict:
         # Key = value
         m = re.match(r"^([^=]+?)\s*=\s*(.+)$", line)
         if m:
-            key = m.group(1).strip()
+            key = _toml_unkey(m.group(1).strip())
             val_raw = m.group(2).strip()
             # Handle array values like ["cmd"] or ['cmd']
             if val_raw.startswith("["):
@@ -136,7 +136,60 @@ _BARE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 def _toml_key(key: str) -> str:
     """Quote a TOML key if it contains characters not allowed in bare keys."""
-    return key if _BARE_KEY_RE.match(key) else f'"{key}"'
+    if _BARE_KEY_RE.match(key):
+        return key
+    escaped = key.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _toml_unkey(key: str) -> str:
+    """Inverse of _toml_key — strip quotes and unescape a TOML key."""
+    if len(key) >= 2 and key.startswith('"') and key.endswith('"'):
+        inner = key[1:-1]
+        inner = inner.replace('\\"', '"')
+        inner = inner.replace("\\\\", "\\")
+        return inner
+    return key
+
+
+def _toml_split_key_path(path: str) -> list[str]:
+    """Split a dotted TOML key path respecting quoted segments.
+
+    Examples:
+        'a.b.c' -> ['a', 'b', 'c']
+        'mcp_servers."@scope/server"' -> ['mcp_servers', '@scope/server']
+        'mcp_servers."a.b.c"' -> ['mcp_servers', 'a.b.c']
+    """
+    segments: list[str] = []
+    buf: list[str] = []
+    in_quotes = False
+    escape = False
+    for ch in path:
+        if escape:
+            buf.append(ch)
+            escape = False
+            continue
+        if in_quotes:
+            if ch == "\\":
+                buf.append(ch)
+                escape = True
+            elif ch == '"':
+                buf.append(ch)
+                in_quotes = False
+            else:
+                buf.append(ch)
+        else:
+            if ch == '"':
+                buf.append(ch)
+                in_quotes = True
+            elif ch == ".":
+                segments.append(_toml_unkey("".join(buf).strip()))
+                buf = []
+            else:
+                buf.append(ch)
+    # Flush remaining buffer
+    segments.append(_toml_unkey("".join(buf).strip()))
+    return segments
 
 
 def _toml_write_section(data: dict, prefix: list[str], lines: list[str]) -> None:

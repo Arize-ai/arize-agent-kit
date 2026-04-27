@@ -805,3 +805,86 @@ class TestBufferInteraction:
     def test_uninstall_calls_buffer_stop(self, fake_home, mock_buffer):
         codex_install.uninstall()
         mock_buffer["stop"].assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# TOML fallback quoting tests
+# ---------------------------------------------------------------------------
+
+
+class TestTomlFallbackQuoting:
+    """Tests for quote-aware TOML fallback parser/writer."""
+
+    def test_unkey_roundtrips_through_key(self):
+        inputs = [
+            "plain",
+            "with.dot",
+            "with@at",
+            "with/slash",
+            'with"quote',
+            "with\\backslash",
+            "@scope/server",
+        ]
+        for s in inputs:
+            assert codex_install._toml_unkey(codex_install._toml_key(s)) == s, f"roundtrip failed for {s!r}"
+
+    def test_split_key_path_respects_quotes(self):
+        cases = [
+            ("a.b.c", ["a", "b", "c"]),
+            ('mcp_servers."@scope/server"', ["mcp_servers", "@scope/server"]),
+            ('plugins."browser-use@openai-bundled"', ["plugins", "browser-use@openai-bundled"]),
+            ('mcp_servers."a.b.c"', ["mcp_servers", "a.b.c"]),
+            ('  outer . "inner.path"  ', ["outer", "inner.path"]),
+        ]
+        for path, expected in cases:
+            assert codex_install._toml_split_key_path(path) == expected, f"split failed for {path!r}"
+
+    def test_fallback_roundtrips_quoted_section_keys(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("codex_tracing.install._tomllib", None)
+        toml_text = textwrap.dedent("""\
+            [mcp_servers."@scope/server"]
+            command = "npx"
+            args = ["-y", "@scope/server"]
+        """)
+        p = tmp_path / "config.toml"
+        p.write_text(toml_text)
+
+        data = codex_install._toml_load(p)
+        assert data == {
+            "mcp_servers": {
+                "@scope/server": {
+                    "command": "npx",
+                    "args": ["-y", "@scope/server"],
+                }
+            }
+        }
+
+        # Round-trip: write and re-read
+        p2 = tmp_path / "config2.toml"
+        codex_install._toml_write(data, p2)
+        data2 = codex_install._toml_load(p2)
+        assert data2 == data
+
+    def test_fallback_repairs_malformed_unquoted_keys(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("codex_tracing.install._tomllib", None)
+        toml_text = textwrap.dedent("""\
+            [plugins.@scope/server]
+            enabled = true
+        """)
+        p = tmp_path / "config.toml"
+        p.write_text(toml_text)
+
+        data = codex_install._toml_load(p)
+        assert data == {"plugins": {"@scope/server": {"enabled": True}}}
+
+        # Round-trip: write produces properly quoted output
+        p2 = tmp_path / "config2.toml"
+        codex_install._toml_write(data, p2)
+        rewritten = p2.read_text()
+        assert '[plugins."@scope/server"]' in rewritten
+
+        # Strict tomllib can now parse the rewritten output
+        import tomllib
+
+        strict_data = tomllib.loads(rewritten)
+        assert strict_data == data
