@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import os
+import stat
 import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -63,6 +65,7 @@ def fake_home(tmp_path, monkeypatch):
     monkeypatch.setattr("core.config.CONFIG_FILE", config_file)
 
     # Patch the constants in the install module itself
+    monkeypatch.setattr(codex_install, "BIN_DIR", install_dir / "bin")
     monkeypatch.setattr(codex_install, "CODEX_CONFIG_DIR", codex_dir)
     monkeypatch.setattr(codex_install, "CODEX_CONFIG_FILE", codex_dir / "config.toml")
     monkeypatch.setattr(codex_install, "CODEX_ENV_FILE", codex_dir / "arize-env.sh")
@@ -998,3 +1001,139 @@ class TestTomlFallbackQuoting:
         text = p.read_text()
         parsed = tomllib.loads(text)
         assert parsed == data
+
+
+# ---------------------------------------------------------------------------
+# Codex proxy shim tests
+# ---------------------------------------------------------------------------
+
+
+class TestCodexProxyShim:
+    """Tests for the codex proxy shim install/uninstall helpers."""
+
+    def test_install_writes_codex_proxy_shim(self, fake_home, mock_buffer, mock_prompts):
+        """Install creates a codex shim in BIN_DIR containing arize-codex-proxy."""
+        codex_install.install()
+
+        shim = fake_home / ".arize" / "harness" / "bin" / "codex"
+        assert shim.is_file()
+        text = shim.read_text()
+        assert "arize-codex-proxy" in text
+        assert "Arize Codex proxy shim" in text
+        # POSIX shim must be executable
+        assert shim.stat().st_mode & stat.S_IXUSR
+
+    def test_install_does_not_overwrite_foreign_codex_shim(self, fake_home, mock_buffer, mock_prompts):
+        """A pre-existing non-Arize codex file is never overwritten."""
+        bin_dir = fake_home / ".arize" / "harness" / "bin"
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        foreign = bin_dir / "codex"
+        foreign.write_text("#!/bin/sh\necho real codex\n")
+        original_text = foreign.read_text()
+
+        codex_install.install()
+
+        assert foreign.read_text() == original_text
+
+    def test_uninstall_removes_our_codex_proxy_shim(self, fake_home, mock_buffer, mock_prompts):
+        """Install creates the shim, uninstall removes it."""
+        codex_install.install()
+
+        shim = fake_home / ".arize" / "harness" / "bin" / "codex"
+        assert shim.is_file()
+
+        codex_install.uninstall()
+        assert not shim.exists()
+
+    def test_uninstall_preserves_foreign_codex_shim(self, fake_home, mock_buffer, mock_prompts):
+        """A non-Arize codex file survives uninstall."""
+        bin_dir = fake_home / ".arize" / "harness" / "bin"
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        foreign = bin_dir / "codex"
+        foreign.write_text("#!/bin/sh\necho real codex\n")
+        original_text = foreign.read_text()
+
+        codex_install.uninstall()
+
+        assert foreign.read_text() == original_text
+
+    def test_codex_proxy_path_status_active_shadowed_missing(self, tmp_path, monkeypatch):
+        """Unit-test _codex_proxy_path_status for each case."""
+        shim = tmp_path / "bin" / "codex"
+        shim.parent.mkdir(parents=True)
+        shim.write_text("#!/bin/sh\n# Arize Codex proxy shim\nexec arize-codex-proxy \"$@\"\n")
+
+        shim_real = os.path.realpath(str(shim))
+
+        # Active: shutil.which returns the shim path
+        monkeypatch.setattr("shutil.which", lambda cmd: str(shim))
+        status, resolved = codex_install._codex_proxy_path_status(shim)
+        assert status == "active"
+        assert resolved == shim_real
+
+        # Shadowed: shutil.which returns a different path
+        monkeypatch.setattr("shutil.which", lambda cmd: "/usr/local/bin/codex")
+        status, resolved = codex_install._codex_proxy_path_status(shim)
+        assert status == "shadowed"
+        assert resolved == os.path.realpath("/usr/local/bin/codex")
+
+        # Missing: shutil.which returns None
+        monkeypatch.setattr("shutil.which", lambda cmd: None)
+        status, resolved = codex_install._codex_proxy_path_status(shim)
+        assert status == "missing"
+        assert resolved is None
+
+    def test_codex_proxy_shim_dry_run(self, tmp_path, monkeypatch):
+        """In dry-run mode, no shim file is created."""
+        monkeypatch.setenv("ARIZE_DRY_RUN", "true")
+        shim = tmp_path / "bin" / "codex"
+        codex_install._write_codex_proxy_shim(shim, Path("/fake/arize-codex-proxy"))
+        assert not shim.exists()
+
+    def test_install_prints_active_message_when_shim_resolves_first(
+        self, fake_home, mock_buffer, mock_prompts, monkeypatch, capsys
+    ):
+        """When shutil.which('codex') returns the shim, the active message prints."""
+        shim = fake_home / ".arize" / "harness" / "bin" / "codex"
+
+        def fake_which(cmd):
+            if cmd == "codex":
+                return str(shim)
+            return None
+
+        monkeypatch.setattr("shutil.which", fake_which)
+        codex_install.install()
+
+        output = capsys.readouterr().out
+        assert "Codex proxy active for codex exec" in output
+
+    def test_install_prints_shadowed_message_with_resolved_path(
+        self, fake_home, mock_buffer, mock_prompts, monkeypatch, capsys
+    ):
+        """When shutil.which('codex') returns a different path, the shadowed message prints."""
+
+        def fake_which(cmd):
+            if cmd == "codex":
+                return "/usr/local/bin/codex"
+            return None
+
+        monkeypatch.setattr("shutil.which", fake_which)
+        codex_install.install()
+
+        output = capsys.readouterr().out
+        assert "but PATH resolves codex to /usr/local/bin/codex" in output
+        assert "Put ~/.arize/harness/bin before the real Codex binary" in output
+
+    def test_install_prints_missing_message_when_no_codex_on_path(
+        self, fake_home, mock_buffer, mock_prompts, monkeypatch, capsys
+    ):
+        """When shutil.which('codex') returns None, the missing message prints."""
+
+        def fake_which(cmd):
+            return None
+
+        monkeypatch.setattr("shutil.which", fake_which)
+        codex_install.install()
+
+        output = capsys.readouterr().out
+        assert "Add ~/.arize/harness/bin to PATH to trace codex exec" in output

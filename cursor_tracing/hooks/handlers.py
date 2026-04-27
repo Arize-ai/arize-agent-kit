@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Cursor hook handler: single entry point dispatching all 12 Cursor hook events.
+"""Cursor hook handler: single entry point dispatching all 14 Cursor hook events.
 
 Replaces cursor-tracing/hooks/hook-handler.sh (475 lines).
 
-Input contract: JSON on stdin, all 12 events routed here.
+Input contract: JSON on stdin, all 14 events (IDE + CLI) routed here.
 stdout: MUST print permissive JSON response, even on error.
 stderr: redirected to ARIZE_LOG_FILE before dispatch.
 """
@@ -59,6 +59,27 @@ def _jq_str(input_json: dict, *keys, default: str = "") -> str:
     return default
 
 
+def _event_name(input_json: dict) -> str:
+    """Extract event name from payload, tolerant of IDE and CLI key variants.
+
+    Cursor IDE uses ``hook_event_name``; Cursor CLI uses ``hookEventName``.
+    """
+    return _jq_str(input_json, "hook_event_name", "hookEventName", "event_name", "eventName", "event")
+
+
+def _trace_id_from_event(gen_id: str, conversation_id: str) -> str:
+    """Derive a trace ID from generation or conversation ID.
+
+    Prefers gen_id; falls back to conversation_id for CLI events that may
+    lack a generation_id.
+    """
+    if gen_id:
+        return trace_id_from_generation(gen_id)
+    if conversation_id:
+        return trace_id_from_generation(conversation_id)
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -73,7 +94,7 @@ def _dispatch(event: str, input_json: dict) -> None:
     if not env.trace_enabled:
         return
 
-    trace_id = trace_id_from_generation(gen_id) if gen_id else ""
+    trace_id = _trace_id_from_event(gen_id, conversation_id)
     now_ms = get_timestamp_ms()
 
     handlers = {
@@ -89,6 +110,8 @@ def _dispatch(event: str, input_json: dict) -> None:
         "beforeTabFileRead": _handle_before_tab_file_read,
         "afterTabFileEdit": _handle_after_tab_file_edit,
         "stop": _handle_stop,
+        "sessionStart": _handle_session_start,
+        "postToolUse": _handle_post_tool_use,
     }
 
     handler = handlers.get(event)
@@ -525,6 +548,90 @@ def _handle_stop(input_json, conversation_id, gen_id, trace_id, now_ms):
     log(f"stop: span {sid}, cleaned up gen={gen_id}")
 
 
+def _handle_session_start(input_json, conversation_id, gen_id, trace_id, now_ms):
+    """CHAIN span for Cursor CLI sessionStart event."""
+    sid = span_id_16()
+
+    attrs = {
+        "openinference.span.kind": "CHAIN",
+        "session.id": conversation_id,
+    }
+
+    cwd = _jq_str(input_json, "cwd", "workspace_root")
+    if cwd:
+        attrs["cursor.session.cwd"] = cwd
+
+    user_email = _jq_str(input_json, "user_email")
+    if user_email:
+        attrs["user.id"] = user_email
+
+    span = build_span(
+        "Session Start",
+        "CHAIN",
+        sid,
+        trace_id,
+        "",
+        now_ms,
+        now_ms,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
+    )
+    send_span(span)
+
+    if gen_id:
+        gen_root_span_save(gen_id, sid)
+
+    log(f"sessionStart: span {sid} (trace={trace_id})")
+
+
+_SHELL_TOOL_NAMES = frozenset({"shell", "terminal", "bash", "run_command"})
+
+
+def _handle_post_tool_use(input_json, conversation_id, gen_id, trace_id, now_ms):
+    """TOOL span for Cursor CLI postToolUse event."""
+    sid = span_id_16()
+    parent = gen_root_span_get(gen_id) if gen_id else ""
+
+    tool_name = _jq_str(input_json, "tool_name", "toolName", "name", "tool")
+    tool_input = _jq_str(input_json, "tool_input", "toolInput", "input", "arguments", "args")
+    output = _jq_str(input_json, "result", "output", "response", "stdout")
+
+    # Shell-like tools: prefer the top-level ``command`` field as input
+    if tool_name.lower() in _SHELL_TOOL_NAMES:
+        command = _jq_str(input_json, "command")
+        if command:
+            tool_input = command
+
+    attrs = {
+        "openinference.span.kind": "TOOL",
+        "session.id": conversation_id,
+    }
+    if tool_name:
+        attrs["tool.name"] = tool_name
+    if tool_input:
+        attrs["input.value"] = tool_input
+    if output:
+        attrs["output.value"] = output
+
+    span_name = f"Tool: {tool_name}" if tool_name else "Tool Use"
+
+    span = build_span(
+        span_name,
+        "TOOL",
+        sid,
+        trace_id,
+        parent,
+        now_ms,
+        now_ms,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
+    )
+    send_span(span)
+    log(f"postToolUse: span {sid} (tool={tool_name})")
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -533,7 +640,7 @@ def _handle_stop(input_json, conversation_id, gen_id, trace_id, now_ms):
 def main():
     """Entry point for arize-hook-cursor. Cursor hook.
 
-    Input contract: JSON on stdin, all 12 events routed here.
+    Input contract: JSON on stdin, all 14 events (IDE + CLI) routed here.
     stdout: MUST print permissive JSON response, even on error.
     stderr: redirected to ARIZE_LOG_FILE before dispatch.
     """
@@ -551,7 +658,7 @@ def main():
             return
 
         input_json = json.loads(sys.stdin.read() or "{}")
-        event = input_json.get("hook_event_name", "")
+        event = _event_name(input_json)
         _dispatch(event, input_json)
     except Exception as e:
         error(f"cursor hook failed ({event}): {e}")

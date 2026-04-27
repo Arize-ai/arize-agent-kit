@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import stat
 import sys
 from pathlib import Path
 
@@ -31,6 +33,7 @@ from codex_tracing.constants import (
 )
 from core.config import get_value, load_config
 from core.setup import (
+    BIN_DIR,
     CONFIG_FILE,
     dry_run,
     ensure_harness_installed,
@@ -417,6 +420,102 @@ def _is_our_env_file(path: Path) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Codex proxy shim helpers
+# ---------------------------------------------------------------------------
+
+
+def _codex_proxy_shim_path() -> Path:
+    """Return the path where the Arize-managed ``codex`` shim should live."""
+    if os.name == "nt":
+        return BIN_DIR / "codex.cmd"
+    return BIN_DIR / "codex"
+
+
+def _is_our_codex_proxy_shim(path: Path) -> bool:
+    """Return True only if *path* exists and is an Arize-managed codex shim."""
+    if not path.is_file():
+        return False
+    try:
+        text = path.read_text()
+        return "arize-codex-proxy" in text and "Arize Codex proxy shim" in text
+    except OSError:
+        return False
+
+
+def _write_codex_proxy_shim(path: Path, proxy_cmd: Path) -> None:
+    """Create the codex proxy shim at *path* pointing to *proxy_cmd*.
+
+    Honors ``dry_run()`` — logs intent without writing.
+    """
+    if dry_run():
+        info(f"would write codex proxy shim at {path}")
+        return
+
+    # Never overwrite a file that isn't ours
+    if path.is_file() and not _is_our_codex_proxy_shim(path):
+        info(f"Skipping codex proxy shim — {path} exists and is not ours")
+        return
+
+    if os.name == "nt":
+        content = (
+            "@echo off\r\n"
+            "REM Arize Codex proxy shim\r\n"
+            f'"{proxy_cmd}" %*\r\n'
+        )
+    else:
+        content = (
+            "#!/bin/sh\n"
+            "# Arize Codex proxy shim\n"
+            f"exec '{proxy_cmd}' \"$@\"\n"
+        )
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+
+    if os.name != "nt":
+        path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def _remove_codex_proxy_shim(path: Path) -> None:
+    """Remove the codex proxy shim at *path* only if it is Arize-owned.
+
+    Honors ``dry_run()`` — logs intent without deleting.
+    """
+    if not path.exists():
+        return
+
+    if not _is_our_codex_proxy_shim(path):
+        info(f"Skipping removal of {path} — not an Arize-managed shim")
+        return
+
+    if dry_run():
+        info(f"would remove codex proxy shim at {path}")
+        return
+
+    path.unlink()
+
+
+def _codex_proxy_path_status(shim_path: Path) -> tuple[str, "str | None"]:
+    """Check whether the shim is the ``codex`` that the user's shell will run.
+
+    Returns one of:
+    - ``("active", "<resolved_shim_path>")``
+    - ``("shadowed", "<resolved_other_path>")``
+    - ``("missing", None)``
+    """
+    resolved = shutil.which("codex")
+    if resolved is None:
+        return ("missing", None)
+
+    shim_real = os.path.realpath(str(shim_path))
+    which_real = os.path.realpath(resolved)
+
+    if shim_real == which_real:
+        return ("active", which_real)
+    return ("shadowed", which_real)
+
+
+# ---------------------------------------------------------------------------
 # Install / Uninstall
 # ---------------------------------------------------------------------------
 
@@ -489,7 +588,26 @@ def install(with_skills: bool = False) -> None:
     else:
         info("would start buffer service")
 
-    # 7. Symlink skills
+    # 7. Write codex proxy shim
+    shim_path = _codex_proxy_shim_path()
+    _write_codex_proxy_shim(shim_path, venv_bin("arize-codex-proxy"))
+
+    status, resolved = _codex_proxy_path_status(shim_path)
+    if status == "active":
+        info(f"Codex proxy active for codex exec (resolves to {resolved})")
+    elif status == "shadowed":
+        info(
+            f"Codex proxy shim installed at {shim_path}, but PATH resolves codex"
+            f" to {resolved}. Put ~/.arize/harness/bin before the real Codex"
+            " binary to trace codex exec."
+        )
+    else:
+        info(
+            f"Codex proxy shim installed at {shim_path}."
+            " Add ~/.arize/harness/bin to PATH to trace codex exec."
+        )
+
+    # 8. Symlink skills
     if with_skills:
         symlink_skills(HARNESS_NAME)
         info("Symlinked skills")
@@ -514,7 +632,10 @@ def uninstall() -> None:
     _codex_toml_remove(CODEX_CONFIG_FILE, notify_cmd, otel_endpoint)
     info(f"Reverted TOML config: {CODEX_CONFIG_FILE}")
 
-    # 3. Remove env file if it's ours
+    # 3. Remove codex proxy shim
+    _remove_codex_proxy_shim(_codex_proxy_shim_path())
+
+    # 4. Remove env file if it's ours
     if CODEX_ENV_FILE.is_file():
         if _is_our_env_file(CODEX_ENV_FILE):
             if dry_run():
@@ -525,11 +646,11 @@ def uninstall() -> None:
         else:
             info(f"Skipping {CODEX_ENV_FILE} — does not look like our file")
 
-    # 4. Remove harness entry
+    # 5. Remove harness entry
     remove_harness_entry(HARNESS_NAME)
     info("Removed codex harness entry from config.yaml")
 
-    # 5. Unlink skills
+    # 6. Unlink skills
     unlink_skills(HARNESS_NAME)
     info("Unlinked skills")
 
