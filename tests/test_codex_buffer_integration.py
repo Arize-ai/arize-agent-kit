@@ -150,7 +150,7 @@ class TestStaleBufferEviction:
             # The port should now be served by a new process with the canonical build_path
             assert _wait_for_health(host, port, timeout=5.0), "New buffer did not start"
             new_health = _get_health_json(host, port)
-            assert new_health["build_path"].endswith("codex_tracing/codex_buffer.py")
+            assert new_health["build_path"].endswith("codex_buffer.py")
             assert "fake_worktree" not in new_health["build_path"]
 
             # Cleanup

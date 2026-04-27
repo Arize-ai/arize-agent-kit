@@ -131,10 +131,12 @@ def _listener_pid(host: str, port: int) -> int | None:
     if pid is not None and _is_process_alive(pid):
         return pid
 
-    # Fall back to lsof
+    # Fall back to lsof — filter by host for non-loopback addresses
+    _loopback = {"127.0.0.1", "localhost", "::1"}
+    lsof_addr = f"-iTCP:{port}" if host in _loopback else f"-iTCP@{host}:{port}"
     try:
         result = subprocess.run(
-            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+            ["lsof", "-nP", lsof_addr, "-sTCP:LISTEN", "-t"],
             capture_output=True,
             text=True,
             timeout=2,
@@ -168,14 +170,16 @@ def _evict_stale(pid: int, host: str, port: int, reason: str) -> bool:
     except OSError:
         return False
 
-    # Poll port up to 5s (50 × 0.1s)
+    # Poll port up to 5s (50 × 0.1s) — only ConnectionRefusedError means freed
     for _ in range(50):
         time.sleep(0.1)
         try:
             conn = socket.create_connection((host, port), timeout=0.5)
             conn.close()
-        except (ConnectionRefusedError, socket.timeout, OSError):
+        except ConnectionRefusedError:
             return True  # port freed
+        except (socket.timeout, OSError):
+            continue  # inconclusive — keep polling
 
     # Still up — escalate to SIGKILL
     try:
@@ -191,8 +195,10 @@ def _evict_stale(pid: int, host: str, port: int, reason: str) -> bool:
         try:
             conn = socket.create_connection((host, port), timeout=0.5)
             conn.close()
-        except (ConnectionRefusedError, socket.timeout, OSError):
+        except ConnectionRefusedError:
             return True
+        except (socket.timeout, OSError):
+            continue
 
     return False
 
@@ -237,16 +243,24 @@ def buffer_start() -> bool:
 
     Returns True if the buffer is running after this call, False on failure.
     """
-    # Only trust the PID file for a quick "already running" check.
-    # Do NOT trust health-check-only status here — that needs identity verification.
+    # If a pidfile exists and the process is alive, verify its identity before
+    # trusting it.  A stale old-build daemon with a surviving pidfile must not
+    # prevent recovery.
     if CODEX_BUFFER_PID_FILE.is_file():
         try:
             pid_text = CODEX_BUFFER_PID_FILE.read_text().strip()
             pid = int(pid_text)
-            if pid and _is_process_alive(pid):
-                return True
         except (ValueError, OSError):
-            pass
+            pid = None
+        if pid and _is_process_alive(pid):
+            host_pre, port_pre = _resolve_host_port()
+            identity = _health_identity(host_pre, port_pre)
+            remote_bp = identity.get("build_path")
+            expected = _expected_build_path()
+            if remote_bp and os.path.realpath(remote_bp) == os.path.realpath(expected):
+                return True
+            # Pidfile process is alive but identity doesn't match — fall through
+            # to the identity-aware health check which will evict it.
 
     # Config is required
     if not CONFIG_FILE.is_file():
@@ -346,6 +360,11 @@ def buffer_start() -> bool:
 
 def _kill_and_wait(pid: int) -> None:
     """Send SIGTERM, wait up to 5s, escalate to SIGKILL if needed."""
+    # Safety: never kill PID 0, 1, negative, or ourselves
+    if pid <= 1 or pid == os.getpid():
+        _log(f"Refusing to kill PID {pid} (safety guard)")
+        return
+
     try:
         if _is_windows():
             try:
@@ -387,7 +406,8 @@ def buffer_stop(force: bool = False) -> str:
     Returns "stopped" on success, "refused" if a foreign listener is found
     and force is False.
     """
-    if CODEX_BUFFER_PID_FILE.is_file():
+    pidfile_existed = CODEX_BUFFER_PID_FILE.is_file()
+    if pidfile_existed:
         try:
             pid_text = CODEX_BUFFER_PID_FILE.read_text().strip()
             pid = int(pid_text)
@@ -396,15 +416,21 @@ def buffer_stop(force: bool = False) -> str:
 
         if pid and _is_process_alive(pid):
             _kill_and_wait(pid)
+            # Remove PID file and return — we killed our known process
+            try:
+                CODEX_BUFFER_PID_FILE.unlink()
+            except OSError:
+                pass
+            return "stopped"
 
-        # Remove PID file regardless
+        # PID invalid or dead — clean up stale pidfile and fall through
+        # to orphan listener check (something else may hold the port)
         try:
             CODEX_BUFFER_PID_FILE.unlink()
         except OSError:
             pass
-        return "stopped"
 
-    # No pidfile — check for orphaned listener
+    # No valid pidfile process — check for orphaned listener
     host, port = _resolve_host_port()
     listener = _listener_pid(host, port)
     if listener is None:
@@ -435,10 +461,13 @@ def buffer_stop(force: bool = False) -> str:
 
 
 def buffer_ensure() -> None:
-    """Silent idempotent start. Never raises. Suitable for hooks."""
+    """Silent idempotent start. Never raises. Suitable for hooks.
+
+    Always delegates to buffer_start() which performs identity verification
+    and can evict stale daemons.  Do NOT short-circuit via buffer_status()
+    because status reports "running" for any healthy listener, even stale ones.
+    """
     try:
-        if buffer_status()[0] == "running":
-            return
         buffer_start()
     except Exception:
         pass
@@ -480,9 +509,9 @@ def main() -> None:
     elif command == "stop":
         force = "--force" in sys.argv[2:]
         result = buffer_stop(force=force)
+        print(result)
         if result == "refused":
             sys.exit(1)
-        print(result)
 
 
 if __name__ == "__main__":

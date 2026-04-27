@@ -374,8 +374,9 @@ class TestBufferStart:
         result = buffer_start()
         assert result is False
 
-    def test_idempotent_when_already_running(self, ctl_paths, mock_collector):
-        """If buffer is already running, start returns True without launching."""
+    def test_idempotent_when_already_running(self, ctl_paths, mock_collector, monkeypatch):
+        """If buffer is already running with matching identity, start returns True without launching."""
+        import codex_tracing.codex_buffer_ctl as ctl
         import core.constants as c
 
         pid_file = c.CODEX_BUFFER_PID_FILE
@@ -384,6 +385,13 @@ class TestBufferStart:
         config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
+
+        # Mock identity to match expected build_path so pidfile check passes
+        expected_bp = _expected_build_path()
+        monkeypatch.setattr(
+            "codex_tracing.codex_buffer_ctl._health_identity",
+            lambda h, p: {"pid": os.getpid(), "build_path": expected_bp},
+        )
 
         result = buffer_start()
         assert result is True
@@ -709,34 +717,13 @@ class TestBufferEnsure:
         """ensure() does not raise even when config is missing."""
         buffer_ensure()  # should not raise
 
-    def test_does_not_raise_on_status_error(self, ctl_paths):
-        """ensure() swallows exceptions from buffer_status."""
-        with patch("codex_tracing.codex_buffer_ctl.buffer_status", side_effect=RuntimeError("boom")):
-            buffer_ensure()  # should not raise
-
     def test_does_not_raise_on_start_error(self, ctl_paths):
         """ensure() swallows exceptions from buffer_start."""
-        with patch("codex_tracing.codex_buffer_ctl.buffer_status", return_value=("stopped", None, None)):
-            with patch("codex_tracing.codex_buffer_ctl.buffer_start", side_effect=RuntimeError("boom")):
-                buffer_ensure()  # should not raise
+        with patch("codex_tracing.codex_buffer_ctl.buffer_start", side_effect=RuntimeError("boom")):
+            buffer_ensure()  # should not raise
 
-    def test_skips_start_when_running(self, ctl_paths, mock_collector):
-        """ensure() does not call start if status is running."""
-        import core.constants as c
-
-        pid_file = c.CODEX_BUFFER_PID_FILE
-        pid_file.write_text(str(os.getpid()) + "\n")
-
-        config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}}}
-        with open(c.CONFIG_FILE, "w") as f:
-            yaml.safe_dump(config, f)
-
-        with patch("codex_tracing.codex_buffer_ctl.buffer_start") as mock_start:
-            buffer_ensure()
-            mock_start.assert_not_called()
-
-    def test_calls_start_when_stopped(self, ctl_paths):
-        """ensure() calls start when buffer is stopped."""
+    def test_always_calls_start(self, ctl_paths):
+        """ensure() always delegates to buffer_start for identity verification."""
         with patch("codex_tracing.codex_buffer_ctl.buffer_start") as mock_start:
             buffer_ensure()
             mock_start.assert_called_once()
