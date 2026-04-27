@@ -105,12 +105,13 @@ git_sync_harness_repo() {
 install_repo_tarball() {
     local tarball_url="${1:-$TARBALL_URL}"
     info "Downloading arize-agent-kit tarball..."
-    local tmp_tar; tmp_tar="$(mktemp)"; trap 'rm -f "$tmp_tar"' RETURN
+    local tmp_tar; tmp_tar="$(mktemp)"
     if command_exists curl; then curl -sSfL "$tarball_url" -o "$tmp_tar"
     elif command_exists wget; then wget -qO "$tmp_tar" "$tarball_url"
-    else err "Neither curl nor wget found — cannot download"; exit 1; fi
+    else rm -f "$tmp_tar"; err "Neither curl nor wget found — cannot download"; exit 1; fi
     mkdir -p "$INSTALL_DIR"
     tar xzf "$tmp_tar" --strip-components=1 -C "$INSTALL_DIR"
+    rm -f "$tmp_tar"
     info "Extracted to ${INSTALL_DIR}"
 }
 
@@ -278,7 +279,7 @@ install_harness() {
     header "Installing ${cmd} tracing"
     local python_cmd; python_cmd=$(find_python) || { err "No Python 3.9+ found"; exit 1; }
     info "Found Python: ${python_cmd} ($("$python_cmd" --version 2>&1))"
-    install_repo
+    install_repo_tarball
     setup_venv "$python_cmd"
     local vp; vp=$(venv_python) || { err "Venv python not found after setup"; exit 1; }
     local install_py="${INSTALL_DIR}/${dir}/install.py"
