@@ -29,6 +29,7 @@ EXPECTED_ENTRY_POINTS = {
     "arize-hook-user-prompt-submit": "claude_code_tracing.hooks.handlers:user_prompt_submit",
     "arize-hook-stop": "claude_code_tracing.hooks.handlers:stop",
     "arize-hook-subagent-stop": "claude_code_tracing.hooks.handlers:subagent_stop",
+    "arize-hook-stop-failure": "claude_code_tracing.hooks.handlers:stop_failure",
     "arize-hook-notification": "claude_code_tracing.hooks.handlers:notification",
     "arize-hook-permission-request": "claude_code_tracing.hooks.handlers:permission_request",
     "arize-hook-session-end": "claude_code_tracing.hooks.handlers:session_end",
@@ -129,7 +130,7 @@ class TestHooksJson:
         assert "hooks" in hooks_data
 
     def test_all_claude_events_registered(self, hooks_data):
-        """All 9 Claude hook events must be present."""
+        """All 10 Claude hook events must be present."""
         expected_events = {
             "SessionStart",
             "UserPromptSubmit",
@@ -137,6 +138,7 @@ class TestHooksJson:
             "PostToolUse",
             "Stop",
             "SubagentStop",
+            "StopFailure",
             "Notification",
             "PermissionRequest",
             "SessionEnd",
@@ -186,6 +188,7 @@ class TestHooksJson:
         assert mapping["PostToolUse"] == "arize-hook-post-tool-use"
         assert mapping["Stop"] == "arize-hook-stop"
         assert mapping["SubagentStop"] == "arize-hook-subagent-stop"
+        assert mapping["StopFailure"] == "arize-hook-stop-failure"
         assert mapping["Notification"] == "arize-hook-notification"
         assert mapping["PermissionRequest"] == "arize-hook-permission-request"
         assert mapping["SessionEnd"] == "arize-hook-session-end"

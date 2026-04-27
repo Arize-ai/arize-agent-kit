@@ -7,6 +7,8 @@ session logic; individual hook events are handled by handlers.py.
 import os
 import platform
 import subprocess
+from pathlib import Path
+from typing import Optional
 
 from core.common import StateManager, env, generate_trace_id, get_timestamp_ms, log
 from core.constants import HARNESSES, STATE_BASE_DIR
@@ -199,6 +201,32 @@ def gc_stale_state_files() -> None:
                     lock_path.rmdir()
                 except OSError:
                     pass
+
+
+def resolve_transcript_path(input_json: dict, session_id: str) -> Optional[Path]:
+    """Return the transcript .jsonl path for this session, or None if it can't be located.
+
+    Claude Code v2 dropped ``transcript_path`` from Stop input.  When present in
+    the input we trust it; otherwise we derive the canonical path from cwd + session_id.
+    Falls back to the current process cwd if the input has no ``cwd`` either.
+    """
+    # Prefer agent_transcript_path (subagent's own log) over transcript_path (main session)
+    # so SubagentStop resolves to the correct transcript.
+    raw = input_json.get("agent_transcript_path") or input_json.get("transcript_path") or ""
+    if raw:
+        p = Path(raw).expanduser()
+        if p.is_file():
+            return p
+
+    if not session_id:
+        return None
+
+    cwd = input_json.get("cwd") or os.getcwd()
+    slug = cwd.replace("/", "-")
+    candidate = Path.home() / ".claude" / "projects" / slug / f"{session_id}.jsonl"
+    if candidate.is_file():
+        return candidate
+    return None
 
 
 def check_requirements() -> bool:
