@@ -81,6 +81,64 @@ def _toml_load(path: Path) -> dict:
     return _toml_line_parse(text)
 
 
+def _toml_extract_section(line: str) -> str | None:
+    """Extract the inner path from a ``[section]`` header, quote-aware.
+
+    Returns ``None`` when *line* is not a valid section header.
+    """
+    if not line.startswith("[") or line.startswith("[["):
+        return None
+    in_quotes = False
+    escape = False
+    for i, ch in enumerate(line):
+        if i == 0:
+            continue  # skip opening '['
+        if escape:
+            escape = False
+            continue
+        if in_quotes:
+            if ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_quotes = False
+        else:
+            if ch == '"':
+                in_quotes = True
+            elif ch == "]":
+                if line[i + 1 :].strip() == "":
+                    return line[1:i]
+                return None
+    return None
+
+
+def _toml_split_kv(line: str) -> tuple[str, str] | None:
+    """Split ``key = value`` respecting quoted keys (e.g. ``"a=b" = 'x'``).
+
+    Returns ``(raw_key, raw_value)`` or ``None`` if the line isn't a kv pair.
+    """
+    in_quotes = False
+    escape = False
+    for i, ch in enumerate(line):
+        if escape:
+            escape = False
+            continue
+        if in_quotes:
+            if ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_quotes = False
+        else:
+            if ch == '"':
+                in_quotes = True
+            elif ch == "=":
+                key = line[:i].strip()
+                val = line[i + 1 :].strip()
+                if key:
+                    return (key, val)
+                return None
+    return None
+
+
 def _toml_line_parse(text: str) -> dict:
     """Minimal TOML parser — handles flat keys and sections for our use case."""
     result: dict = {}
@@ -89,21 +147,21 @@ def _toml_line_parse(text: str) -> dict:
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        # Section header
-        m = re.match(r"^\[([^\]]+)\]$", line)
-        if m:
-            keys = _toml_split_key_path(m.group(1))
+        # Section header (quote-aware — handles ] inside quoted keys)
+        section_inner = _toml_extract_section(line)
+        if section_inner is not None:
+            keys = _toml_split_key_path(section_inner)
             current_section = result
             for k in keys:
                 if k not in current_section:
                     current_section[k] = {}
                 current_section = current_section[k]
             continue
-        # Key = value
-        m = re.match(r"^([^=]+?)\s*=\s*(.+)$", line)
-        if m:
-            key = _toml_unkey(m.group(1).strip())
-            val_raw = m.group(2).strip()
+        # Key = value (quote-aware — handles = inside quoted keys)
+        kv = _toml_split_kv(line)
+        if kv:
+            key = _toml_unkey(kv[0])
+            val_raw = kv[1]
             # Handle array values like ["cmd"] or ['cmd']
             if val_raw.startswith("["):
                 items = []

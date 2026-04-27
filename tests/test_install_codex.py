@@ -884,7 +884,109 @@ class TestTomlFallbackQuoting:
         assert '[plugins."@scope/server"]' in rewritten
 
         # Strict tomllib can now parse the rewritten output
-        import tomllib
+        tomllib = pytest.importorskip("tomllib")
 
         strict_data = tomllib.loads(rewritten)
         assert strict_data == data
+
+    # --- Additional edge-case tests ---
+
+    def test_split_key_path_leading_and_trailing_dots(self):
+        """Constraint: leading/trailing dots must not crash, flush empty segments."""
+        assert codex_install._toml_split_key_path("a.") == ["a", ""]
+        assert codex_install._toml_split_key_path(".b") == ["", "b"]
+        assert codex_install._toml_split_key_path(".") == ["", ""]
+
+    def test_split_key_path_empty_string(self):
+        assert codex_install._toml_split_key_path("") == [""]
+
+    def test_split_key_path_single_bare_key(self):
+        assert codex_install._toml_split_key_path("server") == ["server"]
+
+    def test_split_key_path_single_quoted_key(self):
+        assert codex_install._toml_split_key_path('"@scope/server"') == ["@scope/server"]
+
+    def test_unkey_roundtrip_backslash_and_quote(self):
+        """Key containing both backslash and double-quote round-trips correctly."""
+        s = 'back\\and"quote'
+        assert codex_install._toml_unkey(codex_install._toml_key(s)) == s
+
+    def test_unkey_bare_key_passthrough(self):
+        """Bare keys (no quotes) pass through _toml_unkey unchanged."""
+        assert codex_install._toml_unkey("simple-key_0") == "simple-key_0"
+
+    def test_fallback_deeply_nested_quoted_keys(self, tmp_path, monkeypatch):
+        """Multiple levels with quoted keys parse and round-trip correctly."""
+        monkeypatch.setattr("codex_tracing.install._tomllib", None)
+        toml_text = textwrap.dedent("""\
+            [a."b.c"."d/e"]
+            x = 1
+        """)
+        p = tmp_path / "deep.toml"
+        p.write_text(toml_text)
+
+        data = codex_install._toml_load(p)
+        assert data == {"a": {"b.c": {"d/e": {"x": 1}}}}
+
+        # Round-trip
+        p2 = tmp_path / "deep2.toml"
+        codex_install._toml_write(data, p2)
+        data2 = codex_install._toml_load(p2)
+        assert data2 == data
+
+    def test_fallback_multiple_sections_with_quoted_keys(self, tmp_path, monkeypatch):
+        """Multiple sections with special-char keys coexist correctly."""
+        monkeypatch.setattr("codex_tracing.install._tomllib", None)
+        toml_text = textwrap.dedent("""\
+            [servers."@org/alpha"]
+            port = 8080
+
+            [servers."@org/beta"]
+            port = 9090
+        """)
+        p = tmp_path / "multi.toml"
+        p.write_text(toml_text)
+
+        data = codex_install._toml_load(p)
+        assert data == {
+            "servers": {
+                "@org/alpha": {"port": 8080},
+                "@org/beta": {"port": 9090},
+            }
+        }
+
+        # Round-trip
+        p2 = tmp_path / "multi2.toml"
+        codex_install._toml_write(data, p2)
+        data2 = codex_install._toml_load(p2)
+        assert data2 == data
+
+    def test_toml_key_idempotent_for_bare_keys(self):
+        """Bare keys should not be modified by _toml_key."""
+        for bare in ["simple", "with-dash", "with_under", "CamelCase", "num123"]:
+            assert codex_install._toml_key(bare) == bare
+
+    def test_toml_key_quotes_special_chars(self):
+        """Keys with special characters get quoted."""
+        assert codex_install._toml_key("a.b") == '"a.b"'
+        assert codex_install._toml_key("@scope") == '"@scope"'
+        assert codex_install._toml_key("a/b") == '"a/b"'
+
+    def test_written_toml_valid_for_strict_parser(self, tmp_path, monkeypatch):
+        """Data with special-char keys produces strict-parseable TOML on write."""
+        tomllib = pytest.importorskip("tomllib")
+
+        data = {
+            "mcp_servers": {
+                "@anthropic/server": {"command": "run", "args": ["--flag"]},
+                "normal-server": {"command": "exec"},
+            },
+            "projects": {
+                "/Users/someone/proj": {"enabled": True},
+            },
+        }
+        p = tmp_path / "out.toml"
+        codex_install._toml_write(data, p)
+        text = p.read_text()
+        parsed = tomllib.loads(text)
+        assert parsed == data
