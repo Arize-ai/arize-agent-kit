@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-"""Tests for core.hooks.cursor.adapter — Cursor-specific adapter module."""
+"""Tests for cursor_tracing.hooks.adapter — Cursor-specific adapter module."""
 import hashlib
-import os
 import threading
-from pathlib import Path
 
 import pytest
 import yaml
 
-from core.hooks.cursor import adapter
-
+from cursor_tracing.hooks import adapter
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 

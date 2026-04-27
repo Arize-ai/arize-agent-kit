@@ -1,8 +1,9 @@
 """Shared pytest fixtures for arize-agent-kit tests."""
+
 import json
 import sys
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
@@ -21,11 +22,11 @@ def tmp_harness_dir(tmp_path, monkeypatch):
     Returns the base directory Path.
     """
     base = tmp_path / ".arize" / "harness"
-    for subdir in ["bin", "run", "logs",
-                    "state/claude-code", "state/codex", "state/cursor"]:
+    for subdir in ["bin", "run", "logs", "state/claude-code", "state/codex", "state/cursor"]:
         (base / subdir).mkdir(parents=True)
 
     import core.constants as c
+
     monkeypatch.setattr(c, "BASE_DIR", base)
     monkeypatch.setattr(c, "CONFIG_FILE", base / "config.yaml")
     monkeypatch.setattr(c, "PID_DIR", base / "run")
@@ -46,16 +47,26 @@ def sample_config(tmp_harness_dir):
     Returns the config dict.
     """
     config = {
-        "collector": {"host": "127.0.0.1", "port": 4318},
-        "backend": {
-            "target": "phoenix",
-            "phoenix": {"endpoint": "http://localhost:6006", "api_key": ""},
-            "arize": {"endpoint": "otlp.arize.com:443", "api_key": "", "space_id": ""},
-        },
         "harnesses": {
-            "claude-code": {"project_name": "claude-code"},
-            "codex": {"project_name": "codex"},
-            "cursor": {"project_name": "cursor"},
+            "claude-code": {
+                "project_name": "claude-code",
+                "target": "phoenix",
+                "endpoint": "http://localhost:6006",
+                "api_key": "",
+            },
+            "codex": {
+                "project_name": "codex",
+                "target": "phoenix",
+                "endpoint": "http://localhost:6006",
+                "api_key": "",
+                "collector": {"host": "127.0.0.1", "port": 4318},
+            },
+            "cursor": {
+                "project_name": "cursor",
+                "target": "phoenix",
+                "endpoint": "http://localhost:6006",
+                "api_key": "",
+            },
         },
     }
     config_path = tmp_harness_dir / "config.yaml"
@@ -111,14 +122,17 @@ def capture_log(tmp_path):
     Returns (log_file_path, read_log_fn). read_log_fn() returns list of lines.
     """
     log_file = tmp_path / "test.log"
+
     def read_log():
         return log_file.read_text().splitlines() if log_file.exists() else []
+
     return log_file, read_log
 
 
 # ---------------------------------------------------------------------------
 # Inline fixture data (replaces tests/fixtures/*.json)
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def claude_session_start_input():
@@ -173,21 +187,31 @@ def cursor_after_shell_input():
 def golden_span():
     """Expected OTLP span structure for golden/snapshot tests."""
     return {
-        "resourceSpans": [{"resource": {"attributes": [
-            {"key": "service.name", "value": {"stringValue": "test-service"}}
-        ]}, "scopeSpans": [{"scope": {"name": "test-scope"}, "spans": [{
-            "traceId": "0123456789abcdef0123456789abcdef",
-            "spanId": "abcdef1234567890",
-            "name": "Turn 1",
-            "kind": 1,
-            "startTimeUnixNano": "1711987200000000000",
-            "endTimeUnixNano": "1711987201000000000",
-            "attributes": [
-                {"key": "session.id", "value": {"stringValue": "sess-1"}},
-                {"key": "input.value", "value": {"stringValue": "hello"}},
-            ],
-            "status": {"code": 1},
-        }]}]}],
+        "resourceSpans": [
+            {
+                "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "test-service"}}]},
+                "scopeSpans": [
+                    {
+                        "scope": {"name": "test-scope"},
+                        "spans": [
+                            {
+                                "traceId": "0123456789abcdef0123456789abcdef",
+                                "spanId": "abcdef1234567890",
+                                "name": "Turn 1",
+                                "kind": 1,
+                                "startTimeUnixNano": "1711987200000000000",
+                                "endTimeUnixNano": "1711987201000000000",
+                                "attributes": [
+                                    {"key": "session.id", "value": {"stringValue": "sess-1"}},
+                                    {"key": "input.value", "value": {"stringValue": "hello"}},
+                                ],
+                                "status": {"code": 1},
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
     }
 
 

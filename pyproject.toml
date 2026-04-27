@@ -5,42 +5,64 @@ requires-python = ">=3.9"
 dependencies = ["pyyaml"]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-timeout", "pytest-cov"]
+dev = [
+    "pytest",
+    "pytest-timeout",
+    "pytest-cov",
+    "pre-commit",
+    "ruff",
+    "black",
+    "isort",
+    "mypy",
+    "types-PyYAML",
+]
 
 [project.scripts]
 # Core tools
-arize-codex-buffer = "core.codex_buffer_ctl:main"
+arize-codex-buffer = "codex_tracing.codex_buffer_ctl:main"
 arize-config = "core.config:main"
 # Claude Code hooks
-arize-hook-session-start = "core.hooks.claude.handlers:session_start"
-arize-hook-pre-tool-use = "core.hooks.claude.handlers:pre_tool_use"
-arize-hook-post-tool-use = "core.hooks.claude.handlers:post_tool_use"
-arize-hook-user-prompt-submit = "core.hooks.claude.handlers:user_prompt_submit"
-arize-hook-stop = "core.hooks.claude.handlers:stop"
-arize-hook-subagent-stop = "core.hooks.claude.handlers:subagent_stop"
-arize-hook-notification = "core.hooks.claude.handlers:notification"
-arize-hook-permission-request = "core.hooks.claude.handlers:permission_request"
-arize-hook-session-end = "core.hooks.claude.handlers:session_end"
-# Codex hook
-arize-hook-codex-notify = "core.hooks.codex.handlers:notify"
+arize-hook-session-start = "claude_code_tracing.hooks.handlers:session_start"
+arize-hook-pre-tool-use = "claude_code_tracing.hooks.handlers:pre_tool_use"
+arize-hook-post-tool-use = "claude_code_tracing.hooks.handlers:post_tool_use"
+arize-hook-user-prompt-submit = "claude_code_tracing.hooks.handlers:user_prompt_submit"
+arize-hook-stop = "claude_code_tracing.hooks.handlers:stop"
+arize-hook-subagent-stop = "claude_code_tracing.hooks.handlers:subagent_stop"
+arize-hook-stop-failure = "claude_code_tracing.hooks.handlers:stop_failure"
+arize-hook-notification = "claude_code_tracing.hooks.handlers:notification"
+arize-hook-permission-request = "claude_code_tracing.hooks.handlers:permission_request"
+arize-hook-session-end = "claude_code_tracing.hooks.handlers:session_end"
+# Codex hooks
+arize-hook-codex-notify = "codex_tracing.hooks.handlers:notify"
+arize-hook-codex-drain = "codex_tracing.hooks.handlers:drain_idle"
 # Codex proxy
-arize-codex-proxy = "core.hooks.codex.proxy:main"
+arize-codex-proxy = "codex_tracing.hooks.proxy:main"
+# Copilot hooks
+arize-hook-copilot-session-start = "copilot_tracing.hooks.handlers:session_start"
+arize-hook-copilot-user-prompt = "copilot_tracing.hooks.handlers:user_prompt_submitted"
+arize-hook-copilot-pre-tool = "copilot_tracing.hooks.handlers:pre_tool_use"
+arize-hook-copilot-post-tool = "copilot_tracing.hooks.handlers:post_tool_use"
+arize-hook-copilot-stop = "copilot_tracing.hooks.handlers:stop"
+arize-hook-copilot-error = "copilot_tracing.hooks.handlers:error_occurred"
+arize-hook-copilot-session-end = "copilot_tracing.hooks.handlers:session_end"
+arize-hook-copilot-subagent-stop = "copilot_tracing.hooks.handlers:subagent_stop"
 # Cursor hook
-arize-hook-cursor = "core.hooks.cursor.handlers:main"
+arize-hook-cursor = "cursor_tracing.hooks.handlers:main"
 # Setup wizards
 arize-setup-claude = "core.setup.claude:main"
 arize-setup-codex = "core.setup.codex:main"
+arize-setup-copilot = "core.setup.copilot:main"
 arize-setup-cursor = "core.setup.cursor:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=core --cov-report=term-missing --cov-report=xml"
+addopts = "--cov=core --cov=claude_code_tracing --cov=codex_tracing --cov=copilot_tracing --cov=cursor_tracing --cov-report=term-missing --cov-report=xml"
 markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 
 [tool.coverage.run]
-source = ["core"]
+source = ["core", "claude_code_tracing", "codex_tracing", "copilot_tracing", "cursor_tracing"]
 omit = [
-    "core/codex_buffer.py",
+    "codex_tracing/codex_buffer.py",
 ]
 
 [tool.coverage.report]
@@ -52,12 +74,32 @@ target-version = "py39"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I"]
+# I (isort) handled by isort pre-commit hook; formatting handled by black.
+select = ["E", "F", "W"]
 ignore = ["E501"]
+
+[tool.black]
+line-length = 120
+target-version = ["py39"]
+
+[tool.isort]
+profile = "black"
+line_length = 120
+known_first_party = ["core", "claude_code_tracing", "codex_tracing", "copilot_tracing", "cursor_tracing", "tests"]
+
+[tool.mypy]
+python_version = "3.9"
+ignore_missing_imports = true
+# Lenient baseline — tighten over time.
+check_untyped_defs = false
+disallow_untyped_defs = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+files = ["core"]
 
 [build-system]
 requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["core*"]
+include = ["core*", "claude_code_tracing*", "codex_tracing*", "copilot_tracing*", "cursor_tracing*"]

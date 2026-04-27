@@ -9,6 +9,7 @@ build/
 .eggs/
 
 # Virtual environments
+.env
 .venv/
 venv/
 ENV/
@@ -36,9 +37,9 @@ Thumbs.db
 .workbench/
 .agents/
 .claude/
-uv.lock
 mempalace.yaml
 entities.json
+*.code-workspace
 
 # Runtime artifacts (generated at install/run time, not versioned)
 state/

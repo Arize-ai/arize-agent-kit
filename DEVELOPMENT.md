@@ -7,9 +7,9 @@ Contributor guide for adding new harness adapters and working with the shared co
 The system has two layers:
 
 1. **Harness adapters** — build OpenInference spans from harness-specific events (hook payloads, session lifecycle, tool calls) and send them directly to the backend.
-2. **Direct send** — `send_span()` in `core/common.py` sends spans directly to Phoenix (REST) or Arize AX (HTTP). Per-harness credential overrides are resolved automatically.
+2. **Direct send** — `send_span()` in `core/common.py` sends spans directly to Phoenix (REST) or Arize AX (HTTP). Per-harness credentials are read from `harnesses.<name>.*` in config.
 
-Harnesses are responsible for span construction and session state. The `send_span()` function handles backend export, credential resolution (per-harness overrides → global config → env vars), retries, and logging. Codex additionally uses a lightweight buffer service (`core/codex_buffer.py`) for native OTLP event buffering. See [TRACING_ARCHITECTURE.md](docs/TRACING_ARCHITECTURE.md) for the full architecture.
+Harnesses are responsible for span construction and session state. The `send_span()` function handles backend export, credential resolution (from `harnesses.<name>.*` in config), retries, and logging. Codex additionally uses a lightweight buffer service (`codex_tracing/codex_buffer.py`) for native OTLP event buffering. See [TRACING_ARCHITECTURE.md](docs/TRACING_ARCHITECTURE.md) for the full architecture.
 
 ## Dev Setup
 
@@ -33,7 +33,7 @@ After `pip install -e .`, all CLI entry points are available in your PATH:
 
 ```bash
 arize-codex-buffer status        # Check Codex buffer service status
-arize-config get backend.target  # Read config values
+arize-config get harnesses.claude-code.target  # Read config values
 ```
 
 ## Repo Structure
@@ -43,32 +43,32 @@ core/
   __init__.py        # Package init
   constants.py       # Single source of truth for all paths
   config.py          # YAML config helper (CLI: arize-config)
-  codex_buffer.py    # Codex-only: OTLP event buffer service (no export logic)
-  codex_buffer_ctl.py # Codex buffer lifecycle (CLI: arize-codex-buffer)
   common.py          # Shared: span building, direct send, state, logging, IDs
-  hooks/
-    __init__.py
-    claude/
-      __init__.py
-      adapter.py     # Claude-specific session resolution, GC, init
-      handlers.py    # One exported function per Claude Code hook event
-    codex/
-      __init__.py
-      adapter.py     # Codex-specific session resolution, GC, event drain
-      handlers.py    # Notify handler
-      proxy.py       # Codex proxy script
-    cursor/
-      __init__.py
-      adapter.py     # Cursor-specific state stack, ID generation, sanitize
-      handlers.py    # 12-event dispatcher
   setup/
     claude.py        # Interactive setup wizard for Claude
     codex.py         # Interactive setup wizard for Codex
+    copilot.py       # Interactive setup wizard for Copilot
     cursor.py        # Interactive setup wizard for Cursor
 
-claude-code-tracing/ # Claude Code CLI / Agent SDK — docs, plugin.json, skill
-codex-tracing/       # OpenAI Codex CLI — docs, skill, setup script
-cursor-tracing/      # Cursor IDE — docs, skill, setup script
+claude_code_tracing/ # Claude Code CLI / Agent SDK — docs, plugin.json, skill
+  hooks/
+    adapter.py       # Claude-specific session resolution, GC, init
+    handlers.py      # One exported function per Claude Code hook event
+codex_tracing/       # OpenAI Codex CLI — docs, skill, setup script
+  codex_buffer.py    # Codex-only: OTLP event buffer service (no export logic)
+  codex_buffer_ctl.py # Codex buffer lifecycle (CLI: arize-codex-buffer)
+  hooks/
+    adapter.py       # Codex-specific session resolution, GC, event drain
+    handlers.py      # Notify handler
+    proxy.py         # Codex proxy script
+copilot_tracing/     # GitHub Copilot — docs, skill, setup script
+  hooks/
+    adapter.py       # Copilot-specific session resolution, GC, init
+    handlers.py      # Copilot hook handlers
+cursor_tracing/      # Cursor IDE — docs, skill, setup script
+  hooks/
+    adapter.py       # Cursor-specific state stack, ID generation, sanitize
+    handlers.py      # 12-event dispatcher
 
 install.sh           # Cross-platform installer (Unix/macOS)
 install.bat          # Cross-platform installer (Windows)
@@ -89,7 +89,7 @@ pyproject.toml       # Package definition, CLI entry points, pytest config
 - Span building (`build_span`, `build_multi_span`)
 - Span sending (`send_span`)
 
-Each adapter module (`core/hooks/<harness>/adapter.py`) provides:
+Each adapter module (`<harness>_tracing/hooks/adapter.py`) provides:
 
 1. Adapter-specific constants (`SERVICE_NAME`, `SCOPE_NAME`, `STATE_DIR`, `LOG_FILE`)
 2. Session resolution logic (Claude uses PID-based keys; Codex uses thread-id; Cursor uses conversation_id)
@@ -104,7 +104,7 @@ Follow these steps to add tracing support for a new AI coding harness.
 ### Step 1: Create the adapter module
 
 ```
-core/hooks/<harness>/
+<harness>_tracing/hooks/
   __init__.py
   adapter.py     # Adapter-specific session resolution, GC, init
   handlers.py    # Hook entry point(s)
@@ -178,7 +178,7 @@ Each handler is a CLI entry point function:
 import json
 import sys
 from core.common import build_span, send_span, error
-from core.hooks.<harness>.adapter import (
+from <harness>_tracing.hooks.adapter import (
     SERVICE_NAME, SCOPE_NAME, resolve_session
 )
 
@@ -201,7 +201,7 @@ Add entry points in `pyproject.toml`:
 
 ```toml
 [project.scripts]
-arize-hook-<harness>-<event> = "core.hooks.<harness>.handlers:<function>"
+arize-hook-<harness>-<event> = "<harness>_tracing.hooks.handlers:<function>"
 ```
 
 ### Step 5: Update install.sh / install.bat
@@ -210,7 +210,7 @@ Add a `setup_<harness>` function to `install.sh` (and the equivalent in `install
 
 ### Step 6: Write a README.md
 
-Follow the pattern in existing adapter READMEs: features, configuration table, quick setup, troubleshooting. Place it in `<harness>-tracing/README.md`.
+Follow the pattern in existing adapter READMEs: features, configuration table, quick setup, troubleshooting. Place it in `<harness>_tracing/README.md`.
 
 ## Core API Reference
 
@@ -264,20 +264,21 @@ After `pip install .`, the following commands are available:
 
 | Command | Module | Description |
 |---------|--------|-------------|
-| `arize-codex-buffer` | `core.codex_buffer_ctl:main` | Codex buffer service lifecycle: start/stop/status/ensure |
+| `arize-codex-buffer` | `codex_tracing.codex_buffer_ctl:main` | Codex buffer service lifecycle: start/stop/status/ensure |
 | `arize-config` | `core.config:main` | Config helper: get/set values in config.yaml |
-| `arize-hook-session-start` | `core.hooks.claude.handlers:session_start` | Claude SessionStart hook |
-| `arize-hook-pre-tool-use` | `core.hooks.claude.handlers:pre_tool_use` | Claude PreToolUse hook |
-| `arize-hook-post-tool-use` | `core.hooks.claude.handlers:post_tool_use` | Claude PostToolUse hook |
-| `arize-hook-user-prompt-submit` | `core.hooks.claude.handlers:user_prompt_submit` | Claude UserPromptSubmit hook |
-| `arize-hook-stop` | `core.hooks.claude.handlers:stop` | Claude Stop hook |
-| `arize-hook-subagent-stop` | `core.hooks.claude.handlers:subagent_stop` | Claude SubagentStop hook |
-| `arize-hook-notification` | `core.hooks.claude.handlers:notification` | Claude Notification hook |
-| `arize-hook-permission-request` | `core.hooks.claude.handlers:permission_request` | Claude PermissionRequest hook |
-| `arize-hook-session-end` | `core.hooks.claude.handlers:session_end` | Claude SessionEnd hook |
-| `arize-hook-codex-notify` | `core.hooks.codex.handlers:notify` | Codex notify hook |
-| `arize-codex-proxy` | `core.hooks.codex.proxy:main` | Codex proxy script |
-| `arize-hook-cursor` | `core.hooks.cursor.handlers:main` | Cursor 12-event dispatcher |
+| `arize-hook-session-start` | `claude_code_tracing.hooks.handlers:session_start` | Claude SessionStart hook |
+| `arize-hook-pre-tool-use` | `claude_code_tracing.hooks.handlers:pre_tool_use` | Claude PreToolUse hook |
+| `arize-hook-post-tool-use` | `claude_code_tracing.hooks.handlers:post_tool_use` | Claude PostToolUse hook |
+| `arize-hook-user-prompt-submit` | `claude_code_tracing.hooks.handlers:user_prompt_submit` | Claude UserPromptSubmit hook |
+| `arize-hook-stop` | `claude_code_tracing.hooks.handlers:stop` | Claude Stop hook |
+| `arize-hook-subagent-stop` | `claude_code_tracing.hooks.handlers:subagent_stop` | Claude SubagentStop hook |
+| `arize-hook-stop-failure` | `claude_code_tracing.hooks.handlers:stop_failure` | Claude StopFailure hook |
+| `arize-hook-notification` | `claude_code_tracing.hooks.handlers:notification` | Claude Notification hook |
+| `arize-hook-permission-request` | `claude_code_tracing.hooks.handlers:permission_request` | Claude PermissionRequest hook |
+| `arize-hook-session-end` | `claude_code_tracing.hooks.handlers:session_end` | Claude SessionEnd hook |
+| `arize-hook-codex-notify` | `codex_tracing.hooks.handlers:notify` | Codex notify hook |
+| `arize-codex-proxy` | `codex_tracing.hooks.proxy:main` | Codex proxy script |
+| `arize-hook-cursor` | `cursor_tracing.hooks.handlers:main` | Cursor 12-event dispatcher |
 
 ## Testing
 

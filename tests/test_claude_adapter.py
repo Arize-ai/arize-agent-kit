@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for core.hooks.claude.adapter — session resolution, init, GC, requirements."""
+"""Tests for claude_code_tracing.hooks.adapter — session resolution, init, GC, requirements."""
 import os
 import subprocess
 from pathlib import Path
@@ -8,9 +8,9 @@ from unittest.mock import mock_open, patch
 import pytest
 import yaml
 
-from core.hooks.claude import adapter
+from claude_code_tracing.hooks import adapter
+from claude_code_tracing.hooks.adapter import resolve_transcript_path
 from core.common import StateManager
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -69,9 +69,7 @@ class TestResolveSession:
         sm2 = adapter.resolve_session({"session_id": "stable"})
         assert sm1.state_file == sm2.state_file
 
-    def test_session_id_takes_priority_over_env(
-        self, claude_state_dir, disable_env_vars, monkeypatch
-    ):
+    def test_session_id_takes_priority_over_env(self, claude_state_dir, disable_env_vars, monkeypatch):
         """session_id in input takes priority over CLAUDE_SESSION_KEY."""
         monkeypatch.setenv("CLAUDE_SESSION_KEY", "env-key")
         sm = adapter.resolve_session({"session_id": "input-key"})
@@ -250,9 +248,7 @@ class TestGetGrandparentPid:
         """When /proc read fails, falls back to ps command."""
         monkeypatch.setattr(os, "getppid", lambda: 100)
         with patch("builtins.open", side_effect=OSError("no /proc")):
-            with patch(
-                "subprocess.check_output", return_value=b"  789  \n"
-            ):
+            with patch("subprocess.check_output", return_value=b"  789  \n"):
                 result = adapter._get_grandparent_pid()
         assert result == "789"
 
@@ -293,3 +289,90 @@ class TestIsPidAlive:
     def test_negative_returns_false(self):
         """Negative PID should return False."""
         assert adapter._is_pid_alive(-1) is False
+
+
+# ── resolve_transcript_path tests ─────────────────────────────────────────
+
+
+class TestResolveTranscriptPath:
+    def test_returns_transcript_path_when_present_and_exists(self, tmp_path):
+        """Uses transcript_path from input when the file exists."""
+        tf = tmp_path / "session.jsonl"
+        tf.write_text("{}\n")
+        result = resolve_transcript_path({"transcript_path": str(tf)}, "sess-1")
+        assert result == tf
+
+    def test_returns_agent_transcript_path_when_present_and_exists(self, tmp_path):
+        """Uses agent_transcript_path from input when transcript_path is absent."""
+        tf = tmp_path / "agent.jsonl"
+        tf.write_text("{}\n")
+        result = resolve_transcript_path({"agent_transcript_path": str(tf)}, "sess-1")
+        assert result == tf
+
+    def test_agent_transcript_path_takes_priority_over_main(self, tmp_path):
+        """agent_transcript_path is checked before transcript_path."""
+        main_tf = tmp_path / "main.jsonl"
+        main_tf.write_text("{}\n")
+        agent_tf = tmp_path / "agent.jsonl"
+        agent_tf.write_text("{}\n")
+        result = resolve_transcript_path(
+            {"transcript_path": str(main_tf), "agent_transcript_path": str(agent_tf)},
+            "sess-1",
+        )
+        assert result == agent_tf
+
+    def test_falls_back_to_canonical_path(self, tmp_path, monkeypatch):
+        """Derives canonical path from cwd + session_id when no transcript_path in input."""
+        session_id = "abc123"
+        cwd = "/fake/test/dir"
+        slug = cwd.replace("/", "-")
+        project_dir = tmp_path / ".claude" / "projects" / slug
+        project_dir.mkdir(parents=True)
+        tf = project_dir / f"{session_id}.jsonl"
+        tf.write_text("{}\n")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        result = resolve_transcript_path({"cwd": cwd}, session_id)
+        assert result == tf
+
+    def test_falls_back_to_cwd_when_no_cwd_in_input(self, tmp_path, monkeypatch):
+        """Uses os.getcwd() when input has no cwd field."""
+        session_id = "def456"
+        fake_cwd = "/proc/fake/cwd"
+        slug = fake_cwd.replace("/", "-")
+        project_dir = tmp_path / ".claude" / "projects" / slug
+        project_dir.mkdir(parents=True)
+        tf = project_dir / f"{session_id}.jsonl"
+        tf.write_text("{}\n")
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        monkeypatch.setattr(os, "getcwd", lambda: fake_cwd)
+        result = resolve_transcript_path({}, session_id)
+        assert result == tf
+
+    def test_returns_none_when_no_session_id(self):
+        """Returns None when session_id is empty and no paths in input."""
+        result = resolve_transcript_path({}, "")
+        assert result is None
+
+    def test_returns_none_when_file_does_not_exist(self, tmp_path, monkeypatch):
+        """Returns None when canonical path doesn't exist on disk."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        result = resolve_transcript_path({"cwd": "/some/dir"}, "no-such-session")
+        assert result is None
+
+    def test_returns_none_when_transcript_path_not_a_file(self, tmp_path):
+        """Returns None when transcript_path is provided but doesn't exist on disk."""
+        result = resolve_transcript_path({"transcript_path": str(tmp_path / "nonexistent.jsonl")}, "sess-1")
+        # Should fall through to canonical path, which also won't exist
+        assert result is None
+
+    def test_expands_tilde_in_transcript_path(self, tmp_path, monkeypatch):
+        """Handles ~ in transcript_path via Path.expanduser()."""
+        session_id = "tilde-test"
+        project_dir = tmp_path / ".claude" / "projects" / "test"
+        project_dir.mkdir(parents=True)
+        tf = project_dir / f"{session_id}.jsonl"
+        tf.write_text("{}\n")
+        monkeypatch.setenv("HOME", str(tmp_path))
+        result = resolve_transcript_path({"transcript_path": f"~/.claude/projects/test/{session_id}.jsonl"}, session_id)
+        assert result is not None
+        assert result.is_file()

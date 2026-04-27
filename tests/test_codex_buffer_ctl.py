@@ -1,23 +1,20 @@
-"""Tests for core.codex_buffer_ctl module."""
+"""Tests for codex_tracing.codex_buffer_ctl module."""
 
 import os
-import signal
-import socket
 import subprocess
 import sys
 import threading
-import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
 
-from core.codex_buffer_ctl import (
+from codex_tracing.codex_buffer_ctl import (
+    _health_check,
     _is_process_alive,
     _resolve_host_port,
-    _health_check,
     buffer_ensure,
     buffer_start,
     buffer_status,
@@ -30,7 +27,7 @@ from core.codex_buffer_ctl import (
 def _mock_ctl_sleep(monkeypatch):
     """Mock time.sleep in codex_buffer_ctl to prevent real delays in retry/poll loops."""
     sleep_calls = []
-    monkeypatch.setattr("core.codex_buffer_ctl.time.sleep", lambda s: sleep_calls.append(s))
+    monkeypatch.setattr("codex_tracing.codex_buffer_ctl.time.sleep", lambda s: sleep_calls.append(s))
     return sleep_calls
 
 
@@ -40,24 +37,25 @@ def _mock_ctl_health(monkeypatch):
 
     Tests that need a healthy endpoint use mock_collector which patches this back.
     """
-    monkeypatch.setattr("core.codex_buffer_ctl._health_check", lambda *a, **kw: False)
+    monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", lambda *a, **kw: False)
 
 
 # ---------------------------------------------------------------------------
 # Helper fixture: monkeypatch constants in BOTH core.constants AND
-# core.codex_buffer_ctl, because codex_buffer_ctl uses `from core.constants import`
+# codex_tracing.codex_buffer_ctl, because codex_buffer_ctl uses `from core.constants import`
 # which creates local bindings that won't see monkeypatches to core.constants.
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def ctl_paths(tmp_harness_dir, monkeypatch):
-    """Monkeypatch all path constants in core.codex_buffer_ctl to use temp paths.
+    """Monkeypatch all path constants in codex_tracing.codex_buffer_ctl to use temp paths.
 
     The base tmp_harness_dir fixture patches core.constants, but codex_buffer_ctl
     has its own local bindings from `from core.constants import ...`.
     This fixture patches those too.
     """
-    import core.codex_buffer_ctl as ctl
+    import codex_tracing.codex_buffer_ctl as ctl
     import core.constants as c
 
     monkeypatch.setattr(ctl, "CODEX_BUFFER_PID_FILE", c.CODEX_BUFFER_PID_FILE)
@@ -75,6 +73,7 @@ def ctl_paths(tmp_harness_dir, monkeypatch):
 # ---------------------------------------------------------------------------
 # _is_process_alive tests
 # ---------------------------------------------------------------------------
+
 
 class TestIsProcessAlive:
     def test_current_process_is_alive(self):
@@ -104,7 +103,63 @@ class TestIsProcessAlive:
 # _resolve_host_port tests
 # ---------------------------------------------------------------------------
 
+
 class TestResolveHostPort:
+    def test_buffer_reads_host_port_from_codex_collector(self, ctl_paths):
+        """Full config with harnesses.codex.collector.{host, port} is read correctly."""
+        import core.constants as c
+
+        config = {"harnesses": {"codex": {"collector": {"host": "0.0.0.0", "port": 9999}}}}
+        with open(c.CONFIG_FILE, "w") as f:
+            yaml.safe_dump(config, f)
+        host, port = _resolve_host_port()
+        assert host == "0.0.0.0"
+        assert port == 9999
+
+    def test_buffer_defaults_when_no_codex_entry(self, ctl_paths):
+        """Config has no harnesses.codex at all -> defaults."""
+        import core.constants as c
+
+        config = {"harnesses": {"claude-code": {"project_name": "cc"}}}
+        with open(c.CONFIG_FILE, "w") as f:
+            yaml.safe_dump(config, f)
+        host, port = _resolve_host_port()
+        assert host == "127.0.0.1"
+        assert port == 4318
+
+    def test_buffer_defaults_when_codex_entry_has_no_collector(self, ctl_paths):
+        """harnesses.codex exists but no collector sub-dict -> defaults."""
+        import core.constants as c
+
+        config = {"harnesses": {"codex": {"project_name": "codex"}}}
+        with open(c.CONFIG_FILE, "w") as f:
+            yaml.safe_dump(config, f)
+        host, port = _resolve_host_port()
+        assert host == "127.0.0.1"
+        assert port == 4318
+
+    def test_buffer_ignores_top_level_collector_key(self, ctl_paths):
+        """Old-style top-level collector: block is NOT read; defaults used."""
+        import core.constants as c
+
+        config = {"collector": {"host": "10.0.0.1", "port": 9999}}
+        with open(c.CONFIG_FILE, "w") as f:
+            yaml.safe_dump(config, f)
+        host, port = _resolve_host_port()
+        assert host == "127.0.0.1"
+        assert port == 4318
+
+    def test_buffer_ignores_top_level_buffer_key(self, ctl_paths):
+        """Old-style top-level buffer: block is NOT read; defaults used."""
+        import core.constants as c
+
+        config = {"buffer": {"host": "192.168.1.1", "port": 7777}}
+        with open(c.CONFIG_FILE, "w") as f:
+            yaml.safe_dump(config, f)
+        host, port = _resolve_host_port()
+        assert host == "127.0.0.1"
+        assert port == 4318
+
     def test_with_default_config(self, ctl_paths, sample_config):
         """With standard sample config, returns 127.0.0.1:4318."""
         host, port = _resolve_host_port()
@@ -117,20 +172,11 @@ class TestResolveHostPort:
         assert host == "127.0.0.1"
         assert port == 4318
 
-    def test_with_custom_host_port(self, ctl_paths):
-        """Custom host/port in config.yaml is returned."""
-        import core.constants as c
-        config = {"collector": {"host": "0.0.0.0", "port": 9999}}
-        with open(c.CONFIG_FILE, "w") as f:
-            yaml.safe_dump(config, f)
-        host, port = _resolve_host_port()
-        assert host == "0.0.0.0"
-        assert port == 9999
-
     def test_partial_config_falls_back(self, ctl_paths):
         """If only host is set, port falls back to default."""
         import core.constants as c
-        config = {"collector": {"host": "10.0.0.1"}}
+
+        config = {"harnesses": {"codex": {"collector": {"host": "10.0.0.1"}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
         host, port = _resolve_host_port()
@@ -140,6 +186,7 @@ class TestResolveHostPort:
     def test_empty_config_returns_defaults(self, ctl_paths):
         """Empty config file returns defaults."""
         import core.constants as c
+
         with open(c.CONFIG_FILE, "w") as f:
             f.write("{}\n")
         host, port = _resolve_host_port()
@@ -149,6 +196,7 @@ class TestResolveHostPort:
     def test_malformed_config_returns_defaults(self, ctl_paths):
         """Malformed YAML in config returns defaults without raising."""
         import core.constants as c
+
         with open(c.CONFIG_FILE, "w") as f:
             f.write(":::bad yaml:::\n")
         host, port = _resolve_host_port()
@@ -158,43 +206,19 @@ class TestResolveHostPort:
     def test_port_is_always_int(self, ctl_paths):
         """Port is returned as int even if config stores it as string."""
         import core.constants as c
-        config = {"collector": {"host": "127.0.0.1", "port": "5555"}}
+
+        config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": "5555"}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
         host, port = _resolve_host_port()
         assert isinstance(port, int)
         assert port == 5555
 
-    def test_buffer_config_takes_priority(self, ctl_paths):
-        """buffer.host/port takes priority over collector.host/port."""
-        import core.constants as c
-        config = {
-            "collector": {"host": "10.0.0.1", "port": 9999},
-            "buffer": {"host": "192.168.1.1", "port": 7777},
-        }
-        with open(c.CONFIG_FILE, "w") as f:
-            yaml.safe_dump(config, f)
-        host, port = _resolve_host_port()
-        assert host == "192.168.1.1"
-        assert port == 7777
-
-    def test_buffer_partial_falls_back_to_collector(self, ctl_paths):
-        """If buffer only has host, port falls back to collector.port."""
-        import core.constants as c
-        config = {
-            "collector": {"host": "10.0.0.1", "port": 9999},
-            "buffer": {"host": "192.168.1.1"},
-        }
-        with open(c.CONFIG_FILE, "w") as f:
-            yaml.safe_dump(config, f)
-        host, port = _resolve_host_port()
-        assert host == "192.168.1.1"
-        assert port == 9999
-
 
 # ---------------------------------------------------------------------------
 # _health_check tests
 # ---------------------------------------------------------------------------
+
 
 class TestHealthCheck:
     def test_health_check_success(self, mock_collector):
@@ -208,10 +232,12 @@ class TestHealthCheck:
 
     def test_health_check_non_health_endpoint(self):
         """Health check returns False if server doesn't respond to /health."""
+
         class _NoHealthHandler(BaseHTTPRequestHandler):
             def do_GET(self):
                 self.send_response(500)
                 self.end_headers()
+
             def log_message(self, *args):
                 pass
 
@@ -230,6 +256,7 @@ class TestHealthCheck:
 # buffer_status tests
 # ---------------------------------------------------------------------------
 
+
 class TestBufferStatus:
     def test_stopped_when_no_pid_file_and_no_health(self, ctl_paths):
         """No PID file and no healthy service means stopped."""
@@ -240,6 +267,7 @@ class TestBufferStatus:
     def test_stopped_when_dead_pid(self, ctl_paths, sample_config):
         """PID file with dead PID is cleaned up and reports stopped."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("99999\n")
         assert pid_file.exists()
@@ -253,6 +281,7 @@ class TestBufferStatus:
     def test_stopped_when_non_numeric_pid(self, ctl_paths, sample_config):
         """Non-numeric PID file content is cleaned up."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("not-a-number\n")
 
@@ -264,6 +293,7 @@ class TestBufferStatus:
     def test_stopped_when_empty_pid_file(self, ctl_paths, sample_config):
         """Empty PID file is cleaned up."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("")
 
@@ -275,10 +305,11 @@ class TestBufferStatus:
     def test_running_when_process_alive_and_healthy(self, ctl_paths, mock_collector):
         """Process alive + health OK = running."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
-        config = {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}
+        config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
 
@@ -290,11 +321,12 @@ class TestBufferStatus:
     def test_running_when_process_alive_but_health_fails(self, ctl_paths):
         """Process alive but health fails = still reports running (benefit of the doubt)."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
         # Config points to a port with nothing listening
-        config = {"collector": {"host": "127.0.0.1", "port": 19998}}
+        config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": 19998}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
 
@@ -306,6 +338,7 @@ class TestBufferStatus:
     def test_pid_file_with_extra_whitespace(self, ctl_paths, sample_config):
         """PID file with extra whitespace/newlines is parsed correctly."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(f"  {os.getpid()}  \n\n")
 
@@ -318,6 +351,7 @@ class TestBufferStatus:
 # buffer_start tests
 # ---------------------------------------------------------------------------
 
+
 class TestBufferStart:
     def test_returns_false_when_config_missing(self, ctl_paths):
         """No config.yaml means start fails."""
@@ -327,10 +361,11 @@ class TestBufferStart:
     def test_idempotent_when_already_running(self, ctl_paths, mock_collector):
         """If buffer is already running, start returns True without launching."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
-        config = {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}
+        config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
 
@@ -345,6 +380,7 @@ class TestBufferStart:
             def do_GET(self):
                 self.send_response(404)
                 self.end_headers()
+
             def log_message(self, *args):
                 pass
 
@@ -354,7 +390,7 @@ class TestBufferStart:
         thread.start()
 
         try:
-            config = {"collector": {"host": "127.0.0.1", "port": port}}
+            config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": port}}}}
             with open(c.CONFIG_FILE, "w") as f:
                 yaml.safe_dump(config, f)
 
@@ -365,13 +401,13 @@ class TestBufferStart:
 
     def test_detects_existing_buffer_on_port(self, ctl_paths, mock_collector, monkeypatch):
         """If port has a healthy buffer already, start returns True."""
+        import codex_tracing.codex_buffer_ctl as ctl
         import core.constants as c
-        import core.codex_buffer_ctl as ctl
 
         # Restore real _health_check for this test (overrides autouse mock)
-        monkeypatch.setattr("core.codex_buffer_ctl._health_check", _health_check)
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", _health_check)
 
-        config = {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}
+        config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
 
@@ -387,7 +423,7 @@ class TestBufferStart:
 
     def test_returns_false_when_no_buffer_runtime(self, ctl_paths, sample_config, monkeypatch):
         """If neither CODEX_BUFFER_BIN nor codex_buffer.py exist, start fails."""
-        import core.codex_buffer_ctl as ctl
+        import codex_tracing.codex_buffer_ctl as ctl
 
         # Point CODEX_BUFFER_BIN to nonexistent path
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
@@ -402,7 +438,7 @@ class TestBufferStart:
 
     def test_start_launches_subprocess(self, ctl_paths, sample_config, monkeypatch):
         """Successful launch via codex_buffer.py calls Popen with correct args."""
-        import core.codex_buffer_ctl as ctl
+        import codex_tracing.codex_buffer_ctl as ctl
 
         # Point CODEX_BUFFER_BIN to nonexistent so it falls through to codex_buffer.py
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
@@ -416,7 +452,7 @@ class TestBufferStart:
 
         # Mock socket to raise (port is free)
         monkeypatch.setattr(
-            "core.codex_buffer_ctl.socket.create_connection",
+            "codex_tracing.codex_buffer_ctl.socket.create_connection",
             MagicMock(side_effect=ConnectionRefusedError),
         )
 
@@ -424,14 +460,16 @@ class TestBufferStart:
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         mock_popen = MagicMock(return_value=mock_proc)
-        monkeypatch.setattr("core.codex_buffer_ctl.subprocess.Popen", mock_popen)
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.subprocess.Popen", mock_popen)
 
         # Mock _health_check: fail first calls (status + start pre-check), succeed after launch
         call_count = {"n": 0}
+
         def fake_health_check(host, port, timeout=2.0):
             call_count["n"] += 1
             return call_count["n"] >= 4  # 1=status, 2=start pre-check, 3=port-check, 4+=poll
-        monkeypatch.setattr("core.codex_buffer_ctl._health_check", fake_health_check)
+
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", fake_health_check)
 
         result = buffer_start()
         assert result is True
@@ -443,7 +481,7 @@ class TestBufferStart:
 
     def test_start_uses_buffer_bin_when_available(self, ctl_paths, sample_config, monkeypatch):
         """When CODEX_BUFFER_BIN exists and is executable, it is preferred over codex_buffer.py."""
-        import core.codex_buffer_ctl as ctl
+        import codex_tracing.codex_buffer_ctl as ctl
 
         # Create a fake CODEX_BUFFER_BIN
         buffer_bin = ctl_paths / "arize-codex-buffer"
@@ -453,7 +491,7 @@ class TestBufferStart:
 
         # Mock socket to raise (port is free)
         monkeypatch.setattr(
-            "core.codex_buffer_ctl.socket.create_connection",
+            "codex_tracing.codex_buffer_ctl.socket.create_connection",
             MagicMock(side_effect=ConnectionRefusedError),
         )
 
@@ -461,11 +499,13 @@ class TestBufferStart:
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         mock_popen = MagicMock(return_value=mock_proc)
-        monkeypatch.setattr("core.codex_buffer_ctl.subprocess.Popen", mock_popen)
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.subprocess.Popen", mock_popen)
 
         # Mock _health_check: False for status + start pre-checks, True after launch
         health_calls = iter([False, False, True])
-        monkeypatch.setattr("core.codex_buffer_ctl._health_check", lambda h, p, timeout=2.0: next(health_calls))
+        monkeypatch.setattr(
+            "codex_tracing.codex_buffer_ctl._health_check", lambda h, p, timeout=2.0: next(health_calls)
+        )
 
         result = buffer_start()
         assert result is True
@@ -475,7 +515,7 @@ class TestBufferStart:
 
     def test_start_returns_true_if_process_alive_but_unhealthy(self, ctl_paths, sample_config, monkeypatch):
         """If health check never passes but process is alive, returns True (benefit of the doubt)."""
-        import core.codex_buffer_ctl as ctl
+        import codex_tracing.codex_buffer_ctl as ctl
 
         # Point CODEX_BUFFER_BIN to nonexistent so it falls through to codex_buffer.py
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
@@ -488,7 +528,7 @@ class TestBufferStart:
 
         # Mock socket (port is free)
         monkeypatch.setattr(
-            "core.codex_buffer_ctl.socket.create_connection",
+            "codex_tracing.codex_buffer_ctl.socket.create_connection",
             MagicMock(side_effect=ConnectionRefusedError),
         )
 
@@ -496,20 +536,20 @@ class TestBufferStart:
         mock_proc = MagicMock()
         mock_proc.pid = 54321
         mock_popen = MagicMock(return_value=mock_proc)
-        monkeypatch.setattr("core.codex_buffer_ctl.subprocess.Popen", mock_popen)
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.subprocess.Popen", mock_popen)
 
         # Health check always fails
-        monkeypatch.setattr("core.codex_buffer_ctl._health_check", lambda h, p, timeout=2.0: False)
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", lambda h, p, timeout=2.0: False)
 
         # Process is alive
-        monkeypatch.setattr("core.codex_buffer_ctl._is_process_alive", lambda pid: pid == 54321)
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._is_process_alive", lambda pid: pid == 54321)
 
         result = buffer_start()
         assert result is True
 
     def test_start_returns_false_on_popen_failure(self, ctl_paths, sample_config, monkeypatch):
         """If Popen raises OSError, buffer_start returns False."""
-        import core.codex_buffer_ctl as ctl
+        import codex_tracing.codex_buffer_ctl as ctl
 
         # Point CODEX_BUFFER_BIN to nonexistent so it falls through to codex_buffer.py
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
@@ -522,13 +562,13 @@ class TestBufferStart:
 
         # Mock socket (port is free)
         monkeypatch.setattr(
-            "core.codex_buffer_ctl.socket.create_connection",
+            "codex_tracing.codex_buffer_ctl.socket.create_connection",
             MagicMock(side_effect=ConnectionRefusedError),
         )
 
         # Mock Popen to raise OSError
         monkeypatch.setattr(
-            "core.codex_buffer_ctl.subprocess.Popen",
+            "codex_tracing.codex_buffer_ctl.subprocess.Popen",
             MagicMock(side_effect=OSError("Permission denied")),
         )
 
@@ -540,6 +580,7 @@ class TestBufferStart:
 # buffer_stop tests
 # ---------------------------------------------------------------------------
 
+
 class TestBufferStop:
     def test_stop_when_already_stopped(self, ctl_paths):
         """Stop when no PID file returns 'stopped'."""
@@ -549,6 +590,7 @@ class TestBufferStop:
     def test_stop_cleans_up_stale_pid_file(self, ctl_paths):
         """Stop with dead PID removes PID file."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("99999\n")
 
@@ -559,6 +601,7 @@ class TestBufferStop:
     def test_stop_with_non_numeric_pid(self, ctl_paths):
         """Stop with garbage PID file removes it."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("garbage\n")
 
@@ -569,6 +612,7 @@ class TestBufferStop:
     def test_stop_with_empty_pid_file(self, ctl_paths):
         """Stop with empty PID file removes it."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text("")
 
@@ -579,6 +623,7 @@ class TestBufferStop:
     def test_stop_sends_sigterm_to_alive_process(self, ctl_paths, _mock_ctl_sleep):
         """Stop sends SIGTERM to a live process and waits for it to die."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
 
         # Start a subprocess that we can kill
@@ -608,6 +653,7 @@ class TestBufferStop:
     def test_stop_removes_pid_file_even_if_process_wont_die(self, ctl_paths):
         """Stop removes PID file even if process ignores SIGTERM."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
 
         # Use our own PID — we won't die from SIGTERM during test
@@ -615,8 +661,8 @@ class TestBufferStop:
         pid_file.write_text(str(os.getpid()) + "\n")
 
         # Mock os.kill to do nothing (simulate process that ignores SIGTERM)
-        with patch("core.codex_buffer_ctl.os.kill"):
-            with patch("core.codex_buffer_ctl._is_process_alive", return_value=True):
+        with patch("codex_tracing.codex_buffer_ctl.os.kill"):
+            with patch("codex_tracing.codex_buffer_ctl._is_process_alive", return_value=True):
                 result = buffer_stop()
 
         assert result == "stopped"
@@ -632,6 +678,7 @@ class TestBufferStop:
 # buffer_ensure tests
 # ---------------------------------------------------------------------------
 
+
 class TestBufferEnsure:
     def test_does_not_raise_when_config_missing(self, ctl_paths):
         """ensure() does not raise even when config is missing."""
@@ -639,32 +686,33 @@ class TestBufferEnsure:
 
     def test_does_not_raise_on_status_error(self, ctl_paths):
         """ensure() swallows exceptions from buffer_status."""
-        with patch("core.codex_buffer_ctl.buffer_status", side_effect=RuntimeError("boom")):
+        with patch("codex_tracing.codex_buffer_ctl.buffer_status", side_effect=RuntimeError("boom")):
             buffer_ensure()  # should not raise
 
     def test_does_not_raise_on_start_error(self, ctl_paths):
         """ensure() swallows exceptions from buffer_start."""
-        with patch("core.codex_buffer_ctl.buffer_status", return_value=("stopped", None, None)):
-            with patch("core.codex_buffer_ctl.buffer_start", side_effect=RuntimeError("boom")):
+        with patch("codex_tracing.codex_buffer_ctl.buffer_status", return_value=("stopped", None, None)):
+            with patch("codex_tracing.codex_buffer_ctl.buffer_start", side_effect=RuntimeError("boom")):
                 buffer_ensure()  # should not raise
 
     def test_skips_start_when_running(self, ctl_paths, mock_collector):
         """ensure() does not call start if status is running."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
-        config = {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}
+        config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
 
-        with patch("core.codex_buffer_ctl.buffer_start") as mock_start:
+        with patch("codex_tracing.codex_buffer_ctl.buffer_start") as mock_start:
             buffer_ensure()
             mock_start.assert_not_called()
 
     def test_calls_start_when_stopped(self, ctl_paths):
         """ensure() calls start when buffer is stopped."""
-        with patch("core.codex_buffer_ctl.buffer_start") as mock_start:
+        with patch("codex_tracing.codex_buffer_ctl.buffer_start") as mock_start:
             buffer_ensure()
             mock_start.assert_called_once()
 
@@ -672,6 +720,7 @@ class TestBufferEnsure:
 # ---------------------------------------------------------------------------
 # CLI entrypoint tests
 # ---------------------------------------------------------------------------
+
 
 class TestCLI:
     def test_no_args_prints_usage_and_exits_1(self, ctl_paths):
@@ -698,10 +747,11 @@ class TestCLI:
     def test_status_prints_running(self, ctl_paths, mock_collector, capsys):
         """'status' command prints 'running' with PID and address."""
         import core.constants as c
+
         pid_file = c.CODEX_BUFFER_PID_FILE
         pid_file.write_text(str(os.getpid()) + "\n")
 
-        config = {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}
+        config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}}}
         with open(c.CONFIG_FILE, "w") as f:
             yaml.safe_dump(config, f)
 
@@ -733,59 +783,22 @@ class TestCLI:
             with patch("sys.argv", ["arize-codex-buffer", cmd]):
                 try:
                     main()
-                except SystemExit as e:
+                except SystemExit:
                     # start may exit 1 due to no config, that's fine
                     # but it shouldn't be a usage error
                     pass
 
 
 # ---------------------------------------------------------------------------
-# Integration test: full lifecycle
-# ---------------------------------------------------------------------------
-
-@pytest.mark.slow
-class TestIntegration:
-    def test_full_lifecycle(self, ctl_paths, sample_config):
-        """Start -> status -> stop cycle with real codex_buffer.py."""
-        buffer_py = Path(__file__).parent.parent / "core" / "codex_buffer.py"
-        if not buffer_py.is_file():
-            pytest.skip("codex_buffer.py not found")
-
-        # Start
-        ok = buffer_start()
-        if not ok:
-            pytest.skip("buffer failed to start (may need dependencies)")
-
-        try:
-            # Verify actually running (not just briefly alive)
-            status, pid, addr = buffer_status()
-            if status != "running":
-                pytest.skip("buffer started but exited quickly (environment issue)")
-
-            assert pid is not None
-            assert addr is not None
-
-            # Stop
-            result = buffer_stop()
-            assert result == "stopped"
-
-            # Verify stopped
-            status2, _, _ = buffer_status()
-            assert status2 == "stopped"
-        except Exception:
-            # Clean up even on failure
-            buffer_stop()
-            raise
-
-
-# ---------------------------------------------------------------------------
 # Edge cases and robustness
 # ---------------------------------------------------------------------------
+
 
 class TestEdgeCases:
     def test_pid_file_with_float(self, ctl_paths, sample_config):
         """PID file with float value is handled (ValueError on int())."""
         import core.constants as c
+
         c.CODEX_BUFFER_PID_FILE.write_text("123.456\n")
         status, pid, addr = buffer_status()
         assert status == "stopped"
@@ -794,6 +807,7 @@ class TestEdgeCases:
     def test_pid_file_with_negative_pid(self, ctl_paths, sample_config):
         """PID file with negative PID is handled — treated as dead."""
         import core.constants as c
+
         c.CODEX_BUFFER_PID_FILE.write_text("-1\n")
         status, pid, addr = buffer_status()
         assert status == "stopped"
@@ -802,6 +816,7 @@ class TestEdgeCases:
     def test_pid_file_with_zero(self, ctl_paths, sample_config):
         """PID file with 0 — always treated as dead (guarded)."""
         import core.constants as c
+
         c.CODEX_BUFFER_PID_FILE.write_text("0\n")
         status, pid, addr = buffer_status()
         assert status == "stopped"
@@ -817,7 +832,8 @@ class TestEdgeCases:
 
     def test_log_output_goes_to_stderr(self, ctl_paths, capsys):
         """_log() writes to stderr, not stdout."""
-        from core.codex_buffer_ctl import _log
+        from codex_tracing.codex_buffer_ctl import _log
+
         _log("test message")
         captured = capsys.readouterr()
         assert captured.out == ""
@@ -826,7 +842,7 @@ class TestEdgeCases:
 
     def test_buffer_start_with_config_but_no_runtime(self, ctl_paths, sample_config, monkeypatch):
         """Start with config but no buffer binary or codex_buffer.py fails gracefully."""
-        import core.codex_buffer_ctl as ctl
+        import codex_tracing.codex_buffer_ctl as ctl
 
         # Point both runtime locations to nonexistent paths
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))

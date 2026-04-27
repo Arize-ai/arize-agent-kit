@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """Tests for core.common — FileLock, StateManager, and span building."""
 import json
-import os
 import threading
 import time
 import urllib.error
-from pathlib import Path
 from unittest import mock
 
 import pytest
 import yaml
 
 from core.common import (
-    SPAN_KIND_MAP,
     FileLock,
     StateManager,
     _attrs_to_otlp,
@@ -28,7 +25,6 @@ from core.common import (
     resolve_backend,
     send_span,
 )
-
 
 # ── Logging tests ──────────────────────────────────────────────────────────
 
@@ -374,22 +370,37 @@ class TestAttrsToOtlp:
 
 
 class TestResolveKind:
-    @pytest.mark.parametrize("kind,expected", [
-        ("LLM", 1), ("llm", 1), ("Llm", 1),
-        ("TOOL", 1), ("tool", 1),
-        ("CHAIN", 1), ("chain", 1),
-        ("INTERNAL", 1), ("internal", 1),
-        ("", 1),
-    ])
+    @pytest.mark.parametrize(
+        "kind,expected",
+        [
+            ("LLM", 1),
+            ("llm", 1),
+            ("Llm", 1),
+            ("TOOL", 1),
+            ("tool", 1),
+            ("CHAIN", 1),
+            ("chain", 1),
+            ("INTERNAL", 1),
+            ("internal", 1),
+            ("", 1),
+        ],
+    )
     def test_internal_kinds(self, kind, expected):
         assert _resolve_kind(kind) == expected
 
-    @pytest.mark.parametrize("kind,expected", [
-        ("SERVER", 2), ("server", 2),
-        ("CLIENT", 3), ("client", 3),
-        ("PRODUCER", 4), ("producer", 4),
-        ("CONSUMER", 5), ("consumer", 5),
-    ])
+    @pytest.mark.parametrize(
+        "kind,expected",
+        [
+            ("SERVER", 2),
+            ("server", 2),
+            ("CLIENT", 3),
+            ("client", 3),
+            ("PRODUCER", 4),
+            ("producer", 4),
+            ("CONSUMER", 5),
+            ("consumer", 5),
+        ],
+    )
     def test_other_kinds(self, kind, expected):
         assert _resolve_kind(kind) == expected
 
@@ -410,9 +421,12 @@ class TestResolveKind:
 class TestBuildSpan:
     def test_basic_structure(self):
         result = build_span(
-            name="Turn 1", kind="LLM",
-            span_id="aabb", trace_id="ccdd",
-            start_ms=1000, end_ms=2000,
+            name="Turn 1",
+            kind="LLM",
+            span_id="aabb",
+            trace_id="ccdd",
+            start_ms=1000,
+            end_ms=2000,
         )
         rs = result["resourceSpans"]
         assert len(rs) == 1
@@ -422,39 +436,51 @@ class TestBuildSpan:
 
     def test_parent_absent_when_empty(self):
         result = build_span(
-            name="root", kind="LLM",
-            span_id="aa", trace_id="bb",
+            name="root",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
             parent_span_id="",
-            start_ms=1000, end_ms=2000,
+            start_ms=1000,
+            end_ms=2000,
         )
         span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert "parentSpanId" not in span
 
     def test_parent_absent_when_none(self):
         result = build_span(
-            name="root", kind="LLM",
-            span_id="aa", trace_id="bb",
+            name="root",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
             parent_span_id=None,
-            start_ms=1000, end_ms=2000,
+            start_ms=1000,
+            end_ms=2000,
         )
         span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert "parentSpanId" not in span
 
     def test_parent_present(self):
         result = build_span(
-            name="child", kind="LLM",
-            span_id="aa", trace_id="bb",
+            name="child",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
             parent_span_id="abc123",
-            start_ms=1000, end_ms=2000,
+            start_ms=1000,
+            end_ms=2000,
         )
         span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["parentSpanId"] == "abc123"
 
     def test_timestamp_formatting(self):
         result = build_span(
-            name="t", kind="LLM",
-            span_id="aa", trace_id="bb",
-            start_ms=1711987200000, end_ms=1711987201000,
+            name="t",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
+            start_ms=1711987200000,
+            end_ms=1711987201000,
         )
         span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["startTimeUnixNano"] == "1711987200000000000"
@@ -462,37 +488,49 @@ class TestBuildSpan:
 
     def test_end_defaults_to_start_when_empty(self):
         result = build_span(
-            name="t", kind="LLM",
-            span_id="aa", trace_id="bb",
-            start_ms=5000, end_ms="",
+            name="t",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
+            start_ms=5000,
+            end_ms="",
         )
         span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["endTimeUnixNano"] == "5000000000"
 
     def test_end_defaults_to_start_when_none(self):
         result = build_span(
-            name="t", kind="LLM",
-            span_id="aa", trace_id="bb",
-            start_ms=5000, end_ms=None,
+            name="t",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
+            start_ms=5000,
+            end_ms=None,
         )
         span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["endTimeUnixNano"] == "5000000000"
 
     def test_end_defaults_to_start_when_zero(self):
         result = build_span(
-            name="t", kind="LLM",
-            span_id="aa", trace_id="bb",
-            start_ms=5000, end_ms=0,
+            name="t",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
+            start_ms=5000,
+            end_ms=0,
         )
         span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         assert span["endTimeUnixNano"] == "5000000000"
 
     def test_service_and_scope_names(self):
         result = build_span(
-            name="t", kind="LLM",
-            span_id="aa", trace_id="bb",
+            name="t",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
             start_ms=1000,
-            service_name="my-svc", scope_name="my-scope",
+            service_name="my-svc",
+            scope_name="my-scope",
         )
         resource = result["resourceSpans"][0]["resource"]
         assert resource["attributes"][0]["value"]["stringValue"] == "my-svc"
@@ -501,8 +539,10 @@ class TestBuildSpan:
 
     def test_attributes_converted(self):
         result = build_span(
-            name="t", kind="LLM",
-            span_id="aa", trace_id="bb",
+            name="t",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
             start_ms=1000,
             attrs={"key": "val", "count": 5},
         )
@@ -534,9 +574,12 @@ class TestBuildSpan:
 class TestBuildMultiSpan:
     def _make_payload(self, name: str, span_id: str) -> dict:
         return build_span(
-            name=name, kind="LLM",
-            span_id=span_id, trace_id="trace1",
-            start_ms=1000, end_ms=2000,
+            name=name,
+            kind="LLM",
+            span_id=span_id,
+            trace_id="trace1",
+            start_ms=1000,
+            end_ms=2000,
         )
 
     def test_merge_three(self):
@@ -607,23 +650,23 @@ class TestSendSpan:
     """Tests for send_span() using resolve_backend() for direct send."""
 
     _SAMPLE_SPAN = {
-        "resourceSpans": [{
-            "resource": {"attributes": []},
-            "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
-        }]
+        "resourceSpans": [
+            {
+                "resource": {"attributes": []},
+                "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
+            }
+        ]
     }
 
     def _make_span_with_service(self, service_name):
         """Build a sample span with a specific service.name resource attribute."""
         return {
-            "resourceSpans": [{
-                "resource": {
-                    "attributes": [
-                        {"key": "service.name", "value": {"stringValue": service_name}}
-                    ]
-                },
-                "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
-            }]
+            "resourceSpans": [
+                {
+                    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": service_name}}]},
+                    "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
+                }
+            ]
         }
 
     @pytest.fixture(autouse=True)
@@ -859,7 +902,7 @@ class TestDebugDump:
 
 
 class TestResolveBackend:
-    """Tests for resolve_backend() credential resolution."""
+    """Tests for resolve_backend() — flat harness config lookup only."""
 
     def _make_span(self, service_name=""):
         """Build a minimal span with optional service.name."""
@@ -867,55 +910,44 @@ class TestResolveBackend:
         if service_name:
             attrs = [{"key": "service.name", "value": {"stringValue": service_name}}]
         return {
-            "resourceSpans": [{
-                "resource": {"attributes": attrs},
-                "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "s"}]}],
-            }]
+            "resourceSpans": [
+                {
+                    "resource": {"attributes": attrs},
+                    "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "s"}]}],
+                }
+            ]
         }
 
-    def test_global_only_phoenix(self, monkeypatch):
-        """Global config returns global phoenix credentials."""
-        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
-        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
-        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
-        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
-
+    def test_resolve_backend_phoenix_from_flat_harness_entry(self, monkeypatch):
+        """Config has harnesses.claude-code with phoenix target; resolver returns those fields."""
         cfg = {
-            "backend": {
-                "target": "phoenix",
-                "phoenix": {"endpoint": "http://global:6006", "api_key": "global-key"},
+            "harnesses": {
+                "claude-code": {
+                    "project_name": "claude-code",
+                    "target": "phoenix",
+                    "endpoint": "http://localhost:6006",
+                    "api_key": "ph-key",
+                },
             },
         }
         monkeypatch.setattr("core.config.load_config", lambda: cfg)
 
         result = resolve_backend(self._make_span("claude-code"))
         assert result["target"] == "phoenix"
-        assert result["endpoint"] == "http://global:6006"
-        assert result["api_key"] == "global-key"
+        assert result["endpoint"] == "http://localhost:6006"
+        assert result["api_key"] == "ph-key"
+        assert result["project_name"] == "claude-code"
 
-    def test_per_harness_override(self, monkeypatch):
-        """Per-harness backend overrides global credentials."""
-        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
-        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
-        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
-        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
-
+    def test_resolve_backend_arize_from_flat_harness_entry(self, monkeypatch):
+        """Config has harnesses.claude-code with arize target including space_id."""
         cfg = {
-            "backend": {
-                "target": "phoenix",
-                "phoenix": {"endpoint": "http://global:6006", "api_key": "global-key"},
-            },
             "harnesses": {
                 "claude-code": {
-                    "project_name": "my-claude-project",
-                    "backend": {
-                        "target": "arize",
-                        "arize": {
-                            "api_key": "harness-key",
-                            "space_id": "harness-space",
-                            "endpoint": "otlp.arize.com:443",
-                        },
-                    },
+                    "project_name": "claude-code",
+                    "target": "arize",
+                    "endpoint": "otlp.arize.com:443",
+                    "api_key": "ak-xxx",
+                    "space_id": "U3Bh",
                 },
             },
         }
@@ -923,189 +955,170 @@ class TestResolveBackend:
 
         result = resolve_backend(self._make_span("claude-code"))
         assert result["target"] == "arize"
-        assert result["api_key"] == "harness-key"
-        assert result["space_id"] == "harness-space"
-        assert result["project_name"] == "my-claude-project"
+        assert result["endpoint"] == "otlp.arize.com:443"
+        assert result["api_key"] == "ak-xxx"
+        assert result["space_id"] == "U3Bh"
+        assert result["project_name"] == "claude-code"
 
-    def test_missing_harness_falls_back_to_global(self, monkeypatch):
-        """Unknown harness falls back to global config."""
-        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
-        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
-        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
-        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+    def test_resolve_backend_missing_entry_returns_none(self, capsys, monkeypatch):
+        """No harnesses.claude-code entry; returns none and logs error."""
+        cfg = {"harnesses": {}}
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
 
+        result = resolve_backend(self._make_span("claude-code"))
+        assert result == {"target": "none", "project_name": ""}
+        stderr = capsys.readouterr().err
+        assert "No config entry for harness 'claude-code'" in stderr
+        assert "install.sh claude-code" in stderr
+
+    def test_resolve_backend_missing_target_returns_none(self, capsys, monkeypatch):
+        """Harness entry exists but has no target field."""
+        cfg = {
+            "harnesses": {
+                "claude-code": {
+                    "project_name": "claude-code",
+                    "endpoint": "http://localhost:6006",
+                },
+            },
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("claude-code"))
+        assert result["target"] == "none"
+        assert result["project_name"] == "claude-code"
+        stderr = capsys.readouterr().err
+        assert "missing target" in stderr
+
+    def test_resolve_backend_arize_missing_space_id_returns_none(self, capsys, monkeypatch):
+        """Arize entry without space_id returns none."""
+        cfg = {
+            "harnesses": {
+                "claude-code": {
+                    "project_name": "claude-code",
+                    "target": "arize",
+                    "endpoint": "otlp.arize.com:443",
+                    "api_key": "ak-xxx",
+                    # no space_id
+                },
+            },
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("claude-code"))
+        assert result["target"] == "none"
+        assert result["project_name"] == "claude-code"
+        stderr = capsys.readouterr().err
+        assert "missing space_id" in stderr
+
+    def test_resolve_backend_arize_missing_api_key_returns_none(self, capsys, monkeypatch):
+        """Arize entry without api_key returns none."""
+        cfg = {
+            "harnesses": {
+                "claude-code": {
+                    "project_name": "claude-code",
+                    "target": "arize",
+                    "endpoint": "otlp.arize.com:443",
+                    "space_id": "U3Bh",
+                    # no api_key
+                },
+            },
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("claude-code"))
+        assert result["target"] == "none"
+        assert result["project_name"] == "claude-code"
+        stderr = capsys.readouterr().err
+        assert "missing api_key" in stderr
+
+    def test_resolve_backend_arize_missing_endpoint_returns_none(self, capsys, monkeypatch):
+        """Arize entry without endpoint returns none."""
+        cfg = {
+            "harnesses": {
+                "claude-code": {
+                    "project_name": "claude-code",
+                    "target": "arize",
+                    "api_key": "ak-xxx",
+                    "space_id": "U3Bh",
+                    # no endpoint
+                },
+            },
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("claude-code"))
+        assert result["target"] == "none"
+        assert result["project_name"] == "claude-code"
+        stderr = capsys.readouterr().err
+        assert "missing endpoint" in stderr
+
+    def test_resolve_backend_phoenix_missing_endpoint_returns_none(self, capsys, monkeypatch):
+        """Phoenix entry without endpoint returns none."""
+        cfg = {
+            "harnesses": {
+                "claude-code": {
+                    "project_name": "claude-code",
+                    "target": "phoenix",
+                    # no endpoint
+                },
+            },
+        }
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+
+        result = resolve_backend(self._make_span("claude-code"))
+        assert result["target"] == "none"
+        assert result["project_name"] == "claude-code"
+        stderr = capsys.readouterr().err
+        assert "missing endpoint" in stderr
+
+    def test_resolve_backend_ignores_top_level_backend_key(self, monkeypatch):
+        """Even if the old backend: block is present, resolver does not read it."""
         cfg = {
             "backend": {
                 "target": "phoenix",
-                "phoenix": {"endpoint": "http://global:6006"},
+                "phoenix": {"endpoint": "http://global:6006", "api_key": "global-key"},
             },
             "harnesses": {},
         }
         monkeypatch.setattr("core.config.load_config", lambda: cfg)
 
-        result = resolve_backend(self._make_span("unknown-harness"))
-        assert result["target"] == "phoenix"
-        assert result["endpoint"] == "http://global:6006"
-        assert result["project_name"] == "unknown-harness"
-
-    def test_env_var_fallback_phoenix(self, monkeypatch):
-        """Falls back to env vars when no config is available."""
-        monkeypatch.setenv("PHOENIX_ENDPOINT", "http://env-phoenix:6006")
-        monkeypatch.setenv("ARIZE_API_KEY", "env-key")
-        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
-        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
-
-        monkeypatch.setattr("core.config.load_config", mock.Mock(side_effect=Exception("no config")))
-
-        result = resolve_backend(self._make_span("test-svc"))
-        assert result["target"] == "phoenix"
-        assert result["endpoint"] == "http://env-phoenix:6006"
-        assert result["api_key"] == "env-key"
-        assert result["project_name"] == "test-svc"
-
-    def test_env_var_fallback_arize(self, monkeypatch):
-        """Falls back to env vars for Arize when no config is available."""
-        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
-        monkeypatch.setenv("ARIZE_API_KEY", "env-arize-key")
-        monkeypatch.setenv("ARIZE_SPACE_ID", "env-space")
-        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
-
-        monkeypatch.setattr("core.config.load_config", mock.Mock(side_effect=Exception("no config")))
-
-        result = resolve_backend(self._make_span("test-svc"))
-        assert result["target"] == "arize"
-        assert result["api_key"] == "env-arize-key"
-        assert result["space_id"] == "env-space"
-
-    def test_no_config_no_env_returns_none(self, monkeypatch):
-        """Returns target=none when neither config nor env vars are set."""
-        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
-        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
-        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
-        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
-
-        monkeypatch.setattr("core.config.load_config", mock.Mock(side_effect=Exception("no config")))
-
-        result = resolve_backend(self._make_span())
+        result = resolve_backend(self._make_span("claude-code"))
         assert result["target"] == "none"
+        assert result["project_name"] == ""
 
-    def test_project_name_from_env_var(self, monkeypatch):
-        """Project name falls back to ARIZE_PROJECT_NAME env var."""
-        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
-        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
-        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
-        monkeypatch.setenv("ARIZE_PROJECT_NAME", "env-proj")
+    def test_resolve_backend_ignores_env_vars(self, monkeypatch):
+        """With env vars set but no harness entry, resolver still returns none."""
+        monkeypatch.setenv("ARIZE_API_KEY", "env-key")
+        monkeypatch.setenv("PHOENIX_ENDPOINT", "http://env:6006")
 
-        cfg = {
-            "backend": {"target": "phoenix", "phoenix": {"endpoint": "http://x:6006"}},
-            "harnesses": {"svc": {}},  # no project_name in harness config
-        }
+        cfg = {"harnesses": {}}
         monkeypatch.setattr("core.config.load_config", lambda: cfg)
 
-        result = resolve_backend(self._make_span("svc"))
-        assert result["project_name"] == "env-proj"
+        result = resolve_backend(self._make_span("claude-code"))
+        assert result["target"] == "none"
+        assert result["project_name"] == ""
 
-    def test_project_name_defaults_to_service_name(self, monkeypatch):
-        """Project name defaults to service.name when no config or env var."""
-        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
-        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
-        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
-        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
-
-        cfg = {
-            "backend": {"target": "phoenix", "phoenix": {"endpoint": "http://x:6006"}},
-        }
-        monkeypatch.setattr("core.config.load_config", lambda: cfg)
-
-        result = resolve_backend(self._make_span("my-service"))
-        assert result["project_name"] == "my-service"
-
-    def test_project_name_errors_when_unresolvable(self, monkeypatch):
-        """Returns target=none when project name cannot be resolved."""
-        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
-        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
-        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
-        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
-
-        cfg = {"backend": {"target": "phoenix", "phoenix": {"endpoint": "http://x:6006"}}}
+    def test_resolve_backend_empty_service_name(self, capsys, monkeypatch):
+        """Empty service.name returns none with appropriate error."""
+        cfg = {"harnesses": {"claude-code": {"target": "phoenix", "endpoint": "http://x:6006"}}}
         monkeypatch.setattr("core.config.load_config", lambda: cfg)
 
         result = resolve_backend(self._make_span(""))
         assert result["target"] == "none"
         assert result["project_name"] == ""
+        stderr = capsys.readouterr().err
+        assert "No service.name attribute found" in stderr
 
-    def test_global_arize_config(self, monkeypatch):
-        """Global arize config returns arize credentials."""
-        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
-        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
-        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
-        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
-
-        cfg = {
-            "backend": {
-                "target": "arize",
-                "arize": {
-                    "api_key": "global-arize-key",
-                    "space_id": "global-space",
-                    "endpoint": "otlp.arize.com:443",
-                },
-            },
-        }
+    def test_resolve_backend_no_service_name_attr(self, capsys, monkeypatch):
+        """Span with no service.name attribute at all returns none."""
+        cfg = {"harnesses": {}}
         monkeypatch.setattr("core.config.load_config", lambda: cfg)
 
-        result = resolve_backend(self._make_span("test-svc"))
-        assert result["target"] == "arize"
-        assert result["api_key"] == "global-arize-key"
-        assert result["space_id"] == "global-space"
-        assert result["endpoint"] == "otlp.arize.com:443"
-        assert result["project_name"] == "test-svc"
-
-    def test_harness_phoenix_overrides_global_arize(self, monkeypatch):
-        """Per-harness phoenix target overrides global arize target."""
-        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
-        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
-        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
-        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
-
-        cfg = {
-            "backend": {
-                "target": "arize",
-                "arize": {"api_key": "g-key", "space_id": "g-space"},
-            },
-            "harnesses": {
-                "cursor": {
-                    "project_name": "cursor-proj",
-                    "backend": {
-                        "target": "phoenix",
-                        "phoenix": {"endpoint": "http://cursor-phoenix:6006"},
-                    },
-                },
-            },
-        }
-        monkeypatch.setattr("core.config.load_config", lambda: cfg)
-
-        result = resolve_backend(self._make_span("cursor"))
-        assert result["target"] == "phoenix"
-        assert result["endpoint"] == "http://cursor-phoenix:6006"
-        assert result["project_name"] == "cursor-proj"
-
-    def test_arize_default_endpoint(self, monkeypatch):
-        """Arize backend defaults endpoint to otlp.arize.com:443."""
-        monkeypatch.delenv("PHOENIX_ENDPOINT", raising=False)
-        monkeypatch.delenv("ARIZE_API_KEY", raising=False)
-        monkeypatch.delenv("ARIZE_SPACE_ID", raising=False)
-        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
-
-        cfg = {
-            "backend": {
-                "target": "arize",
-                "arize": {"api_key": "key", "space_id": "space"},
-            },
-        }
-        monkeypatch.setattr("core.config.load_config", lambda: cfg)
-
-        result = resolve_backend(self._make_span("test-svc"))
-        assert result["endpoint"] == "otlp.arize.com:443"
+        span = {"resourceSpans": [{"resource": {"attributes": []}, "scopeSpans": []}]}
+        result = resolve_backend(span)
+        assert result["target"] == "none"
+        stderr = capsys.readouterr().err
+        assert "No service.name attribute found" in stderr
 
 
 # ── send_span integration edge cases ─────────────────────────────────────
@@ -1115,10 +1128,12 @@ class TestSendSpanEdgeCases:
     """Additional edge case tests for send_span()."""
 
     _SAMPLE_SPAN = {
-        "resourceSpans": [{
-            "resource": {"attributes": []},
-            "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
-        }]
+        "resourceSpans": [
+            {
+                "resource": {"attributes": []},
+                "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "test-span"}]}],
+            }
+        ]
     }
 
     @pytest.fixture(autouse=True)
@@ -1162,10 +1177,12 @@ class TestSendSpanEdgeCases:
         monkeypatch.setenv("ARIZE_VERBOSE", "true")
 
         span = {
-            "resourceSpans": [{
-                "resource": {"attributes": []},
-                "scopeSpans": [{"scope": {"name": "t"}, "spans": [{"name": "my-operation"}]}],
-            }]
+            "resourceSpans": [
+                {
+                    "resource": {"attributes": []},
+                    "scopeSpans": [{"scope": {"name": "t"}, "spans": [{"name": "my-operation"}]}],
+                }
+            ]
         }
         result = send_span(span)
         assert result is True
@@ -1175,6 +1192,7 @@ class TestSendSpanEdgeCases:
         """Verify _send_to_collector, collector_host, collector_port, collector_url
         and direct_send are not present in core.common module."""
         import core.common as mod
+
         assert not hasattr(mod, "_send_to_collector")
         assert not hasattr(mod.env, "collector_host")
         assert not hasattr(mod.env, "collector_port")

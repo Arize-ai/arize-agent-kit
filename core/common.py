@@ -11,16 +11,17 @@ import os
 import shutil
 import sys
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
+from typing import IO, Optional
 
 import yaml
-
 
 # ---------------------------------------------------------------------------
 # Environment helper — reads tracing-related env vars with defaults
 # ---------------------------------------------------------------------------
+
 
 class _Env:
     """Lazy accessor for tracing-related environment variables.
@@ -65,13 +66,13 @@ class _Env:
         return os.environ.get("ARIZE_SPACE_ID", "")
 
 
-
 env = _Env()
 
 
 # ---------------------------------------------------------------------------
 # ID and timestamp generation
 # ---------------------------------------------------------------------------
+
 
 def generate_trace_id() -> str:
     """Generate a 32-hex-char trace ID (replaces uuidgen | tr -d '-')."""
@@ -91,6 +92,7 @@ def get_timestamp_ms() -> int:
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
+
 
 def _is_verbose() -> bool:
     return os.environ.get("ARIZE_VERBOSE", "").lower() == "true"
@@ -117,6 +119,7 @@ def debug_dump(label: str, data: object) -> None:
         return
     try:
         from core.constants import STATE_BASE_DIR
+
         debug_dir = STATE_BASE_DIR / "debug"
         debug_dir.mkdir(parents=True, exist_ok=True)
         ts = int(time.time() * 1000)
@@ -129,6 +132,7 @@ def debug_dump(label: str, data: object) -> None:
 # ---------------------------------------------------------------------------
 # Target detection and span sending
 # ---------------------------------------------------------------------------
+
 
 def get_target() -> str:
     """Detect backend target from env vars.
@@ -143,14 +147,25 @@ def get_target() -> str:
 
 
 def resolve_backend(span_dict: dict) -> dict:
-    """Resolve backend config for a span payload, checking per-harness overrides.
+    """Resolve backend config for a span payload from config.yaml.
 
-    Returns a dict with keys: target, endpoint, api_key, space_id, project_name.
-    Resolution priority:
-      1. harnesses.<service_name>.backend.* in config (per-harness override)
-      2. backend.* in config (global)
-      3. Environment variables (PHOENIX_ENDPOINT, ARIZE_API_KEY, etc.)
+    Reads harnesses.<service_name>.{target, endpoint, api_key, space_id,
+    project_name}.  No fallback to a global backend block (gone).  No
+    fallback to environment variables.
+
+    service_name is pulled from the span's resource attributes
+    (resource.attributes[service.name]).
+
+    Returns:
+      {"target": "phoenix", "endpoint", "api_key", "project_name"} or
+      {"target": "arize",   "endpoint", "api_key", "space_id", "project_name"}
+
+    On any missing required field (no harness entry, no target, no endpoint,
+    no api_key for arize, no space_id for arize), logs a clear error via
+    error() and returns {"target": "none", "project_name": project_name_or_""}.
     """
+    _none = {"target": "none", "project_name": ""}
+
     # Extract service.name from span resource attributes
     service_name = ""
     for rs in span_dict.get("resourceSpans", []):
@@ -161,79 +176,77 @@ def resolve_backend(span_dict: dict) -> dict:
         if service_name:
             break
 
+    if not service_name:
+        error("No service.name attribute found on span — cannot resolve harness config.")
+        return _none
+
     # Load config
     try:
         from core.config import load_config
+
         cfg = load_config()
     except Exception:
         cfg = {}
 
-    # Check per-harness backend override
-    harness_cfg = cfg.get("harnesses", {}).get(service_name, {})
-    harness_backend = harness_cfg.get("backend", {})
+    harness_cfg = cfg.get("harnesses", {}).get(service_name)
+    if harness_cfg is None:
+        error(f"No config entry for harness '{service_name}'.  Run install.sh {service_name} " "to configure it.")
+        return _none
 
-    # Resolve project name: harness config > env var > service.name
     project_name = harness_cfg.get("project_name", "")
-    if not project_name:
-        project_name = env.project_name
-    if not project_name:
-        project_name = service_name
-    if not project_name:
-        error(
-            "No project name found. Set ARIZE_PROJECT_NAME, configure "
-            "harnesses.<name>.project_name in config.yaml, or ensure spans "
-            "include a service.name resource attribute."
-        )
-        return {"target": "none", "project_name": ""}
-
-    # Resolve target: harness > global config > env detection
-    global_backend = cfg.get("backend", {})
-    target = harness_backend.get("target") or global_backend.get("target", "")
+    target = harness_cfg.get("target", "")
 
     if not target:
-        # Fall back to env var detection (same as get_target())
-        if env.phoenix_endpoint:
-            target = "phoenix"
-        elif env.api_key and env.space_id:
-            target = "arize"
-        else:
-            target = "none"
+        error(
+            f"Incomplete config for harness '{service_name}': missing target.  Run "
+            f"install.sh {service_name} to reconfigure."
+        )
+        return {"target": "none", "project_name": project_name}
 
-    # Resolve credentials based on target
     if target == "phoenix":
-        harness_phoenix = harness_backend.get("phoenix", {})
-        global_phoenix = global_backend.get("phoenix", {})
+        endpoint = harness_cfg.get("endpoint", "")
+        if not endpoint:
+            error(
+                f"Incomplete config for harness '{service_name}': missing endpoint.  Run "
+                f"install.sh {service_name} to reconfigure."
+            )
+            return {"target": "none", "project_name": project_name}
         return {
             "target": "phoenix",
-            "endpoint": (harness_phoenix.get("endpoint")
-                         or global_phoenix.get("endpoint")
-                         or env.phoenix_endpoint
-                         or "http://localhost:6006"),
-            "api_key": (harness_phoenix.get("api_key")
-                        or global_phoenix.get("api_key")
-                        or env.api_key
-                        or ""),
+            "endpoint": endpoint,
+            "api_key": harness_cfg.get("api_key", ""),
             "project_name": project_name,
         }
     elif target == "arize":
-        harness_arize = harness_backend.get("arize", {})
-        global_arize = global_backend.get("arize", {})
+        endpoint = harness_cfg.get("endpoint", "")
+        api_key = harness_cfg.get("api_key", "")
+        space_id = harness_cfg.get("space_id", "")
+
+        missing = []
+        if not endpoint:
+            missing.append("endpoint")
+        if not api_key:
+            missing.append("api_key")
+        if not space_id:
+            missing.append("space_id")
+        if missing:
+            error(
+                f"Incomplete config for harness '{service_name}': missing {', '.join(missing)}.  Run "
+                f"install.sh {service_name} to reconfigure."
+            )
+            return {"target": "none", "project_name": project_name}
         return {
             "target": "arize",
-            "endpoint": (harness_arize.get("endpoint")
-                         or global_arize.get("endpoint")
-                         or "otlp.arize.com:443"),
-            "api_key": (harness_arize.get("api_key")
-                        or global_arize.get("api_key")
-                        or env.api_key
-                        or ""),
-            "space_id": (harness_arize.get("space_id")
-                         or global_arize.get("space_id")
-                         or env.space_id
-                         or ""),
+            "endpoint": endpoint,
+            "api_key": api_key,
+            "space_id": space_id,
             "project_name": project_name,
         }
     else:
+        error(
+            f"Incomplete config for harness '{service_name}': unknown target '{target}'.  Run "
+            f"install.sh {service_name} to reconfigure."
+        )
         return {"target": "none", "project_name": project_name}
 
 
@@ -244,6 +257,7 @@ def _inject_arize_project_name(span_dict: dict, project_name: str) -> dict:
     Modifies a shallow copy — does not mutate the original.
     """
     import copy
+
     payload = copy.deepcopy(span_dict)
     project_attr = {"key": "arize.project.name", "value": {"stringValue": project_name}}
     for rs in payload.get("resourceSpans", []):
@@ -337,10 +351,12 @@ def send_span(span_dict: dict) -> bool:
 # --- Platform-specific lock implementation detection ---
 try:
     import fcntl
+
     _LOCK_IMPL = "fcntl"
 except ImportError:
     try:
         import msvcrt
+
         _LOCK_IMPL = "msvcrt"
     except ImportError:
         _LOCK_IMPL = "mkdir"
@@ -364,7 +380,7 @@ class FileLock:
     def __init__(self, lock_path: Path, timeout: float = 3.0) -> None:
         self.lock_path = Path(lock_path)
         self.timeout = timeout
-        self._fd = None
+        self._fd: Optional[IO[str]] = None
         self._method = _LOCK_IMPL
 
     def __enter__(self) -> "FileLock":
@@ -423,7 +439,7 @@ class FileLock:
         deadline = time.monotonic() + self.timeout
         while True:
             try:
-                msvcrt.locking(self._fd.fileno(), msvcrt.LK_NBLCK, 1)
+                msvcrt.locking(self._fd.fileno(), msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
                 return
             except (OSError, IOError):
                 if time.monotonic() >= deadline:
@@ -433,14 +449,14 @@ class FileLock:
                     except OSError:
                         pass
                     self._fd = open(self.lock_path, "w")
-                    msvcrt.locking(self._fd.fileno(), msvcrt.LK_NBLCK, 1)
+                    msvcrt.locking(self._fd.fileno(), msvcrt.LK_NBLCK, 1)  # type: ignore[attr-defined]
                     return
                 time.sleep(0.1)
 
     def _release_msvcrt(self) -> None:
         if self._fd is not None:
             try:
-                msvcrt.locking(self._fd.fileno(), msvcrt.LK_UNLOCK, 1)
+                msvcrt.locking(self._fd.fileno(), msvcrt.LK_UNLOCK, 1)  # type: ignore[attr-defined]
             except OSError:
                 pass
             try:
@@ -583,7 +599,8 @@ class StateManager:
         """Return a FileLock for this state file."""
         if self._lock_path is not None:
             return FileLock(self._lock_path)
-        # Default lock path next to state file
+        if self.state_file is None:
+            raise RuntimeError("StateManager has neither lock_path nor state_file")
         return FileLock(self.state_file.with_suffix(".lock"))
 
     def _read_safe(self) -> dict:
@@ -628,18 +645,27 @@ class StateManager:
 # Case-insensitive lookup (caller passes "LLM", "TOOL", etc.)
 SPAN_KIND_MAP: dict = {
     # kind 1 = SPAN_KIND_INTERNAL (used for LLM, CHAIN, TOOL, INTERNAL in OpenInference)
-    "": 1, "llm": 1, "chain": 1, "tool": 1, "internal": 1,
+    "": 1,
+    "llm": 1,
+    "chain": 1,
+    "tool": 1,
+    "internal": 1,
     "span_kind_internal": 1,
     # kind 2 = SPAN_KIND_SERVER
-    "server": 2, "span_kind_server": 2,
+    "server": 2,
+    "span_kind_server": 2,
     # kind 3 = SPAN_KIND_CLIENT
-    "client": 3, "span_kind_client": 3,
+    "client": 3,
+    "span_kind_client": 3,
     # kind 4 = SPAN_KIND_PRODUCER
-    "producer": 4, "span_kind_producer": 4,
+    "producer": 4,
+    "span_kind_producer": 4,
     # kind 5 = SPAN_KIND_CONSUMER
-    "consumer": 5, "span_kind_consumer": 5,
+    "consumer": 5,
+    "span_kind_consumer": 5,
     # kind 0 = SPAN_KIND_UNSPECIFIED
-    "unspecified": 0, "span_kind_unspecified": 0,
+    "unspecified": 0,
+    "span_kind_unspecified": 0,
 }
 
 
@@ -737,17 +763,12 @@ def build_span(
         span_obj["parentSpanId"] = parent_span_id
 
     return {
-        "resourceSpans": [{
-            "resource": {
-                "attributes": [
-                    {"key": "service.name", "value": {"stringValue": service_name}}
-                ]
-            },
-            "scopeSpans": [{
-                "scope": {"name": scope_name},
-                "spans": [span_obj]
-            }]
-        }]
+        "resourceSpans": [
+            {
+                "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": service_name}}]},
+                "scopeSpans": [{"scope": {"name": scope_name}, "spans": [span_obj]}],
+            }
+        ]
     }
 
 
@@ -776,15 +797,10 @@ def build_multi_span(
         return {}
 
     return {
-        "resourceSpans": [{
-            "resource": {
-                "attributes": [
-                    {"key": "service.name", "value": {"stringValue": service_name}}
-                ]
-            },
-            "scopeSpans": [{
-                "scope": {"name": scope_name},
-                "spans": spans
-            }]
-        }]
+        "resourceSpans": [
+            {
+                "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": service_name}}]},
+                "scopeSpans": [{"scope": {"name": scope_name}, "spans": spans}],
+            }
+        ]
     }
