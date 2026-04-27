@@ -114,12 +114,77 @@ install_repo_tarball() {
     info "Extracted to ${INSTALL_DIR}"
 }
 
-install_repo() {
-    local branch="${1:-$INSTALL_BRANCH}"
-    if [[ -d "${INSTALL_DIR}/.git" ]]; then
-        info "Repository already installed at ${INSTALL_DIR}"
-        git_sync_harness_repo "$branch" && return 0
-        warn "git update failed — re-cloning"; rm -rf "$INSTALL_DIR"
+# ---------------------------------------------------------------------------
+# Venv setup
+# ---------------------------------------------------------------------------
+# Fix SSL certificate verification on macOS.
+#
+# Python.org installers ship their own OpenSSL that doesn't trust the macOS
+# system keychain, so urllib (used by every arize-hook-*) fails with
+# "CERTIFICATE_VERIFY_FAILED" against https://otlp.arize.com.
+#
+# Fix: install certifi into the venv and write a sitecustomize.py that sets
+# SSL_CERT_FILE before any hook code runs. Idempotent — safe to call repeatedly.
+_fix_macos_ssl_certs() {
+    local pip="$1"
+    local vp
+    vp=$(venv_python 2>/dev/null) || return 0
+
+    if ! "$pip" install --quiet certifi 2>/dev/null; then
+        warn "Could not install certifi — SSL verification may fail on macOS"
+        return 0
+    fi
+
+    local certifi_where site_dir sc
+    certifi_where=$("$vp" -c "import certifi; print(certifi.where())" 2>/dev/null) || return 0
+    [[ -z "$certifi_where" ]] && return 0
+
+    site_dir=$("$vp" -c "import site; print(site.getsitepackages()[0])" 2>/dev/null) || return 0
+    sc="${site_dir}/sitecustomize.py"
+
+    cat > "$sc" <<'PYEOF'
+# Arize Agent Kit: point Python's SSL stack at certifi's CA bundle on macOS.
+# This runs automatically at interpreter startup, before any hook code.
+import os as _os
+try:
+    import certifi as _certifi
+    _bundle = _certifi.where()
+    _os.environ.setdefault("SSL_CERT_FILE", _bundle)
+    _os.environ.setdefault("REQUESTS_CA_BUNDLE", _bundle)
+except ImportError:
+    pass
+PYEOF
+    info "SSL certificates configured via certifi"
+}
+
+setup_venv() {
+    local python_cmd="$1"
+    local backend_target="$2"
+
+    # Check if existing venv already has required packages
+    local vp
+    vp=$(venv_python 2>/dev/null) || true
+    if [[ -n "$vp" ]]; then
+        local check_cmd="import yaml"
+        [[ "$backend_target" == "arize" ]] && check_cmd="import yaml; import grpc; import opentelemetry"
+        # yaml alone is not enough: an old/partial venv may have skipped pip install of
+        # arize-agent-kit, leaving ~/.claude/settings.json pointing at missing hook scripts.
+        if "$vp" -c "$check_cmd" 2>/dev/null \
+            && "$vp" -c "import core" 2>/dev/null \
+            && [[ -x "${VENV_DIR}/bin/arize-codex-buffer" ]]; then
+            info "Venv already has required packages"
+            local pip
+            pip=$(venv_pip 2>/dev/null) || true
+            [[ "$(uname)" == "Darwin" && -n "$pip" ]] && _fix_macos_ssl_certs "$pip"
+            return 0
+        fi
+    fi
+
+    info "Creating venv..."
+    if ! "$python_cmd" -m venv "$VENV_DIR" 2>/dev/null; then
+        err "Failed to create venv with $python_cmd"
+        err "You may need to install the venv module: apt install python3-venv (Debian/Ubuntu)"
+        return 1
     fi
     [[ -d "$INSTALL_DIR" && ! -d "${INSTALL_DIR}/.git" ]] && {
         info "Existing non-git install found — removing for fresh clone"; rm -rf "$INSTALL_DIR"
@@ -129,7 +194,10 @@ install_repo() {
         git clone --depth 1 --branch "$branch" "$REPO_URL" "$INSTALL_DIR" 2>/dev/null && return 0
         warn "git clone failed — falling back to tarball"
     fi
-    install_repo_tarball "$TARBALL_URL"
+
+    [[ "$(uname)" == "Darwin" ]] && _fix_macos_ssl_certs "$pip"
+
+    info "Venv ready at ${VENV_DIR}"
 }
 
 # -- Venv setup --------------------------------------------------------------
