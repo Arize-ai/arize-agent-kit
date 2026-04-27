@@ -5,6 +5,8 @@ Manages the Codex-specific HTTP buffer process that holds native OTLP log
 events between hook invocations.  All paths come from core.constants.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import signal
@@ -109,7 +111,7 @@ def _health_identity(host: str, port: int, timeout: float = 2.0) -> dict:
         url = f"http://{host}:{port}/health"
         resp = urllib.request.urlopen(url, timeout=timeout)
         data = json.loads(resp.read())
-        result = {}
+        result: dict = {}
         if "pid" in data:
             result["pid"] = int(data["pid"])
         if "build_path" in data:
@@ -441,10 +443,7 @@ def buffer_stop(force: bool = False) -> str:
     expected = _expected_build_path()
 
     # Kill if: build_path matches ours, or the file no longer exists on disk
-    if remote_bp and (
-        os.path.realpath(remote_bp) == os.path.realpath(expected)
-        or not os.path.isfile(remote_bp)
-    ):
+    if remote_bp and (os.path.realpath(remote_bp) == os.path.realpath(expected) or not os.path.isfile(remote_bp)):
         _kill_and_wait(listener)
         return "stopped"
 
@@ -453,10 +452,7 @@ def buffer_stop(force: bool = False) -> str:
         _kill_and_wait(listener)
         return "stopped"
 
-    _log(
-        f"Found unknown listener at PID {listener} "
-        f"(build_path={remote_bp}). Pass --force to stop it."
-    )
+    _log(f"Found unknown listener at PID {listener} " f"(build_path={remote_bp}). Pass --force to stop it.")
     return "refused"
 
 
