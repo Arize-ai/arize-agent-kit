@@ -64,13 +64,21 @@ except ImportError:
 
 
 def _toml_load(path: Path) -> dict:
-    """Load a TOML file into a dict. Falls back to line-based parsing."""
+    """Load a TOML file into a dict. Falls back to line-based parsing.
+
+    If the file is malformed (e.g. another tool wrote unquoted keys with
+    `@` or `/`), fall back to the lenient line parser rather than crashing
+    so install/uninstall can still proceed.
+    """
     if not path.is_file():
         return {}
+    text = path.read_text()
     if _tomllib is not None:
-        return _tomllib.loads(path.read_text())
-    # Minimal line-based fallback for 3.9/3.10 without tomli
-    return _toml_line_parse(path.read_text())
+        try:
+            return _tomllib.loads(text)
+        except Exception:
+            pass
+    return _toml_line_parse(text)
 
 
 def _toml_line_parse(text: str) -> dict:
@@ -123,6 +131,14 @@ def _toml_write(data: dict, path: Path) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
+_BARE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _toml_key(key: str) -> str:
+    """Quote a TOML key if it contains characters not allowed in bare keys."""
+    return key if _BARE_KEY_RE.match(key) else f'"{key}"'
+
+
 def _toml_write_section(data: dict, prefix: list[str], lines: list[str]) -> None:
     """Recursively write TOML sections."""
     # Write scalar/array keys first
@@ -141,21 +157,22 @@ def _toml_write_section(data: dict, prefix: list[str], lines: list[str]) -> None
         if has_scalars or not val:
             if lines and lines[-1] != "":
                 lines.append("")
-            lines.append(f"[{'.'.join(section_path)}]")
+            lines.append(f"[{'.'.join(_toml_key(k) for k in section_path)}]")
         _toml_write_section(val, section_path, lines)
 
 
 def _toml_write_value(key: str, val: object, lines: list[str]) -> None:
     """Write a single TOML key-value pair."""
+    k = _toml_key(key)
     if isinstance(val, list):
         items = ", ".join(_toml_string_literal(v) for v in val)
-        lines.append(f"{key} = [{items}]")
+        lines.append(f"{k} = [{items}]")
     elif isinstance(val, bool):
-        lines.append(f"{key} = {'true' if val else 'false'}")
+        lines.append(f"{k} = {'true' if val else 'false'}")
     elif isinstance(val, int):
-        lines.append(f"{key} = {val}")
+        lines.append(f"{k} = {val}")
     else:
-        lines.append(f"{key} = {_toml_string_literal(val)}")
+        lines.append(f"{k} = {_toml_string_literal(val)}")
 
 
 def _toml_string_literal(val: object) -> str:
