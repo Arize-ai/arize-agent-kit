@@ -259,3 +259,47 @@ class TestMain:
         mock_run.assert_called_once()
         assert str(codex) == mock_run.call_args[0][0][0]
         assert exc_info.value.code == 42
+
+    def test_exec_mode_calls_drain_idle_after_subprocess(self, tmp_path):
+        """``codex exec`` uses subprocess.run and calls drain_idle() after."""
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        codex = bin_dir / "codex"
+        codex.write_text("#!/bin/sh\nexit 0\n")
+        codex.chmod(codex.stat().st_mode | stat.S_IEXEC)
+
+        fake_result = mock.Mock()
+        fake_result.returncode = 0
+
+        with (
+            mock.patch("codex_tracing.hooks.proxy._quick_health_check", return_value=True),
+            mock.patch("codex_tracing.hooks.proxy._find_real_codex", return_value=str(codex)),
+            mock.patch("subprocess.run", return_value=fake_result) as mock_run,
+            mock.patch("codex_tracing.hooks.handlers.drain_idle") as mock_drain,
+            mock.patch.object(sys, "argv", ["codex", "exec", "say hi"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        mock_run.assert_called_once()
+        mock_drain.assert_called_once()
+        assert exc_info.value.code == 0
+
+    def test_non_exec_posix_uses_execvp_without_drain(self, tmp_path):
+        """Interactive/non-exec POSIX path uses os.execvp and does not call drain_idle."""
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        codex = bin_dir / "codex"
+        codex.write_text("#!/bin/sh\nexit 0\n")
+        codex.chmod(codex.stat().st_mode | stat.S_IEXEC)
+
+        with (
+            mock.patch("codex_tracing.hooks.proxy._quick_health_check", return_value=True),
+            mock.patch("codex_tracing.hooks.proxy._find_real_codex", return_value=str(codex)),
+            mock.patch("os.execvp") as mock_exec,
+            mock.patch.object(sys, "argv", ["codex", "--help"]),
+        ):
+            main()
+
+        mock_exec.assert_called_once()
+        # drain_idle should NOT have been imported/called for non-exec path
