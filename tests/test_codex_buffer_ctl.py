@@ -376,7 +376,6 @@ class TestBufferStart:
 
     def test_idempotent_when_already_running(self, ctl_paths, mock_collector, monkeypatch):
         """If buffer is already running with matching identity, start returns True without launching."""
-        import codex_tracing.codex_buffer_ctl as ctl
         import core.constants as c
 
         pid_file = c.CODEX_BUFFER_PID_FILE
@@ -986,7 +985,6 @@ class TestBufferStatusIdentity:
 class TestBufferStartIdentity:
     def test_start_short_circuits_when_build_path_matches(self, ctl_paths, sample_config, monkeypatch):
         """If /health returns matching build_path, Popen is never called."""
-        import codex_tracing.codex_buffer_ctl as ctl
 
         expected_bp = _expected_build_path()
         monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", lambda *a, **kw: True)
@@ -1341,7 +1339,6 @@ class TestBufferStopEdgeCases:
 
     def test_stop_kills_matching_build_path_without_force(self, ctl_paths, monkeypatch):
         """Listener whose build_path matches ours is killed without --force."""
-        import codex_tracing.codex_buffer_ctl as ctl
 
         expected_bp = _expected_build_path()
         monkeypatch.setattr("codex_tracing.codex_buffer_ctl._listener_pid", lambda h, p: 12345)
