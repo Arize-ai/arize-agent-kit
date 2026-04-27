@@ -168,7 +168,9 @@ Tell the user:
 
 ## Hook Events
 
-Cursor fires 12 hook events. Here's what each one traces:
+### IDE Hooks
+
+Cursor IDE fires 12 hook events. Here's what each one traces:
 
 | Event | Span Name | Kind | Description |
 |-------|-----------|------|-------------|
@@ -186,6 +188,47 @@ Cursor fires 12 hook events. Here's what each one traces:
 | `stop` | Agent Stop | CHAIN | Turn completion status and loop count |
 
 Shell and MCP events use a disk-backed state stack to merge before/after context into single spans with both input and output.
+
+### CLI Hooks
+
+Cursor CLI currently emits a smaller hook surface than the IDE. The supported
+CLI hooks in this package are:
+
+- `sessionStart`
+- `beforeShellExecution`
+- `afterShellExecution`
+- `afterFileEdit`
+- `postToolUse`
+- `stop`
+
+Cursor CLI hooks do not currently emit afterAgentResponse or afterAgentThought.
+
+Full Cursor CLI assistant and thinking coverage requires parsing --output-format stream-json, which is out of scope for this change.
+
+### Hooks JSON Example (IDE + CLI)
+
+When configuring `.cursor/hooks.json`, include both IDE and CLI events:
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "beforeSubmitPrompt": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "afterAgentResponse": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "afterAgentThought": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "beforeShellExecution": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "afterShellExecution": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "beforeMCPExecution": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "afterMCPExecution": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "beforeReadFile": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "afterFileEdit": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "stop": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "beforeTabFileRead": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "afterTabFileEdit": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "postToolUse": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }]
+  }
+}
 
 ## Troubleshoot
 

@@ -465,6 +465,89 @@ class TestCursorHookReference:
 # --- State file extension ---
 
 
+class TestCodexProxyEntryPoint:
+    """Verify pyproject.toml includes the codex proxy entry point."""
+
+    def test_pyproject_includes_codex_proxy_entry_point(self):
+        """pyproject.toml must include the arize-codex-proxy console script."""
+        scripts = _parse_pyproject_scripts()
+        assert "arize-codex-proxy" in scripts, "Missing arize-codex-proxy entry point in pyproject.toml"
+
+
+class TestCodexDocsProxyAndShim:
+    """Verify Codex docs mention the proxy and shim."""
+
+    def test_codex_docs_mention_proxy_and_shim(self):
+        """codex_tracing README and SKILL.md must mention arize-codex-proxy and the shim path."""
+        readme = (REPO_ROOT / "codex_tracing" / "README.md").read_text()
+        skill = (REPO_ROOT / "codex_tracing" / "skills" / "manage-codex-tracing" / "SKILL.md").read_text()
+
+        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
+            assert "arize-codex-proxy" in content, f"codex_tracing {name} missing arize-codex-proxy"
+            assert "~/.arize/harness/bin/codex" in content, f"codex_tracing {name} missing ~/.arize/harness/bin/codex"
+
+
+class TestCursorDocsCliEvents:
+    """Verify Cursor docs list CLI-supported events."""
+
+    def test_cursor_docs_list_cli_supported_events(self):
+        """Cursor README and SKILL.md must mention sessionStart and postToolUse."""
+        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
+        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
+
+        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
+            assert "sessionStart" in content, f"cursor_tracing {name} missing sessionStart"
+            assert "postToolUse" in content, f"cursor_tracing {name} missing postToolUse"
+
+
+class TestCursorDocsUnsupportedHooks:
+    """Verify Cursor docs explicitly state unsupported CLI hooks."""
+
+    @staticmethod
+    def _normalize(text: str) -> str:
+        return " ".join(text.lower().split())
+
+    def test_cursor_docs_state_unsupported_cli_hooks_explicitly(self):
+        """Cursor docs must contain required disclaimer phrases."""
+        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
+        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
+
+        docs = [self._normalize(readme), self._normalize(skill)]
+
+        phrase1 = self._normalize(
+            "Cursor CLI hooks do not currently emit afterAgentResponse or afterAgentThought."
+        )
+        phrase2 = self._normalize(
+            "Full Cursor CLI assistant and thinking coverage requires parsing --output-format stream-json"
+        )
+
+        assert any(phrase1 in d for d in docs), (
+            f"Neither cursor README nor SKILL.md contains: {phrase1!r}"
+        )
+        assert any(phrase2 in d for d in docs), (
+            f"Neither cursor README nor SKILL.md contains: {phrase2!r}"
+        )
+
+    def test_cursor_docs_do_not_list_unsupported_hooks_as_cli_supported(self):
+        """Cursor docs must not claim CLI supports afterAgentResponse or afterAgentThought."""
+        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
+        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
+
+        # Match lines claiming CLI supports/emits afterAgentResponse or afterAgentThought
+        pattern = re.compile(
+            r"(?:afterAgentResponse|afterAgentThought).*CLI.*(?:supports|emits|is supported)"
+            r"|CLI.*(?:supports|emits|is supported).*(?:afterAgentResponse|afterAgentThought)",
+            re.IGNORECASE,
+        )
+
+        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
+            matches = pattern.findall(content)
+            assert not matches, (
+                f"cursor_tracing {name} incorrectly claims CLI supports "
+                f"afterAgentResponse/afterAgentThought: {matches}"
+            )
+
+
 class TestStateFileExtension:
     """Verify docs reference .yaml state files, not .json."""
 
