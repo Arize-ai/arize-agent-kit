@@ -308,6 +308,46 @@ install_repo_tarball() {
 # ---------------------------------------------------------------------------
 # Venv setup
 # ---------------------------------------------------------------------------
+# Fix SSL certificate verification on macOS.
+#
+# Python.org installers ship their own OpenSSL that doesn't trust the macOS
+# system keychain, so urllib (used by every arize-hook-*) fails with
+# "CERTIFICATE_VERIFY_FAILED" against https://otlp.arize.com.
+#
+# Fix: install certifi into the venv and write a sitecustomize.py that sets
+# SSL_CERT_FILE before any hook code runs. Idempotent — safe to call repeatedly.
+_fix_macos_ssl_certs() {
+    local pip="$1"
+    local vp
+    vp=$(venv_python 2>/dev/null) || return 0
+
+    if ! "$pip" install --quiet certifi 2>/dev/null; then
+        warn "Could not install certifi — SSL verification may fail on macOS"
+        return 0
+    fi
+
+    local certifi_where site_dir sc
+    certifi_where=$("$vp" -c "import certifi; print(certifi.where())" 2>/dev/null) || return 0
+    [[ -z "$certifi_where" ]] && return 0
+
+    site_dir=$("$vp" -c "import site; print(site.getsitepackages()[0])" 2>/dev/null) || return 0
+    sc="${site_dir}/sitecustomize.py"
+
+    cat > "$sc" <<'PYEOF'
+# Arize Agent Kit: point Python's SSL stack at certifi's CA bundle on macOS.
+# This runs automatically at interpreter startup, before any hook code.
+import os as _os
+try:
+    import certifi as _certifi
+    _bundle = _certifi.where()
+    _os.environ.setdefault("SSL_CERT_FILE", _bundle)
+    _os.environ.setdefault("REQUESTS_CA_BUNDLE", _bundle)
+except ImportError:
+    pass
+PYEOF
+    info "SSL certificates configured via certifi"
+}
+
 setup_venv() {
     local python_cmd="$1"
     local backend_target="$2"
@@ -324,6 +364,9 @@ setup_venv() {
             && "$vp" -c "import core" 2>/dev/null \
             && [[ -x "${VENV_DIR}/bin/arize-codex-buffer" ]]; then
             info "Venv already has required packages"
+            local pip
+            pip=$(venv_pip 2>/dev/null) || true
+            [[ "$(uname)" == "Darwin" && -n "$pip" ]] && _fix_macos_ssl_certs "$pip"
             return 0
         fi
     fi
@@ -344,6 +387,8 @@ setup_venv() {
         err "Failed to install arize-agent-kit package"
         return 1
     fi
+
+    [[ "$(uname)" == "Darwin" ]] && _fix_macos_ssl_certs "$pip"
 
     info "Venv ready at ${VENV_DIR}"
 }
