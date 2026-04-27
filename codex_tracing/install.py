@@ -457,17 +457,9 @@ def _write_codex_proxy_shim(path: Path, proxy_cmd: Path) -> None:
         return
 
     if os.name == "nt":
-        content = (
-            "@echo off\r\n"
-            "REM Arize Codex proxy shim\r\n"
-            f'"{proxy_cmd}" %*\r\n'
-        )
+        content = "@echo off\r\n" "REM Arize Codex proxy shim\r\n" f'"{proxy_cmd}" %*\r\n'
     else:
-        content = (
-            "#!/bin/sh\n"
-            "# Arize Codex proxy shim\n"
-            f"exec '{proxy_cmd}' \"$@\"\n"
-        )
+        content = "#!/bin/sh\n" "# Arize Codex proxy shim\n" f"exec '{proxy_cmd}' \"$@\"\n"
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
@@ -602,10 +594,7 @@ def install(with_skills: bool = False) -> None:
             " binary to trace codex exec."
         )
     else:
-        info(
-            f"Codex proxy shim installed at {shim_path}."
-            " Add ~/.arize/harness/bin to PATH to trace codex exec."
-        )
+        info(f"Codex proxy shim installed at {shim_path}." " Add ~/.arize/harness/bin to PATH to trace codex exec.")
 
     # 8. Symlink skills
     if with_skills:

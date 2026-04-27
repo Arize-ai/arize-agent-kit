@@ -514,19 +514,13 @@ class TestCursorDocsUnsupportedHooks:
 
         docs = [self._normalize(readme), self._normalize(skill)]
 
-        phrase1 = self._normalize(
-            "Cursor CLI hooks do not currently emit afterAgentResponse or afterAgentThought."
-        )
+        phrase1 = self._normalize("Cursor CLI hooks do not currently emit afterAgentResponse or afterAgentThought.")
         phrase2 = self._normalize(
             "Full Cursor CLI assistant and thinking coverage requires parsing --output-format stream-json"
         )
 
-        assert any(phrase1 in d for d in docs), (
-            f"Neither cursor README nor SKILL.md contains: {phrase1!r}"
-        )
-        assert any(phrase2 in d for d in docs), (
-            f"Neither cursor README nor SKILL.md contains: {phrase2!r}"
-        )
+        assert any(phrase1 in d for d in docs), f"Neither cursor README nor SKILL.md contains: {phrase1!r}"
+        assert any(phrase2 in d for d in docs), f"Neither cursor README nor SKILL.md contains: {phrase2!r}"
 
     def test_cursor_docs_do_not_list_unsupported_hooks_as_cli_supported(self):
         """Cursor docs must not claim CLI supports afterAgentResponse or afterAgentThought."""

@@ -9,14 +9,7 @@ from unittest import mock
 import pytest
 
 from cursor_tracing.hooks import adapter
-from cursor_tracing.hooks.handlers import (
-    _dispatch,
-    _event_name,
-    _jq_str,
-    _print_permissive,
-    _trace_id_from_event,
-    main,
-)
+from cursor_tracing.hooks.handlers import _dispatch, _event_name, _jq_str, _print_permissive, _trace_id_from_event, main
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -1167,9 +1160,7 @@ class TestHandleSessionStart:
     def test_session_start_optional_fields_omitted(self, captured_spans, monkeypatch):
         """Optional fields like cwd and user_email are omitted when absent."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
-        ):
+        with (mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),):
             _dispatch(
                 "sessionStart",
                 {

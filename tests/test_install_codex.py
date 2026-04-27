@@ -1061,7 +1061,7 @@ class TestCodexProxyShim:
         """Unit-test _codex_proxy_path_status for each case."""
         shim = tmp_path / "bin" / "codex"
         shim.parent.mkdir(parents=True)
-        shim.write_text("#!/bin/sh\n# Arize Codex proxy shim\nexec arize-codex-proxy \"$@\"\n")
+        shim.write_text('#!/bin/sh\n# Arize Codex proxy shim\nexec arize-codex-proxy "$@"\n')
 
         shim_real = os.path.realpath(str(shim))
 
