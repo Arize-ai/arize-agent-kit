@@ -1247,3 +1247,129 @@ class TestCLIIdentity:
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == 1
+
+
+# ---------------------------------------------------------------------------
+# _evict_stale safety guard tests
+# ---------------------------------------------------------------------------
+
+
+class TestEvictStaleSafety:
+    def test_evict_refuses_pid_zero(self, monkeypatch):
+        """PID 0 is never killed."""
+        kill_calls = []
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.os.kill", lambda p, s: kill_calls.append((p, s)))
+        result = _evict_stale(0, "127.0.0.1", 4318, "test")
+        assert result is False
+        assert len(kill_calls) == 0
+
+    def test_evict_refuses_pid_one(self, monkeypatch):
+        """PID 1 (init) is never killed."""
+        kill_calls = []
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.os.kill", lambda p, s: kill_calls.append((p, s)))
+        result = _evict_stale(1, "127.0.0.1", 4318, "test")
+        assert result is False
+        assert len(kill_calls) == 0
+
+    def test_evict_refuses_negative_pid(self, monkeypatch):
+        """Negative PIDs are never killed."""
+        kill_calls = []
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.os.kill", lambda p, s: kill_calls.append((p, s)))
+        result = _evict_stale(-5, "127.0.0.1", 4318, "test")
+        assert result is False
+        assert len(kill_calls) == 0
+
+    def test_evict_refuses_own_pid(self, monkeypatch):
+        """Current process PID is never killed."""
+        kill_calls = []
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.os.kill", lambda p, s: kill_calls.append((p, s)))
+        result = _evict_stale(os.getpid(), "127.0.0.1", 4318, "test")
+        assert result is False
+        assert len(kill_calls) == 0
+
+    def test_evict_treats_process_lookup_error_as_success(self, monkeypatch):
+        """If the process dies between check and kill, that counts as success."""
+        monkeypatch.setattr(
+            "codex_tracing.codex_buffer_ctl.os.kill",
+            MagicMock(side_effect=ProcessLookupError),
+        )
+        result = _evict_stale(9999, "127.0.0.1", 4318, "already gone")
+        assert result is True
+
+    def test_evict_escalates_to_sigkill(self, monkeypatch):
+        """If SIGTERM doesn't free the port, SIGKILL is sent."""
+        kill_calls = []
+
+        def fake_kill(pid, sig):
+            kill_calls.append((pid, sig))
+
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.os.kill", fake_kill)
+
+        # Port stays open during SIGTERM polling, then closes after SIGKILL
+        call_count = {"n": 0}
+
+        def fake_connect(addr, timeout=None):
+            call_count["n"] += 1
+            # First 50 calls (SIGTERM poll): port still open
+            if call_count["n"] <= 50:
+                conn = MagicMock()
+                return conn
+            # After SIGKILL: port freed
+            raise ConnectionRefusedError
+
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.socket.create_connection", fake_connect)
+
+        result = _evict_stale(9999, "127.0.0.1", 4318, "stubborn process")
+        assert result is True
+        assert (9999, signal.SIGTERM) in kill_calls
+        assert (9999, signal.SIGKILL) in kill_calls
+
+
+# ---------------------------------------------------------------------------
+# buffer_stop edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestBufferStopEdgeCases:
+    def test_stop_no_pidfile_no_listener_returns_stopped(self, ctl_paths, monkeypatch):
+        """With no pidfile and no listener, stop returns 'stopped'."""
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._listener_pid", lambda h, p: None)
+        result = buffer_stop()
+        assert result == "stopped"
+
+    def test_stop_refuses_when_no_identity_without_force(self, ctl_paths, monkeypatch):
+        """Listener with no identity (empty dict) is refused without --force."""
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._listener_pid", lambda h, p: 12345)
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_identity", lambda h, p: {})
+
+        kill_calls = []
+        monkeypatch.setattr(
+            "codex_tracing.codex_buffer_ctl.os.kill",
+            lambda pid, sig: kill_calls.append((pid, sig)),
+        )
+
+        result = buffer_stop(force=False)
+        assert result == "refused"
+        assert len(kill_calls) == 0
+
+    def test_stop_kills_matching_build_path_without_force(self, ctl_paths, monkeypatch):
+        """Listener whose build_path matches ours is killed without --force."""
+        import codex_tracing.codex_buffer_ctl as ctl
+
+        expected_bp = _expected_build_path()
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._listener_pid", lambda h, p: 12345)
+        monkeypatch.setattr(
+            "codex_tracing.codex_buffer_ctl._health_identity",
+            lambda h, p: {"build_path": expected_bp},
+        )
+
+        kill_calls = []
+        monkeypatch.setattr(
+            "codex_tracing.codex_buffer_ctl.os.kill",
+            lambda pid, sig: kill_calls.append((pid, sig)),
+        )
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._is_process_alive", lambda pid: False)
+
+        result = buffer_stop(force=False)
+        assert result == "stopped"
+        assert any(pid == 12345 and sig == signal.SIGTERM for pid, sig in kill_calls)
