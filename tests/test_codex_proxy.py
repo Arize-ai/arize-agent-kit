@@ -297,9 +297,10 @@ class TestMain:
             mock.patch("codex_tracing.hooks.proxy._quick_health_check", return_value=True),
             mock.patch("codex_tracing.hooks.proxy._find_real_codex", return_value=str(codex)),
             mock.patch("os.execvp") as mock_exec,
+            mock.patch("codex_tracing.hooks.handlers.drain_idle") as mock_drain,
             mock.patch.object(sys, "argv", ["codex", "--help"]),
         ):
             main()
 
         mock_exec.assert_called_once()
-        # drain_idle should NOT have been imported/called for non-exec path
+        mock_drain.assert_not_called()

@@ -1075,7 +1075,7 @@ class TestCodexProxyShim:
         monkeypatch.setattr("shutil.which", lambda cmd: "/usr/local/bin/codex")
         status, resolved = codex_install._codex_proxy_path_status(shim)
         assert status == "shadowed"
-        assert resolved == "/usr/local/bin/codex"
+        assert resolved == os.path.realpath("/usr/local/bin/codex")
 
         # Missing: shutil.which returns None
         monkeypatch.setattr("shutil.which", lambda cmd: None)
