@@ -229,6 +229,7 @@ When configuring `.cursor/hooks.json`, include both IDE and CLI events:
     "postToolUse": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }]
   }
 }
+```
 
 ## Troubleshoot
 

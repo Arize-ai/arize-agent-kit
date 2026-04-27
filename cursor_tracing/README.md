@@ -131,6 +131,7 @@ Full Cursor CLI assistant and thinking coverage requires parsing --output-format
 
 ```json
 {
+  "version": 1,
   "hooks": {
     "sessionStart": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
     "beforeSubmitPrompt": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
