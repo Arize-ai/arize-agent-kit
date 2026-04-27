@@ -21,6 +21,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import yaml
 
+# --- Identity ---
+BUILD_PATH = os.path.abspath(__file__)
+
 # --- Paths ---
 BASE_DIR = os.path.expanduser("~/.arize/harness")
 CONFIG_FILE = os.path.join(BASE_DIR, "config.yaml")
@@ -329,7 +332,10 @@ class CodexBufferHandler(BaseHTTPRequestHandler):
             buffered_events = sum(len(v) for v in _event_buffers.values())
             conversations = len(_event_buffers)
         health = {
-            "status": "healthy",
+            "status": "ok",
+            "pid": os.getpid(),
+            "build_path": BUILD_PATH,
+            "started_at": _start_time,
             "uptime_seconds": int(time.time() - _start_time),
             "event_buffer": {
                 "buffered_events": buffered_events,
