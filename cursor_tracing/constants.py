@@ -10,9 +10,9 @@ HARNESS_BIN = "cursor"  # binary name for shutil.which() fallback
 HOOKS_FILE = Path.home() / ".cursor" / "hooks.json"
 HOOK_BIN_NAME = "arize-hook-cursor"
 
-# 14 events, all routed to a single CLI entry point (the handler dispatches
+# 15 events, all routed to a single CLI entry point (the handler dispatches
 # based on hook_event_name / hookEventName in the JSON payload).
-# Includes IDE events plus CLI-specific events (sessionStart, postToolUse).
+# Includes IDE events plus CLI-specific events (sessionStart, sessionEnd, postToolUse).
 HOOK_EVENTS = (
     "beforeSubmitPrompt",
     "afterAgentResponse",
@@ -27,5 +27,6 @@ HOOK_EVENTS = (
     "beforeTabFileRead",
     "afterTabFileEdit",
     "sessionStart",
+    "sessionEnd",
     "postToolUse",
 )

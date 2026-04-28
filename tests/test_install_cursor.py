@@ -141,18 +141,24 @@ class TestFreshInstall:
         assert "backend" not in config
         assert "collector" not in config
 
-        # Check hooks.json has 14 events (12 IDE + 2 CLI)
+        # Check hooks.json has 15 events (12 IDE + 3 CLI)
         hooks_file = fake_home / ".cursor" / "hooks.json"
         assert hooks_file.exists()
         hooks_data = json.loads(hooks_file.read_text())
 
         assert hooks_data["version"] == 1
         hooks = hooks_data.get("hooks", {})
-        assert len(hooks) == 14
+        assert len(hooks) == 15
 
-        # sessionStart and postToolUse are present and use the same hook command
+        # sessionStart, sessionEnd, and postToolUse are present and use the same hook command
         assert "sessionStart" in hooks
+        assert "sessionEnd" in hooks
         assert "postToolUse" in hooks
+
+        # sessionEnd uses the same hook command as sessionStart
+        session_start_cmd = hooks["sessionStart"][0]["command"]
+        session_end_cmd = hooks["sessionEnd"][0]["command"]
+        assert session_start_cmd == session_end_cmd
 
         # Each event should have exactly one entry
         for event, entries in hooks.items():
@@ -279,9 +285,9 @@ class TestIdempotent:
         hooks_file = fake_home / ".cursor" / "hooks.json"
         hooks_data = json.loads(hooks_file.read_text())
 
-        # Still exactly 14 events with 1 entry each
+        # Still exactly 15 events with 1 entry each
         hooks = hooks_data["hooks"]
-        assert len(hooks) == 14
+        assert len(hooks) == 15
         for event, entries in hooks.items():
             assert len(entries) == 1, f"Event {event} has {len(entries)} entries"
 
@@ -341,7 +347,7 @@ class TestUninstall:
         assert hooks["CustomEvent"][0]["command"] == "/usr/local/bin/other"
 
     def test_uninstall_removes_cli_events(self, fake_home, monkeypatch):
-        """Uninstall removes sessionStart and postToolUse while preserving foreign hooks."""
+        """Uninstall removes sessionStart, sessionEnd, and postToolUse while preserving foreign hooks."""
         cursor_install = _load_cursor_module("install")
 
         _mock_prompts(monkeypatch)
@@ -361,10 +367,36 @@ class TestUninstall:
         # Our postToolUse entry is gone entirely (was only ours)
         assert "postToolUse" not in hooks
 
+        # Our sessionEnd entry is gone entirely (was only ours)
+        assert "sessionEnd" not in hooks
+
         # Third-party hook in sessionStart survives
         assert "sessionStart" in hooks
         assert len(hooks["sessionStart"]) == 1
         assert hooks["sessionStart"][0]["command"] == "/usr/local/bin/my-session-hook"
+
+    def test_uninstall_removes_session_end_preserves_foreign(self, fake_home, monkeypatch):
+        """Uninstall removes sessionEnd entry while preserving foreign hooks."""
+        cursor_install = _load_cursor_module("install")
+
+        _mock_prompts(monkeypatch)
+        cursor_install.install(with_skills=False)
+
+        # Inject a third-party hook into sessionEnd
+        hooks_file = fake_home / ".cursor" / "hooks.json"
+        hooks_data = json.loads(hooks_file.read_text())
+        hooks_data["hooks"]["sessionEnd"].append({"command": "/usr/local/bin/my-end-hook"})
+        hooks_file.write_text(json.dumps(hooks_data, indent=2) + "\n")
+
+        cursor_install.uninstall()
+
+        hooks_data = json.loads(hooks_file.read_text())
+        hooks = hooks_data.get("hooks", {})
+
+        # Third-party hook in sessionEnd survives
+        assert "sessionEnd" in hooks
+        assert len(hooks["sessionEnd"]) == 1
+        assert hooks["sessionEnd"][0]["command"] == "/usr/local/bin/my-end-hook"
 
     def test_uninstall_is_idempotent(self, fake_home, monkeypatch):
         """Running uninstall twice succeeds and is a no-op the second time."""
