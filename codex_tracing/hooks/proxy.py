@@ -21,29 +21,62 @@ import subprocess
 import sys
 
 
+def _codex_candidate_names() -> list[str]:
+    """Return executable names a shell may resolve for ``codex``."""
+    if os.name != "nt":
+        return ["codex"]
+
+    names = ["codex"]
+    pathext = os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    for ext in pathext.split(";"):
+        ext = ext.strip()
+        if not ext:
+            continue
+        if not ext.startswith("."):
+            ext = "." + ext
+        name = "codex" + ext.lower()
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def _is_arize_codex_shim(path: str) -> bool:
+    """Return True when *path* is the installer-managed tracing shim."""
+    try:
+        with open(path, encoding="utf-8", errors="ignore") as f:
+            text = f.read(4096)
+    except OSError:
+        return False
+    return "arize-codex-proxy" in text and "Arize Codex proxy shim" in text
+
+
 def _find_real_codex() -> "str | None":
     """Find the real codex binary on PATH, skipping the proxy itself.
 
     Strategy:
     1. Get this script's resolved path (handles symlinks).
-    2. Scan PATH entries for 'codex' (or 'codex.exe' on Windows).
-    3. Skip any that resolve to the same path as this script.
+    2. Scan PATH entries for 'codex' (or PATHEXT variants on Windows).
+    3. Skip any that resolve to the same path as this script or the
+       installer-managed shim.
     4. Return the first non-self match, or None.
     """
     self_path = os.path.realpath(__file__)
     # Also check the entry-point wrapper that pip installs
     self_entry = os.path.realpath(sys.argv[0]) if sys.argv else None
 
-    codex_name = "codex.exe" if os.name == "nt" else "codex"
-    for dir_str in os.environ.get("PATH", "").split(os.pathsep):
-        candidate = os.path.join(dir_str, codex_name)
-        if not os.path.isfile(candidate):
-            continue
-        resolved = os.path.realpath(candidate)
-        if resolved == self_path or resolved == self_entry:
-            continue
-        if os.access(candidate, os.X_OK):
-            return candidate
+    path_separator = ";" if os.name == "nt" else os.pathsep
+    for dir_str in os.environ.get("PATH", "").split(path_separator):
+        for codex_name in _codex_candidate_names():
+            candidate = os.path.join(dir_str, codex_name)
+            if not os.path.isfile(candidate):
+                continue
+            resolved = os.path.realpath(candidate)
+            if resolved == self_path or resolved == self_entry:
+                continue
+            if _is_arize_codex_shim(candidate):
+                continue
+            if os.access(candidate, os.X_OK):
+                return candidate
     return None
 
 

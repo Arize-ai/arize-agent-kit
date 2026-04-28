@@ -64,7 +64,7 @@ The installer:
 
 Spans are sent directly to the backend from hooks — no background process is needed. (Codex additionally starts a lightweight buffer service for native OTLP event buffering.)
 
-> **Codex exec:** `codex exec` tracing requires the `arize-codex-proxy` shim at `~/.arize/harness/bin/codex` to be on `PATH` ahead of the real Codex binary. See [codex_tracing/README.md](codex_tracing/README.md) for details.
+> **Codex exec:** the Codex installer creates the `arize-codex-proxy` shim at `~/.arize/harness/bin/codex` and adds the harness bin directory to supported shell profiles so it resolves ahead of the real Codex binary. Open a new shell after install. See [codex_tracing/README.md](codex_tracing/README.md) for details.
 
 > **Cursor CLI:** Cursor CLI emits a subset of the IDE hook events. `afterAgentResponse` and `afterAgentThought` are not available through CLI hooks. See [cursor_tracing/README.md](cursor_tracing/README.md) for coverage details.
 

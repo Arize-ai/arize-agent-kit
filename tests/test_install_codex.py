@@ -136,16 +136,14 @@ class TestTomlHelpers:
         assert parsed["otel"]["exporter"]["otlp-http"]["protocol"] == "json"
 
     def test_parse_preserves_unrelated_sections(self, tmp_path):
-        content = textwrap.dedent(
-            """\
+        content = textwrap.dedent("""\
             [model]
             name = "gpt-4"
 
             [otel.exporter.otlp-http]
             endpoint = "http://127.0.0.1:4318/v1/logs"
             protocol = "json"
-        """
-        )
+        """)
         parsed = codex_install._toml_line_parse(content)
         assert parsed["model"]["name"] == "gpt-4"
         assert parsed["otel"]["exporter"]["otlp-http"]["endpoint"] == "http://127.0.0.1:4318/v1/logs"
@@ -844,13 +842,11 @@ class TestTomlFallbackQuoting:
 
     def test_fallback_roundtrips_quoted_section_keys(self, tmp_path, monkeypatch):
         monkeypatch.setattr("codex_tracing.install._tomllib", None)
-        toml_text = textwrap.dedent(
-            """\
+        toml_text = textwrap.dedent("""\
             [mcp_servers."@scope/server"]
             command = "npx"
             args = ["-y", "@scope/server"]
-        """
-        )
+        """)
         p = tmp_path / "config.toml"
         p.write_text(toml_text)
 
@@ -872,12 +868,10 @@ class TestTomlFallbackQuoting:
 
     def test_fallback_repairs_malformed_unquoted_keys(self, tmp_path, monkeypatch):
         monkeypatch.setattr("codex_tracing.install._tomllib", None)
-        toml_text = textwrap.dedent(
-            """\
+        toml_text = textwrap.dedent("""\
             [plugins.@scope/server]
             enabled = true
-        """
-        )
+        """)
         p = tmp_path / "config.toml"
         p.write_text(toml_text)
 
@@ -925,12 +919,10 @@ class TestTomlFallbackQuoting:
     def test_fallback_deeply_nested_quoted_keys(self, tmp_path, monkeypatch):
         """Multiple levels with quoted keys parse and round-trip correctly."""
         monkeypatch.setattr("codex_tracing.install._tomllib", None)
-        toml_text = textwrap.dedent(
-            """\
+        toml_text = textwrap.dedent("""\
             [a."b.c"."d/e"]
             x = 1
-        """
-        )
+        """)
         p = tmp_path / "deep.toml"
         p.write_text(toml_text)
 
@@ -946,15 +938,13 @@ class TestTomlFallbackQuoting:
     def test_fallback_multiple_sections_with_quoted_keys(self, tmp_path, monkeypatch):
         """Multiple sections with special-char keys coexist correctly."""
         monkeypatch.setattr("codex_tracing.install._tomllib", None)
-        toml_text = textwrap.dedent(
-            """\
+        toml_text = textwrap.dedent("""\
             [servers."@org/alpha"]
             port = 8080
 
             [servers."@org/beta"]
             port = 9090
-        """
-        )
+        """)
         p = tmp_path / "multi.toml"
         p.write_text(toml_text)
 
@@ -1023,6 +1013,73 @@ class TestCodexProxyShim:
         # POSIX shim must be executable
         assert shim.stat().st_mode & stat.S_IXUSR
 
+    def test_install_adds_harness_bin_to_supported_shell_profiles(self, fake_home, mock_buffer, mock_prompts):
+        """Install persists the proxy PATH for sh, bash, zsh, and PowerShell."""
+        codex_install.install()
+
+        expected_profiles = [
+            fake_home / ".profile",
+            fake_home / ".bashrc",
+            fake_home / ".zshrc",
+            fake_home / ".config" / "powershell" / "Microsoft.PowerShell_profile.ps1",
+        ]
+        for profile in expected_profiles:
+            text = profile.read_text()
+            assert "arize codex tracing PATH" in text
+            assert ".arize/harness/bin" in text
+
+        assert str(fake_home / ".arize" / "harness" / "bin") in os.environ["PATH"].split(os.pathsep)
+
+    def test_install_updates_existing_login_profiles_without_creating_shadowing_files(
+        self, fake_home, mock_buffer, mock_prompts
+    ):
+        """Existing bash/zsh login profiles are updated; absent precedence-changing files are not created."""
+        bash_profile = fake_home / ".bash_profile"
+        zprofile = fake_home / ".zprofile"
+        bash_profile.write_text("export EXISTING=1\n")
+        zprofile.write_text("export ZEXISTING=1\n")
+
+        codex_install.install()
+
+        assert "arize codex tracing PATH" in bash_profile.read_text()
+        assert "arize codex tracing PATH" in zprofile.read_text()
+        assert not (fake_home / ".bash_login").exists()
+        assert not (fake_home / ".zlogin").exists()
+
+    def test_install_path_profile_updates_are_idempotent(self, fake_home, mock_buffer, mock_prompts):
+        """Running install twice does not duplicate the managed PATH block."""
+        codex_install.install()
+        codex_install.install()
+
+        profile = fake_home / ".profile"
+        assert profile.read_text().count(">>> arize codex tracing PATH >>>") == 1
+
+    def test_windows_install_updates_powershell_bash_sh_and_user_path(
+        self, fake_home, mock_buffer, mock_prompts, monkeypatch
+    ):
+        """Windows installs persist PATH for PowerShell, Git Bash/sh, and user environment PATH."""
+        calls = []
+        monkeypatch.setattr(codex_install.os, "name", "nt")
+        monkeypatch.setattr(codex_install, "_ensure_windows_user_path", lambda path: calls.append(path) or True)
+
+        codex_install.install()
+
+        assert calls == [fake_home / ".arize" / "harness" / "bin"]
+        cmd_shim = fake_home / ".arize" / "harness" / "bin" / "codex.cmd"
+        sh_shim = fake_home / ".arize" / "harness" / "bin" / "codex"
+        assert "Arize Codex proxy shim" in cmd_shim.read_text()
+        assert "arize-codex-proxy.exe" in cmd_shim.read_text()
+        assert "Arize Codex proxy shim" in sh_shim.read_text()
+        assert "arize-codex-proxy.exe" in sh_shim.read_text()
+        for profile in [
+            fake_home / ".profile",
+            fake_home / ".bashrc",
+            fake_home / ".zshrc",
+            fake_home / "Documents" / "PowerShell" / "Microsoft.PowerShell_profile.ps1",
+            fake_home / "Documents" / "WindowsPowerShell" / "Microsoft.PowerShell_profile.ps1",
+        ]:
+            assert "arize codex tracing PATH" in profile.read_text()
+
     def test_install_does_not_overwrite_foreign_codex_shim(self, fake_home, mock_buffer, mock_prompts):
         """A pre-existing non-Arize codex file is never overwritten."""
         bin_dir = fake_home / ".arize" / "harness" / "bin"
@@ -1044,6 +1101,20 @@ class TestCodexProxyShim:
 
         codex_install.uninstall()
         assert not shim.exists()
+
+    def test_uninstall_removes_managed_path_blocks(self, fake_home, mock_buffer, mock_prompts):
+        """Uninstall removes only the installer-managed PATH blocks."""
+        profile = fake_home / ".profile"
+        profile.write_text("export KEEP_ME=1\n")
+        codex_install.install()
+
+        assert "arize codex tracing PATH" in profile.read_text()
+
+        codex_install.uninstall()
+
+        text = profile.read_text()
+        assert "arize codex tracing PATH" not in text
+        assert "export KEEP_ME=1" in text
 
     def test_uninstall_preserves_foreign_codex_shim(self, fake_home, mock_buffer, mock_prompts):
         """A non-Arize codex file survives uninstall."""
@@ -1122,7 +1193,7 @@ class TestCodexProxyShim:
 
         output = capsys.readouterr().out
         assert "but PATH resolves codex to /usr/local/bin/codex" in output
-        assert "Put ~/.arize/harness/bin before the real Codex binary" in output
+        assert "Open a new shell after install" in output
 
     def test_install_prints_missing_message_when_no_codex_on_path(
         self, fake_home, mock_buffer, mock_prompts, monkeypatch, capsys
@@ -1136,4 +1207,4 @@ class TestCodexProxyShim:
         codex_install.install()
 
         output = capsys.readouterr().out
-        assert "Add ~/.arize/harness/bin to PATH to trace codex exec" in output
+        assert "open a new shell to activate codex exec tracing" in output

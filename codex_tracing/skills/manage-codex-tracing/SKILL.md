@@ -43,9 +43,9 @@ runs the real Codex binary and then drains buffered events after the process
 exits. Without the proxy, `codex exec` bypasses the notify hook entirely.
 
 The installer creates a `~/.arize/harness/bin/codex` shim that points to
-`arize-codex-proxy`. Users must ensure `~/.arize/harness/bin` appears before the
-real Codex binary on `PATH`; otherwise the installer prints a shadowing warning
-and `codex exec` tracing is not active.
+`arize-codex-proxy` and adds `~/.arize/harness/bin` to supported shell profiles
+for sh, bash, zsh, and PowerShell. On Windows, it also updates the user PATH.
+Users should open a new shell after install so the PATH update is visible.
 
 To verify exec tracing is active, run:
 

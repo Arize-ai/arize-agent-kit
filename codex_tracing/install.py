@@ -425,10 +425,240 @@ def _is_our_env_file(path: Path) -> bool:
 
 
 def _codex_proxy_shim_path() -> Path:
-    """Return the path where the Arize-managed ``codex`` shim should live."""
+    """Return the primary path where the Arize-managed ``codex`` shim should live."""
     if os.name == "nt":
         return BIN_DIR / "codex.cmd"
     return BIN_DIR / "codex"
+
+
+def _codex_proxy_shim_paths() -> list[Path]:
+    """Return all Codex shim paths needed for the current platform."""
+    if os.name == "nt":
+        return [BIN_DIR / "codex.cmd", BIN_DIR / "codex"]
+    return [BIN_DIR / "codex"]
+
+
+_PATH_MARKER_BEGIN = "# >>> arize codex tracing PATH >>>"
+_PATH_MARKER_END = "# <<< arize codex tracing PATH <<<"
+
+_POSIX_PATH_BLOCK = f"""{_PATH_MARKER_BEGIN}
+# Required so "codex exec" runs through the Arize tracing proxy.
+case ":$PATH:" in
+  *":$HOME/.arize/harness/bin:"*) ;;
+  *) export PATH="$HOME/.arize/harness/bin:$PATH" ;;
+esac
+{_PATH_MARKER_END}
+"""
+
+_POWERSHELL_PATH_BLOCK = f"""{_PATH_MARKER_BEGIN}
+# Required so "codex exec" runs through the Arize tracing proxy.
+$arizeHarnessBin = Join-Path $HOME ".arize/harness/bin"
+if (($env:PATH -split [System.IO.Path]::PathSeparator) -notcontains $arizeHarnessBin) {{
+    $env:PATH = "$arizeHarnessBin$([System.IO.Path]::PathSeparator)$env:PATH"
+}}
+{_PATH_MARKER_END}
+"""
+
+
+def _posix_shell_profiles() -> list[Path]:
+    """Return sh/bash/zsh profile files that should receive the PATH block."""
+    home = Path.home()
+    profiles = [
+        home / ".profile",
+        home / ".bashrc",
+        home / ".zshrc",
+    ]
+    # These login-shell files can change shell startup precedence, so only
+    # update them when the user already has them.
+    for name in (".bash_profile", ".bash_login", ".zprofile", ".zlogin"):
+        path = home / name
+        if path.exists():
+            profiles.append(path)
+    return profiles
+
+
+def _powershell_profiles() -> list[Path]:
+    """Return PowerShell profile files for the current platform."""
+    home = Path.home()
+    if os.name == "nt":
+        documents = home / "Documents"
+        return [
+            documents / "PowerShell" / "Microsoft.PowerShell_profile.ps1",
+            documents / "WindowsPowerShell" / "Microsoft.PowerShell_profile.ps1",
+        ]
+    return [home / ".config" / "powershell" / "Microsoft.PowerShell_profile.ps1"]
+
+
+def _profile_has_marker(text: str) -> bool:
+    return _PATH_MARKER_BEGIN in text and _PATH_MARKER_END in text
+
+
+def _ensure_profile_block(path: Path, block: str) -> bool:
+    """Append a managed PATH block to *path* if it is not already present."""
+    if dry_run():
+        info(f"would add Arize harness bin to PATH in {path}")
+        return False
+
+    try:
+        text = path.read_text() if path.is_file() else ""
+    except OSError as exc:
+        info(f"Warning: could not read {path}: {exc}")
+        return False
+
+    if _profile_has_marker(text):
+        return False
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not text:
+        new_text = block
+    elif text.endswith("\n"):
+        new_text = f"{text}\n{block}"
+    else:
+        new_text = f"{text}\n\n{block}"
+    try:
+        path.write_text(new_text)
+    except OSError as exc:
+        info(f"Warning: could not update {path}: {exc}")
+        return False
+    return True
+
+
+def _remove_profile_block(path: Path) -> bool:
+    """Remove the managed PATH block from *path* when present."""
+    if not path.is_file():
+        return False
+
+    try:
+        text = path.read_text()
+    except OSError as exc:
+        info(f"Warning: could not read {path}: {exc}")
+        return False
+
+    pattern = re.compile(
+        rf"\n?{re.escape(_PATH_MARKER_BEGIN)}.*?{re.escape(_PATH_MARKER_END)}\n?",
+        re.DOTALL,
+    )
+    new_text, count = pattern.subn("\n", text)
+    if count == 0:
+        return False
+
+    new_text = re.sub(r"\n{3,}", "\n\n", new_text).lstrip("\n")
+    if dry_run():
+        info(f"would remove Arize harness bin PATH block from {path}")
+        return False
+
+    try:
+        path.write_text(new_text)
+    except OSError as exc:
+        info(f"Warning: could not update {path}: {exc}")
+        return False
+    return True
+
+
+def _path_contains(path_value: str, entry: str, separator: str | None = None) -> bool:
+    """Return whether *entry* is already present in a PATH-like string."""
+    separator = separator or os.pathsep
+    windows_style = separator == ";"
+
+    def normalize(value: str) -> str:
+        normalized = os.path.normpath(os.path.expandvars(os.path.expanduser(value)))
+        if windows_style:
+            normalized = normalized.replace("\\", "/").lower()
+        else:
+            normalized = os.path.normcase(normalized)
+        return normalized.rstrip("/")
+
+    expected = normalize(entry)
+    for part in path_value.split(separator):
+        if not part:
+            continue
+        if normalize(part) == expected:
+            return True
+    return False
+
+
+def _prepend_process_path(path: Path) -> None:
+    """Make the proxy visible to child processes spawned by this installer."""
+    path_str = str(path)
+    current = os.environ.get("PATH", "")
+    if _path_contains(current, path_str):
+        return
+    os.environ["PATH"] = path_str + (os.pathsep + current if current else "")
+
+
+def _ensure_windows_user_path(path: Path) -> bool:
+    """Persist the harness bin directory in the Windows user PATH."""
+    path_str = str(path)
+    if dry_run():
+        info(f"would add {path_str} to the Windows user PATH")
+        return False
+
+    try:
+        import winreg  # type: ignore[import-not-found]
+    except ImportError:
+        info("Warning: could not update Windows user PATH: winreg is unavailable")
+        return False
+
+    try:
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_READ | winreg.KEY_WRITE) as key:
+            try:
+                current, value_type = winreg.QueryValueEx(key, "Path")
+            except FileNotFoundError:
+                current, value_type = "", winreg.REG_EXPAND_SZ
+
+            if _path_contains(str(current), path_str, separator=";"):
+                return False
+
+            new_path = path_str + (";" + str(current) if current else "")
+            if value_type not in (winreg.REG_EXPAND_SZ, winreg.REG_SZ):
+                value_type = winreg.REG_EXPAND_SZ
+            winreg.SetValueEx(key, "Path", 0, value_type, new_path)
+    except OSError as exc:
+        info(f"Warning: could not update Windows user PATH: {exc}")
+        return False
+
+    try:
+        import ctypes
+
+        ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x001A, 0, "Environment", 0, 5000, None)
+    except Exception:
+        pass
+
+    return True
+
+
+def _ensure_codex_proxy_on_path(path: Path) -> None:
+    """Persist and activate the harness bin directory for Codex proxy lookup."""
+    changed_profiles: list[Path] = []
+
+    for profile in _posix_shell_profiles():
+        if _ensure_profile_block(profile, _POSIX_PATH_BLOCK):
+            changed_profiles.append(profile)
+
+    for profile in _powershell_profiles():
+        if _ensure_profile_block(profile, _POWERSHELL_PATH_BLOCK):
+            changed_profiles.append(profile)
+
+    if os.name == "nt":
+        _ensure_windows_user_path(path)
+
+    _prepend_process_path(path)
+
+    if changed_profiles:
+        joined = ", ".join(str(p) for p in changed_profiles)
+        info(f"Added Arize harness bin to PATH in: {joined}")
+        info("Open a new shell, or source your profile, for parent shells to pick up the PATH update.")
+    elif not dry_run():
+        info("Arize harness bin is already configured on PATH for supported shell profiles.")
+
+
+def _remove_codex_proxy_path_blocks() -> None:
+    """Remove shell profile PATH blocks written by the Codex installer."""
+    profiles = list(dict.fromkeys(_posix_shell_profiles() + _powershell_profiles()))
+    removed = [profile for profile in profiles if _remove_profile_block(profile)]
+    if removed:
+        joined = ", ".join(str(p) for p in removed)
+        info(f"Removed Arize harness bin PATH block from: {joined}")
 
 
 def _is_our_codex_proxy_shim(path: Path) -> bool:
@@ -456,15 +686,16 @@ def _write_codex_proxy_shim(path: Path, proxy_cmd: Path) -> None:
         info(f"Skipping codex proxy shim — {path} exists and is not ours")
         return
 
-    if os.name == "nt":
+    if path.suffix.lower() == ".cmd":
         content = "@echo off\r\n" "REM Arize Codex proxy shim\r\n" f'"{proxy_cmd}" %*\r\n'
     else:
-        content = "#!/bin/sh\n" "# Arize Codex proxy shim\n" f"exec '{proxy_cmd}' \"$@\"\n"
+        shell_proxy_cmd = str(proxy_cmd).replace("\\", "/")
+        content = "#!/bin/sh\n" "# Arize Codex proxy shim\n" f"exec '{shell_proxy_cmd}' \"$@\"\n"
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
 
-    if os.name != "nt":
+    if path.suffix.lower() != ".cmd":
         path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
@@ -502,7 +733,7 @@ def _codex_proxy_path_status(shim_path: Path) -> tuple[str, "str | None"]:
     shim_real = os.path.realpath(str(shim_path))
     which_real = os.path.realpath(resolved)
 
-    if shim_real == which_real:
+    if shim_real == which_real and _is_our_codex_proxy_shim(shim_path):
         return ("active", which_real)
     return ("shadowed", which_real)
 
@@ -582,7 +813,12 @@ def install(with_skills: bool = False) -> None:
 
     # 7. Write codex proxy shim
     shim_path = _codex_proxy_shim_path()
-    _write_codex_proxy_shim(shim_path, venv_bin("arize-codex-proxy"))
+    for path in _codex_proxy_shim_paths():
+        _write_codex_proxy_shim(path, venv_bin("arize-codex-proxy"))
+    if dry_run() or any(_is_our_codex_proxy_shim(path) for path in _codex_proxy_shim_paths()):
+        _ensure_codex_proxy_on_path(BIN_DIR)
+    else:
+        info(f"Codex proxy PATH not updated because {shim_path} is not an Arize-managed shim.")
 
     status, resolved = _codex_proxy_path_status(shim_path)
     if status == "active":
@@ -590,11 +826,11 @@ def install(with_skills: bool = False) -> None:
     elif status == "shadowed":
         info(
             f"Codex proxy shim installed at {shim_path}, but PATH resolves codex"
-            f" to {resolved}. Put ~/.arize/harness/bin before the real Codex"
-            " binary to trace codex exec."
+            f" to {resolved}. Open a new shell after install so the managed PATH"
+            " update can take effect."
         )
     else:
-        info(f"Codex proxy shim installed at {shim_path}." " Add ~/.arize/harness/bin to PATH to trace codex exec.")
+        info(f"Codex proxy shim installed at {shim_path}; open a new shell to activate codex exec tracing.")
 
     # 8. Symlink skills
     if with_skills:
@@ -622,9 +858,13 @@ def uninstall() -> None:
     info(f"Reverted TOML config: {CODEX_CONFIG_FILE}")
 
     # 3. Remove codex proxy shim
-    _remove_codex_proxy_shim(_codex_proxy_shim_path())
+    for path in _codex_proxy_shim_paths():
+        _remove_codex_proxy_shim(path)
 
-    # 4. Remove env file if it's ours
+    # 4. Remove shell profile PATH blocks
+    _remove_codex_proxy_path_blocks()
+
+    # 5. Remove env file if it's ours
     if CODEX_ENV_FILE.is_file():
         if _is_our_env_file(CODEX_ENV_FILE):
             if dry_run():
@@ -635,11 +875,11 @@ def uninstall() -> None:
         else:
             info(f"Skipping {CODEX_ENV_FILE} — does not look like our file")
 
-    # 5. Remove harness entry
+    # 6. Remove harness entry
     remove_harness_entry(HARNESS_NAME)
     info("Removed codex harness entry from config.yaml")
 
-    # 6. Unlink skills
+    # 7. Unlink skills
     unlink_skills(HARNESS_NAME)
     info("Unlinked skills")
 

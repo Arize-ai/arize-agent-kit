@@ -60,6 +60,52 @@ class TestFindRealCodex:
 
         assert result is None
 
+    def test_skips_arize_shim_and_finds_real_codex_later_on_path(self, tmp_path):
+        """When the installer shim is first on PATH, the proxy skips it."""
+        shim_dir = tmp_path / "shim"
+        real_dir = tmp_path / "real"
+        shim_dir.mkdir()
+        real_dir.mkdir()
+
+        shim = shim_dir / "codex"
+        shim.write_text('#!/bin/sh\n# Arize Codex proxy shim\nexec arize-codex-proxy "$@"\n')
+        shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
+
+        real = real_dir / "codex"
+        real.write_text("#!/bin/sh\nexit 0\n")
+        real.chmod(real.stat().st_mode | stat.S_IEXEC)
+
+        path_str = os.pathsep.join([str(shim_dir), str(real_dir)])
+        with mock.patch.dict(os.environ, {"PATH": path_str}):
+            result = _find_real_codex()
+
+        assert result is not None
+        assert os.path.realpath(result) == os.path.realpath(str(real))
+
+    def test_windows_finds_cmd_after_skipping_arize_cmd_shim(self, tmp_path):
+        """Windows lookup honors PATHEXT and skips the installer codex.cmd shim."""
+        shim_dir = tmp_path / "shim"
+        real_dir = tmp_path / "real"
+        shim_dir.mkdir()
+        real_dir.mkdir()
+
+        shim = shim_dir / "codex.cmd"
+        shim.write_text("@echo off\r\nREM Arize Codex proxy shim\r\narize-codex-proxy %*\r\n")
+        shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
+
+        real = real_dir / "codex.cmd"
+        real.write_text("@echo off\r\nexit /b 0\r\n")
+        real.chmod(real.stat().st_mode | stat.S_IEXEC)
+
+        with (
+            mock.patch("os.name", "nt"),
+            mock.patch.dict(os.environ, {"PATH": f"{shim_dir};{real_dir}", "PATHEXT": ".CMD;.EXE"}),
+        ):
+            result = _find_real_codex()
+
+        assert result is not None
+        assert os.path.realpath(result) == os.path.realpath(str(real))
+
     def test_returns_none_when_no_codex(self, tmp_path):
         """Returns None when PATH has no codex binary."""
         empty_dir = tmp_path / "empty"

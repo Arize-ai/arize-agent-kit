@@ -39,9 +39,9 @@ process exits. Without the proxy, `codex exec` bypasses the notify hook and
 buffered events are never flushed.
 
 The installer creates a `~/.arize/harness/bin/codex` shim that points to
-`arize-codex-proxy`. Users must ensure `~/.arize/harness/bin` appears before the
-real Codex binary on `PATH`; otherwise the installer prints a shadowing warning
-and `codex exec` tracing is not active.
+`arize-codex-proxy` and adds `~/.arize/harness/bin` to supported shell profiles
+for sh, bash, zsh, and PowerShell. On Windows, it also updates the user PATH.
+Open a new shell after install so the PATH update is visible to your terminal.
 
 ### Verifying exec tracing
 
@@ -52,8 +52,8 @@ command -v codex
 ```
 
 The output should resolve to `~/.arize/harness/bin/codex` for exec tracing to be
-active. If it resolves to a different path, `codex exec` invocations will not be
-traced.
+active. If it resolves to a different path, open a new shell or reload your
+shell profile.
 
 ## Installation
 
