@@ -60,6 +60,52 @@ class TestFindRealCodex:
 
         assert result is None
 
+    def test_skips_arize_shim_and_finds_real_codex_later_on_path(self, tmp_path):
+        """When the installer shim is first on PATH, the proxy skips it."""
+        shim_dir = tmp_path / "shim"
+        real_dir = tmp_path / "real"
+        shim_dir.mkdir()
+        real_dir.mkdir()
+
+        shim = shim_dir / "codex"
+        shim.write_text('#!/bin/sh\n# Arize Codex proxy shim\nexec arize-codex-proxy "$@"\n')
+        shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
+
+        real = real_dir / "codex"
+        real.write_text("#!/bin/sh\nexit 0\n")
+        real.chmod(real.stat().st_mode | stat.S_IEXEC)
+
+        path_str = os.pathsep.join([str(shim_dir), str(real_dir)])
+        with mock.patch.dict(os.environ, {"PATH": path_str}):
+            result = _find_real_codex()
+
+        assert result is not None
+        assert os.path.realpath(result) == os.path.realpath(str(real))
+
+    def test_windows_finds_cmd_after_skipping_arize_cmd_shim(self, tmp_path):
+        """Windows lookup honors PATHEXT and skips the installer codex.cmd shim."""
+        shim_dir = tmp_path / "shim"
+        real_dir = tmp_path / "real"
+        shim_dir.mkdir()
+        real_dir.mkdir()
+
+        shim = shim_dir / "codex.cmd"
+        shim.write_text("@echo off\r\nREM Arize Codex proxy shim\r\narize-codex-proxy %*\r\n")
+        shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
+
+        real = real_dir / "codex.cmd"
+        real.write_text("@echo off\r\nexit /b 0\r\n")
+        real.chmod(real.stat().st_mode | stat.S_IEXEC)
+
+        with (
+            mock.patch("os.name", "nt"),
+            mock.patch.dict(os.environ, {"PATH": f"{shim_dir};{real_dir}", "PATHEXT": ".CMD;.EXE"}),
+        ):
+            result = _find_real_codex()
+
+        assert result is not None
+        assert os.path.realpath(result) == os.path.realpath(str(real))
+
     def test_returns_none_when_no_codex(self, tmp_path):
         """Returns None when PATH has no codex binary."""
         empty_dir = tmp_path / "empty"
@@ -259,3 +305,48 @@ class TestMain:
         mock_run.assert_called_once()
         assert str(codex) == mock_run.call_args[0][0][0]
         assert exc_info.value.code == 42
+
+    def test_exec_mode_calls_drain_idle_after_subprocess(self, tmp_path):
+        """``codex exec`` uses subprocess.run and calls drain_idle() after."""
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        codex = bin_dir / "codex"
+        codex.write_text("#!/bin/sh\nexit 0\n")
+        codex.chmod(codex.stat().st_mode | stat.S_IEXEC)
+
+        fake_result = mock.Mock()
+        fake_result.returncode = 0
+
+        with (
+            mock.patch("codex_tracing.hooks.proxy._quick_health_check", return_value=True),
+            mock.patch("codex_tracing.hooks.proxy._find_real_codex", return_value=str(codex)),
+            mock.patch("subprocess.run", return_value=fake_result) as mock_run,
+            mock.patch("codex_tracing.hooks.handlers.drain_idle") as mock_drain,
+            mock.patch.object(sys, "argv", ["codex", "exec", "say hi"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        mock_run.assert_called_once()
+        mock_drain.assert_called_once()
+        assert exc_info.value.code == 0
+
+    def test_non_exec_posix_uses_execvp_without_drain(self, tmp_path):
+        """Interactive/non-exec POSIX path uses os.execvp and does not call drain_idle."""
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        codex = bin_dir / "codex"
+        codex.write_text("#!/bin/sh\nexit 0\n")
+        codex.chmod(codex.stat().st_mode | stat.S_IEXEC)
+
+        with (
+            mock.patch("codex_tracing.hooks.proxy._quick_health_check", return_value=True),
+            mock.patch("codex_tracing.hooks.proxy._find_real_codex", return_value=str(codex)),
+            mock.patch("os.execvp") as mock_exec,
+            mock.patch("codex_tracing.hooks.handlers.drain_idle") as mock_drain,
+            mock.patch.object(sys, "argv", ["codex", "--help"]),
+        ):
+            main()
+
+        mock_exec.assert_called_once()
+        mock_drain.assert_not_called()

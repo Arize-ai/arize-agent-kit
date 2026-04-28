@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Cursor hook handler: single entry point dispatching all 12 Cursor hook events.
+"""Cursor hook handler: single entry point dispatching all 14 Cursor hook events.
 
 Replaces cursor-tracing/hooks/hook-handler.sh (475 lines).
 
-Input contract: JSON on stdin, all 12 events routed here.
+Input contract: JSON on stdin, all 14 events (IDE + CLI) routed here.
 stdout: MUST print permissive JSON response, even on error.
 stderr: redirected to ARIZE_LOG_FILE before dispatch.
 """
@@ -59,6 +59,45 @@ def _jq_str(input_json: dict, *keys, default: str = "") -> str:
     return default
 
 
+def _event_name(input_json: dict) -> str:
+    """Extract event name from payload, tolerant of IDE and CLI key variants.
+
+    Cursor IDE uses ``hook_event_name``; Cursor CLI uses ``hookEventName``.
+    """
+    return _jq_str(input_json, "hook_event_name", "hookEventName", "event_name", "eventName", "event")
+
+
+def _is_cursor_ide_hook_payload(input_json: dict) -> bool:
+    """Return True when the stdin JSON looks like Cursor IDE (vs CLI) hook payloads.
+
+    IDE emits ``hook_event_name``; CLI emits ``hookEventName`` — same split as ``_event_name``.
+    Root CHAIN timing: IDE keeps the original deferred span (sent at afterAgentResponse with
+    full turn duration and output on CHAIN). CLI sends the root at beforeSubmitPrompt so
+    strict OTLP backends see the parent before tool spans.
+
+    If neither key is set, default to IDE so existing payloads without a discriminator keep
+    the original semantics.
+    """
+    if input_json.get("hook_event_name"):
+        return True
+    if input_json.get("hookEventName"):
+        return False
+    return True
+
+
+def _trace_id_from_event(gen_id: str, conversation_id: str) -> str:
+    """Derive a trace ID from generation or conversation ID.
+
+    Prefers gen_id; falls back to conversation_id for CLI events that may
+    lack a generation_id.
+    """
+    if gen_id:
+        return trace_id_from_generation(gen_id)
+    if conversation_id:
+        return trace_id_from_generation(conversation_id)
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -73,7 +112,7 @@ def _dispatch(event: str, input_json: dict) -> None:
     if not env.trace_enabled:
         return
 
-    trace_id = trace_id_from_generation(gen_id) if gen_id else ""
+    trace_id = _trace_id_from_event(gen_id, conversation_id)
     now_ms = get_timestamp_ms()
 
     handlers = {
@@ -89,6 +128,8 @@ def _dispatch(event: str, input_json: dict) -> None:
         "beforeTabFileRead": _handle_before_tab_file_read,
         "afterTabFileEdit": _handle_after_tab_file_edit,
         "stop": _handle_stop,
+        "sessionStart": _handle_session_start,
+        "postToolUse": _handle_post_tool_use,
     }
 
     handler = handlers.get(event)
@@ -104,14 +145,20 @@ def _dispatch(event: str, input_json: dict) -> None:
 
 
 def _handle_before_submit_prompt(input_json, conversation_id, gen_id, trace_id, now_ms):
-    """Root span for the turn — deferred until afterAgentResponse so it gets output.value."""
+    """Root CHAIN for the turn.
+
+    * **IDE** (``hook_event_name``): deferred until afterAgentResponse — original CHAIN span
+      with full duration and output on the root.
+    * **CLI** (``hookEventName`` only): sent here so tool spans that fire before
+      afterAgentResponse parent to an existing span on strict OTLP backends.
+    """
     sid = span_id_16()
     gen_root_span_save(gen_id, sid)
 
     prompt = _jq_str(input_json, "prompt", "input", "text")
     model = _jq_str(input_json, "model", "model_name")
+    deferred_root = _is_cursor_ide_hook_payload(input_json)
 
-    # Save root span state — sent by afterAgentResponse with output + timing
     state_push(
         f"root_{sanitize(gen_id)}",
         {
@@ -121,13 +168,40 @@ def _handle_before_submit_prompt(input_json, conversation_id, gen_id, trace_id, 
             "start_ms": now_ms,
             "prompt": prompt,
             "model": model,
+            "deferred_root": deferred_root,
         },
     )
-    log(f"beforeSubmitPrompt: deferred root span {sid} (trace={trace_id})")
+
+    if deferred_root:
+        log(f"beforeSubmitPrompt: deferred root span {sid} (trace={trace_id})")
+        return
+
+    root_attrs = {
+        "openinference.span.kind": "CHAIN",
+        "input.value": prompt,
+        "session.id": conversation_id,
+    }
+    if model:
+        root_attrs["llm.model_name"] = model
+
+    root_span = build_span(
+        "User Prompt",
+        "CHAIN",
+        sid,
+        trace_id,
+        "",
+        now_ms,
+        now_ms,
+        root_attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
+    )
+    send_span(root_span)
+    log(f"beforeSubmitPrompt: root span {sid} (trace={trace_id})")
 
 
 def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, now_ms):
-    """LLM child span + send deferred root span with input+output."""
+    """LLM child span; IDE also sends deferred User Prompt CHAIN when applicable."""
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
@@ -136,10 +210,37 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
     # "model" is a base field on all hook events
     model = _jq_str(input_json, "model", "model_name")
 
-    # Read prompt from deferred root state
     safe_gen = sanitize(gen_id) if gen_id else ""
     root_state = state_pop(f"root_{safe_gen}") if safe_gen else None
     prompt = root_state.get("prompt", "") if root_state else ""
+    deferred_root = root_state.get("deferred_root", True) if root_state else True
+
+    # IDE: send User Prompt CHAIN first (parent before LLM for strict backends), full I/O + duration.
+    if root_state and deferred_root:
+        root_attrs = {
+            "openinference.span.kind": "CHAIN",
+            "input.value": prompt,
+            "output.value": response,
+            "session.id": root_state.get("conversation_id", conversation_id),
+        }
+        root_model = model or root_state.get("model", "")
+        if root_model:
+            root_attrs["llm.model_name"] = root_model
+
+        root_span = build_span(
+            "User Prompt",
+            "CHAIN",
+            root_state["span_id"],
+            root_state.get("trace_id", trace_id),
+            "",
+            root_state.get("start_ms", now_ms),
+            now_ms,
+            root_attrs,
+            SERVICE_NAME,
+            SCOPE_NAME,
+        )
+        send_span(root_span)
+        log(f"afterAgentResponse: sent deferred root span {root_state['span_id']}")
 
     # Send LLM child span with input + output + model
     attrs = {
@@ -165,33 +266,6 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
     )
     send_span(span)
     log(f"afterAgentResponse: child span {sid}")
-
-    # Send deferred root span with input + output
-    if root_state:
-        root_attrs = {
-            "openinference.span.kind": "CHAIN",
-            "input.value": prompt,
-            "output.value": response,
-            "session.id": root_state.get("conversation_id", conversation_id),
-        }
-        root_model = model or root_state.get("model", "")
-        if root_model:
-            root_attrs["llm.model_name"] = root_model
-
-        root_span = build_span(
-            "User Prompt",
-            "CHAIN",
-            root_state["span_id"],
-            root_state.get("trace_id", trace_id),
-            "",
-            root_state.get("start_ms", now_ms),
-            now_ms,
-            root_attrs,
-            SERVICE_NAME,
-            SCOPE_NAME,
-        )
-        send_span(root_span)
-        log(f"afterAgentResponse: sent deferred root span {root_state['span_id']}")
 
 
 def _handle_after_agent_thought(input_json, conversation_id, gen_id, trace_id, now_ms):
@@ -525,6 +599,90 @@ def _handle_stop(input_json, conversation_id, gen_id, trace_id, now_ms):
     log(f"stop: span {sid}, cleaned up gen={gen_id}")
 
 
+def _handle_session_start(input_json, conversation_id, gen_id, trace_id, now_ms):
+    """CHAIN span for Cursor CLI sessionStart event."""
+    sid = span_id_16()
+
+    attrs = {
+        "openinference.span.kind": "CHAIN",
+        "session.id": conversation_id,
+    }
+
+    cwd = _jq_str(input_json, "cwd", "workspace_root")
+    if cwd:
+        attrs["cursor.session.cwd"] = cwd
+
+    user_email = _jq_str(input_json, "user_email")
+    if user_email:
+        attrs["user.id"] = user_email
+
+    span = build_span(
+        "Session Start",
+        "CHAIN",
+        sid,
+        trace_id,
+        "",
+        now_ms,
+        now_ms,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
+    )
+    send_span(span)
+
+    if gen_id:
+        gen_root_span_save(gen_id, sid)
+
+    log(f"sessionStart: span {sid} (trace={trace_id})")
+
+
+_SHELL_TOOL_NAMES = frozenset({"shell", "terminal", "bash", "run_command"})
+
+
+def _handle_post_tool_use(input_json, conversation_id, gen_id, trace_id, now_ms):
+    """TOOL span for Cursor CLI postToolUse event."""
+    sid = span_id_16()
+    parent = gen_root_span_get(gen_id) if gen_id else ""
+
+    tool_name = _jq_str(input_json, "tool_name", "toolName", "name", "tool")
+    tool_input = _jq_str(input_json, "tool_input", "toolInput", "input", "arguments", "args")
+    output = _jq_str(input_json, "result", "output", "response", "stdout")
+
+    # Shell-like tools: prefer the top-level ``command`` field as input
+    if tool_name.lower() in _SHELL_TOOL_NAMES:
+        command = _jq_str(input_json, "command")
+        if command:
+            tool_input = command
+
+    attrs = {
+        "openinference.span.kind": "TOOL",
+        "session.id": conversation_id,
+    }
+    if tool_name:
+        attrs["tool.name"] = tool_name
+    if tool_input:
+        attrs["input.value"] = tool_input
+    if output:
+        attrs["output.value"] = output
+
+    span_name = f"Tool: {tool_name}" if tool_name else "Tool Use"
+
+    span = build_span(
+        span_name,
+        "TOOL",
+        sid,
+        trace_id,
+        parent,
+        now_ms,
+        now_ms,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
+    )
+    send_span(span)
+    log(f"postToolUse: span {sid} (tool={tool_name})")
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -533,7 +691,7 @@ def _handle_stop(input_json, conversation_id, gen_id, trace_id, now_ms):
 def main():
     """Entry point for arize-hook-cursor. Cursor hook.
 
-    Input contract: JSON on stdin, all 12 events routed here.
+    Input contract: JSON on stdin, all 14 events (IDE + CLI) routed here.
     stdout: MUST print permissive JSON response, even on error.
     stderr: redirected to ARIZE_LOG_FILE before dispatch.
     """
@@ -551,7 +709,7 @@ def main():
             return
 
         input_json = json.loads(sys.stdin.read() or "{}")
-        event = input_json.get("hook_event_name", "")
+        event = _event_name(input_json)
         _dispatch(event, input_json)
     except Exception as e:
         error(f"cursor hook failed ({event}): {e}")

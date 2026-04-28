@@ -32,6 +32,29 @@ Codex CLI
 
 **Graceful degradation**: If the buffer service isn't running or returns no buffered events, the notify hook falls back to a single flat Turn span.
 
+## Codex Exec Tracing
+
+Interactive Codex tracing uses the `notify` hook and `[otel.exporter.otlp-http]`
+configured in `~/.codex/config.toml`. The notify hook fires after each agent
+turn to drain buffered events and send spans.
+
+`codex exec` tracing requires the `arize-codex-proxy` entry point. The proxy
+runs the real Codex binary and then drains buffered events after the process
+exits. Without the proxy, `codex exec` bypasses the notify hook entirely.
+
+The installer creates a `~/.arize/harness/bin/codex` shim that points to
+`arize-codex-proxy` and adds `~/.arize/harness/bin` to supported shell profiles
+for sh, bash, zsh, and PowerShell. On Windows, it also updates the user PATH.
+Users should open a new shell after install so the PATH update is visible.
+
+To verify exec tracing is active, run:
+
+```bash
+command -v codex
+```
+
+The output should resolve to `~/.arize/harness/bin/codex`.
+
 ## How to Use This Skill
 
 **This skill follows a decision tree workflow.** Start by asking the user where they are in the setup process:

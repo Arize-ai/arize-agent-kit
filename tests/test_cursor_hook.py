@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for cursor_tracing.hooks.handlers — the Cursor hook dispatcher and 12 event handlers."""
+"""Tests for cursor_tracing.hooks.handlers — the Cursor hook dispatcher and 14 event handlers."""
 
 import io
 import json
@@ -9,7 +9,15 @@ from unittest import mock
 import pytest
 
 from cursor_tracing.hooks import adapter
-from cursor_tracing.hooks.handlers import _dispatch, _jq_str, _print_permissive, main
+from cursor_tracing.hooks.handlers import (
+    _dispatch,
+    _event_name,
+    _is_cursor_ide_hook_payload,
+    _jq_str,
+    _print_permissive,
+    _trace_id_from_event,
+    main,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -122,6 +130,22 @@ class TestJqStr:
         assert _jq_str(d, "a", "b", default="x") == "x"
 
 
+class TestIdeCliPayloadDetection:
+
+    def test_hook_event_name_implies_ide(self):
+        assert _is_cursor_ide_hook_payload({"hook_event_name": "beforeSubmitPrompt"}) is True
+
+    def test_hook_event_name_empty_defaults_ide_unless_cli_present(self):
+        assert _is_cursor_ide_hook_payload({"hook_event_name": ""}) is True
+        assert _is_cursor_ide_hook_payload({"hook_event_name": "", "hookEventName": "x"}) is False
+
+    def test_hook_event_name_only_cli_key(self):
+        assert _is_cursor_ide_hook_payload({"hookEventName": "beforeSubmitPrompt"}) is False
+
+    def test_neither_key_defaults_ide(self):
+        assert _is_cursor_ide_hook_payload({"conversation_id": "c"}) is True
+
+
 # ---------------------------------------------------------------------------
 # _dispatch tests
 # ---------------------------------------------------------------------------
@@ -182,7 +206,7 @@ class TestDispatch:
             h.assert_not_called()
 
     def test_no_backend_send_fails_gracefully(self, monkeypatch):
-        """send_span failure doesn't crash — root span sent from afterAgentResponse."""
+        """send_span failure doesn't crash — IDE defers root to afterAgentResponse (hook_event_name)."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
             mock.patch("cursor_tracing.hooks.handlers.send_span", return_value=False) as send_mock,
@@ -191,21 +215,21 @@ class TestDispatch:
             _dispatch(
                 "beforeSubmitPrompt",
                 {
+                    "hook_event_name": "beforeSubmitPrompt",
                     "conversation_id": "c1",
                     "generation_id": "g1",
                 },
             )
-            # Root span is deferred — not sent yet
-            send_mock.assert_not_called()
+            assert send_mock.call_count == 0
             _dispatch(
                 "afterAgentResponse",
                 {
+                    "hook_event_name": "afterAgentResponse",
                     "conversation_id": "c1",
                     "generation_id": "g1",
                     "response": "done",
                 },
             )
-            # LLM child span + deferred root span both sent
             assert send_mock.call_count == 2
 
 
@@ -216,8 +240,8 @@ class TestDispatch:
 
 class TestHandleBeforeSubmitPrompt:
 
-    def test_deferred_root_span_sent_at_agent_response(self, captured_spans, monkeypatch):
-        """Root span is deferred until afterAgentResponse, then sent with input+output."""
+    def test_cli_payload_sends_root_before_submit(self, captured_spans, monkeypatch):
+        """CLI-style payload (hookEventName only): root CHAIN at submit; LLM at afterAgentResponse."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
             mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
@@ -227,6 +251,7 @@ class TestHandleBeforeSubmitPrompt:
             _dispatch(
                 "beforeSubmitPrompt",
                 {
+                    "hookEventName": "beforeSubmitPrompt",
                     "conversation_id": "conv-1",
                     "generation_id": "gen-1",
                     "prompt": "fix the bug",
@@ -235,13 +260,18 @@ class TestHandleBeforeSubmitPrompt:
             )
 
         save_mock.assert_called_once_with("gen-1", "aabb" * 4)
-        # Root span is deferred — not sent yet
-        assert len(captured_spans) == 0
+        assert len(captured_spans) == 1
+        root0 = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert root0["name"] == "User Prompt"
+        root_attrs0 = {a["key"]: a["value"] for a in root0["attributes"]}
+        assert root_attrs0["input.value"]["stringValue"] == "fix the bug"
+        assert "output.value" not in root_attrs0
 
         with mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=9000):
             _dispatch(
                 "afterAgentResponse",
                 {
+                    "hookEventName": "afterAgentResponse",
                     "conversation_id": "conv-1",
                     "generation_id": "gen-1",
                     "response": "I fixed the bug",
@@ -249,18 +279,55 @@ class TestHandleBeforeSubmitPrompt:
                 },
             )
 
-        # afterAgentResponse sends LLM child + deferred root
-        root_spans = [
-            s for s in captured_spans if s["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["name"] == "User Prompt"
-        ]
-        assert len(root_spans) == 1
-        span = root_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        attrs = {a["key"]: a["value"] for a in span["attributes"]}
-        assert attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
-        assert attrs["input.value"]["stringValue"] == "fix the bug"
-        assert attrs["output.value"]["stringValue"] == "I fixed the bug"
-        assert attrs["session.id"]["stringValue"] == "conv-1"
-        assert span["name"] == "User Prompt"
+        names = [s["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["name"] for s in captured_spans]
+        assert names == ["User Prompt", "Agent Response"]
+        llm = captured_spans[1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        llm_attrs = {a["key"]: a["value"] for a in llm["attributes"]}
+        assert llm_attrs["openinference.span.kind"]["stringValue"] == "LLM"
+        assert llm_attrs["input.value"]["stringValue"] == "fix the bug"
+        assert llm_attrs["output.value"]["stringValue"] == "I fixed the bug"
+        assert llm_attrs["session.id"]["stringValue"] == "conv-1"
+
+    def test_ide_payload_defers_root_chain_to_after_response(self, captured_spans, monkeypatch):
+        """IDE payload (hook_event_name): original deferred CHAIN with full duration and output on root."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="aabb" * 4),
+        ):
+            _dispatch(
+                "beforeSubmitPrompt",
+                {
+                    "hook_event_name": "beforeSubmitPrompt",
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "prompt": "fix the bug",
+                    "model_name": "claude-4",
+                },
+            )
+
+        assert len(captured_spans) == 0
+
+        with mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=9000):
+            _dispatch(
+                "afterAgentResponse",
+                {
+                    "hook_event_name": "afterAgentResponse",
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "response": "I fixed the bug",
+                    "model_name": "claude-4",
+                },
+            )
+
+        names = [s["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["name"] for s in captured_spans]
+        assert names == ["User Prompt", "Agent Response"]
+        root = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        root_attrs = {a["key"]: a["value"] for a in root["attributes"]}
+        assert root_attrs["input.value"]["stringValue"] == "fix the bug"
+        assert root_attrs["output.value"]["stringValue"] == "I fixed the bug"
+        assert root["startTimeUnixNano"].startswith("5000")
+        assert root["endTimeUnixNano"].startswith("9000")
 
 
 # ---------------------------------------------------------------------------
@@ -979,3 +1046,304 @@ class TestMain:
 
         # Restore stderr for safety
         sys.stderr = original_stderr
+
+
+# ---------------------------------------------------------------------------
+# _event_name tests
+# ---------------------------------------------------------------------------
+
+
+class TestEventName:
+
+    def test_supports_hook_event_name(self):
+        assert _event_name({"hook_event_name": "stop"}) == "stop"
+
+    def test_supports_hookEventName(self):
+        assert _event_name({"hookEventName": "sessionStart"}) == "sessionStart"
+
+    def test_supports_event_name(self):
+        assert _event_name({"event_name": "postToolUse"}) == "postToolUse"
+
+    def test_supports_eventName(self):
+        assert _event_name({"eventName": "afterFileEdit"}) == "afterFileEdit"
+
+    def test_supports_event(self):
+        assert _event_name({"event": "beforeSubmitPrompt"}) == "beforeSubmitPrompt"
+
+    def test_prefers_hook_event_name_over_hookEventName(self):
+        assert _event_name({"hook_event_name": "stop", "hookEventName": "sessionStart"}) == "stop"
+
+    def test_returns_empty_for_missing(self):
+        assert _event_name({}) == ""
+
+
+# ---------------------------------------------------------------------------
+# _trace_id_from_event tests
+# ---------------------------------------------------------------------------
+
+
+class TestTraceIdFromEvent:
+
+    def test_prefers_gen_id(self):
+        result = _trace_id_from_event("gen-1", "conv-1")
+        assert result  # non-empty
+        from cursor_tracing.hooks.adapter import trace_id_from_generation
+
+        assert result == trace_id_from_generation("gen-1")
+
+    def test_falls_back_to_conversation_id(self):
+        result = _trace_id_from_event("", "conv-1")
+        assert result
+        from cursor_tracing.hooks.adapter import trace_id_from_generation
+
+        assert result == trace_id_from_generation("conv-1")
+
+    def test_returns_empty_when_both_empty(self):
+        assert _trace_id_from_event("", "") == ""
+
+
+# ---------------------------------------------------------------------------
+# _dispatch routes sessionStart / postToolUse
+# ---------------------------------------------------------------------------
+
+
+class TestDispatchNewEvents:
+
+    def test_dispatch_routes_session_start(self, monkeypatch):
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("cursor_tracing.hooks.handlers._handle_session_start") as h,
+        ):
+            _dispatch(
+                "sessionStart",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "g1",
+                },
+            )
+            h.assert_called_once()
+
+    def test_dispatch_routes_post_tool_use(self, monkeypatch):
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("cursor_tracing.hooks.handlers._handle_post_tool_use") as h,
+        ):
+            _dispatch(
+                "postToolUse",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "g1",
+                },
+            )
+            h.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# main() dispatches camelCase event key
+# ---------------------------------------------------------------------------
+
+
+class TestMainCamelCase:
+
+    def test_main_dispatches_camel_case_event_key(self, monkeypatch, tmp_path):
+        """main() resolves hookEventName from CLI payloads and dispatches correctly."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        monkeypatch.setenv("ARIZE_LOG_FILE", str(tmp_path / "hook.log"))
+
+        input_data = {
+            "hookEventName": "sessionStart",
+            "conversation_id": "c1",
+            "generation_id": "g1",
+            "cwd": "/tmp",
+        }
+        stdout_buf = io.StringIO()
+
+        with (
+            mock.patch("sys.stdin", io.StringIO(json.dumps(input_data))),
+            mock.patch.object(sys, "__stdout__", stdout_buf),
+            mock.patch("cursor_tracing.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("cursor_tracing.hooks.handlers._dispatch") as dispatch_mock,
+        ):
+            main()
+
+        dispatch_mock.assert_called_once_with("sessionStart", input_data)
+
+
+# ---------------------------------------------------------------------------
+# _handle_session_start tests
+# ---------------------------------------------------------------------------
+
+
+class TestHandleSessionStart:
+
+    def test_session_start_sends_chain_span(self, captured_spans, monkeypatch):
+        """sessionStart produces a CHAIN span with session.id and cwd."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="ss11" * 4),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_save") as save_mock,
+        ):
+            _dispatch(
+                "sessionStart",
+                {
+                    "conversation_id": "conv-sess",
+                    "generation_id": "gen-sess",
+                    "cwd": "/Users/alice/code/myrepo",
+                    "user_email": "alice@example.com",
+                },
+            )
+
+        save_mock.assert_called_once_with("gen-sess", "ss11" * 4)
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert span["name"] == "Session Start"
+        assert attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
+        assert attrs["session.id"]["stringValue"] == "conv-sess"
+        assert attrs["cursor.session.cwd"]["stringValue"] == "/Users/alice/code/myrepo"
+        assert attrs["user.id"]["stringValue"] == "alice@example.com"
+
+    def test_session_start_no_gen_id_skips_save(self, captured_spans, monkeypatch):
+        """Without gen_id, gen_root_span_save is not called."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_save") as save_mock,
+        ):
+            _dispatch(
+                "sessionStart",
+                {
+                    "conversation_id": "conv-sess",
+                    "cwd": "/tmp",
+                },
+            )
+
+        save_mock.assert_not_called()
+        assert len(captured_spans) == 1
+
+    def test_session_start_optional_fields_omitted(self, captured_spans, monkeypatch):
+        """Optional fields like cwd and user_email are omitted when absent."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),):
+            _dispatch(
+                "sessionStart",
+                {
+                    "conversation_id": "conv-sess",
+                },
+            )
+
+        attr_keys = {a["key"] for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
+        assert "cursor.session.cwd" not in attr_keys
+        assert "user.id" not in attr_keys
+
+
+# ---------------------------------------------------------------------------
+# _handle_post_tool_use tests
+# ---------------------------------------------------------------------------
+
+
+class TestHandlePostToolUse:
+
+    def test_post_tool_use_sends_tool_span(self, captured_spans, monkeypatch):
+        """postToolUse produces a TOOL span with tool.name, input.value, output.value."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
+            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="pt11" * 4),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="parent-pt"),
+        ):
+            _dispatch(
+                "postToolUse",
+                {
+                    "conversation_id": "conv-pt",
+                    "generation_id": "gen-pt",
+                    "toolName": "read_file",
+                    "toolInput": '{"path": "src/main.py"}',
+                    "result": "<file contents elided>",
+                },
+            )
+
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert span["name"] == "Tool: read_file"
+        assert attrs["openinference.span.kind"]["stringValue"] == "TOOL"
+        assert attrs["tool.name"]["stringValue"] == "read_file"
+        assert attrs["input.value"]["stringValue"] == '{"path": "src/main.py"}'
+        assert attrs["output.value"]["stringValue"] == "<file contents elided>"
+        assert attrs["session.id"]["stringValue"] == "conv-pt"
+        assert span["parentSpanId"] == "parent-pt"
+
+    def test_post_tool_use_shell_command_uses_command_as_input(self, captured_spans, monkeypatch):
+        """Shell-like postToolUse uses 'command' field as input.value."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+        ):
+            _dispatch(
+                "postToolUse",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "g1",
+                    "toolName": "shell",
+                    "command": "ls -la",
+                    "stdout": "total 40\ndrwxr-xr-x ...",
+                    "exit_code": 0,
+                },
+            )
+
+        attrs = {
+            a["key"]: a["value"]
+            for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+        }
+        assert attrs["input.value"]["stringValue"] == "ls -la"
+        assert attrs["output.value"]["stringValue"] == "total 40\ndrwxr-xr-x ..."
+
+    def test_post_tool_use_bash_tool_uses_command(self, captured_spans, monkeypatch):
+        """Other shell-like tool names (bash, terminal, run_command) also use command."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        for tool in ("bash", "terminal", "run_command"):
+            captured_spans.clear()
+            with (
+                mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
+                mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+            ):
+                _dispatch(
+                    "postToolUse",
+                    {
+                        "conversation_id": "c1",
+                        "generation_id": "g1",
+                        "toolName": tool,
+                        "command": "echo hi",
+                    },
+                )
+
+            attrs = {
+                a["key"]: a["value"]
+                for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+            }
+            assert attrs["input.value"]["stringValue"] == "echo hi", f"Failed for tool={tool}"
+
+    def test_post_tool_use_missing_fields_omitted(self, captured_spans, monkeypatch):
+        """Missing optional fields are omitted from attributes."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+        ):
+            _dispatch(
+                "postToolUse",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "g1",
+                },
+            )
+
+        attr_keys = {a["key"] for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
+        assert "tool.name" not in attr_keys
+        assert "input.value" not in attr_keys
+        assert "output.value" not in attr_keys

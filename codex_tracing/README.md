@@ -27,6 +27,34 @@ Codex CLI
 
 When both the notify hook and native OTLP export are enabled, the notify handler builds a parent LLM span and attaches child spans from buffered event data, producing a rich trace tree per turn.
 
+## Codex Exec Tracing
+
+Interactive Codex tracing uses `notify` and `[otel.exporter.otlp-http]` in
+`~/.codex/config.toml`. The notify hook fires after each agent turn, drains
+buffered OTLP events, and sends spans directly to the backend.
+
+`codex exec` tracing requires the `arize-codex-proxy` entry point because the
+proxy runs the real Codex binary and then drains buffered events after the
+process exits. Without the proxy, `codex exec` bypasses the notify hook and
+buffered events are never flushed.
+
+The installer creates a `~/.arize/harness/bin/codex` shim that points to
+`arize-codex-proxy` and adds `~/.arize/harness/bin` to supported shell profiles
+for sh, bash, zsh, and PowerShell. On Windows, it also updates the user PATH.
+Open a new shell after install so the PATH update is visible to your terminal.
+
+### Verifying exec tracing
+
+Run:
+
+```bash
+command -v codex
+```
+
+The output should resolve to `~/.arize/harness/bin/codex` for exec tracing to be
+active. If it resolves to a different path, open a new shell or reload your
+shell profile.
+
 ## Installation
 
 ### Pip installer (recommended)

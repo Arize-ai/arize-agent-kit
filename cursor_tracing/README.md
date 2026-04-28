@@ -92,7 +92,9 @@ If your project already has a `.cursor/hooks.json`, merge the hook entries rathe
 
 ## Hook Events
 
-Each Cursor hook event produces one OpenInference span (or pushes state for later merging):
+### IDE Hooks
+
+The Cursor IDE fires 12 hook events. Each produces one OpenInference span (or pushes state for later merging):
 
 | Hook Event | Span Name | Span Kind | Description |
 |------------|-----------|-----------|-------------|
@@ -108,6 +110,46 @@ Each Cursor hook event produces one OpenInference span (or pushes state for late
 | `beforeTabFileRead` | Tab Read File | TOOL | File read from a tab context |
 | `afterTabFileEdit` | Tab File Edit | TOOL | File edit from a tab context |
 | `stop` | Agent Stop | CHAIN | Session or conversation stop event |
+
+### CLI Hooks
+
+Cursor CLI currently emits a smaller hook surface than the IDE. The supported
+CLI hooks in this package are:
+
+- `sessionStart`
+- `beforeShellExecution`
+- `afterShellExecution`
+- `afterFileEdit`
+- `postToolUse`
+- `stop`
+
+Cursor CLI hooks do not currently emit afterAgentResponse or afterAgentThought.
+
+Full Cursor CLI assistant and thinking coverage requires parsing --output-format stream-json, which is out of scope for this change.
+
+### Hooks JSON Example (IDE + CLI)
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "beforeSubmitPrompt": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "afterAgentResponse": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "afterAgentThought": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "beforeShellExecution": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "afterShellExecution": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "beforeMCPExecution": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "afterMCPExecution": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "beforeReadFile": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "afterFileEdit": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "stop": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "beforeTabFileRead": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "afterTabFileEdit": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "postToolUse": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }]
+  }
+}
+```
 
 All spans include `session.id` (from `conversation_id`), `project.name`, and `openinference.span.kind` attributes. Trace IDs are deterministically derived from `generation_id` using `hashlib.md5` (32 hex chars). Span IDs are 16 random hex chars from `os.urandom`.
 
