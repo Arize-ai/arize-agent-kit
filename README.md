@@ -8,7 +8,8 @@ Trace AI coding sessions to [Arize AX](https://arize.com) or [Phoenix](https://g
 |---------|-------------|----------------|
 | [Claude Code CLI / Agent SDK](claude-code-tracing/README.md) | `claude-code-tracing` | Marketplace or `install.sh` / `install.bat` |
 | [OpenAI Codex CLI](codex-tracing/README.md) | `codex-tracing` | `install.sh` / `install.bat` |
-| [Cursor IDE](cursor-tracing/README.md) | `cursor-tracing` | `install.sh` / `install.bat` |
+| [Cursor IDE / CLI](cursor-tracing/README.md) | `cursor-tracing` | `install.sh` / `install.bat` |
+| [GitHub Copilot (VS Code + CLI)](copilot_tracing/README.md) | `copilot-tracing` | `install.sh` / `install.bat` |
 
 Claude Code CLI and the Claude Agent SDK share the same plugin, hooks, and configuration — one install covers both.
 
@@ -41,17 +42,19 @@ For Phoenix, use `"PHOENIX_ENDPOINT": "http://localhost:6006"` instead of the Ar
 ```bash
 INSTALL_URL="https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh"
 
-curl -sSL "$INSTALL_URL" | bash -s -- claude   # Claude Code / Agent SDK
-curl -sSL "$INSTALL_URL" | bash -s -- codex    # OpenAI Codex
-curl -sSL "$INSTALL_URL" | bash -s -- cursor   # Cursor IDE
+curl -sSL "$INSTALL_URL" | bash -s -- claude    # Claude Code / Agent SDK
+curl -sSL "$INSTALL_URL" | bash -s -- codex     # OpenAI Codex
+curl -sSL "$INSTALL_URL" | bash -s -- cursor    # Cursor IDE / CLI
+curl -sSL "$INSTALL_URL" | bash -s -- copilot   # GitHub Copilot (VS Code + CLI)
 ```
 
 **Or run locally:**
 
 ```bash
-./install.sh claude   # Claude Code / Agent SDK
-./install.sh codex    # OpenAI Codex
-./install.sh cursor   # Cursor IDE
+./install.sh claude    # Claude Code / Agent SDK
+./install.sh codex     # OpenAI Codex
+./install.sh cursor    # Cursor IDE / CLI
+./install.sh copilot   # GitHub Copilot (VS Code + CLI)
 ```
 
 The installer:
