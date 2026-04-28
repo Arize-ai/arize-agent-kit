@@ -9,7 +9,15 @@ from unittest import mock
 import pytest
 
 from cursor_tracing.hooks import adapter
-from cursor_tracing.hooks.handlers import _dispatch, _event_name, _jq_str, _print_permissive, _trace_id_from_event, main
+from cursor_tracing.hooks.handlers import (
+    _dispatch,
+    _event_name,
+    _is_cursor_ide_hook_payload,
+    _jq_str,
+    _print_permissive,
+    _trace_id_from_event,
+    main,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -122,6 +130,22 @@ class TestJqStr:
         assert _jq_str(d, "a", "b", default="x") == "x"
 
 
+class TestIdeCliPayloadDetection:
+
+    def test_hook_event_name_implies_ide(self):
+        assert _is_cursor_ide_hook_payload({"hook_event_name": "beforeSubmitPrompt"}) is True
+
+    def test_hook_event_name_empty_defaults_ide_unless_cli_present(self):
+        assert _is_cursor_ide_hook_payload({"hook_event_name": ""}) is True
+        assert _is_cursor_ide_hook_payload({"hook_event_name": "", "hookEventName": "x"}) is False
+
+    def test_hook_event_name_only_cli_key(self):
+        assert _is_cursor_ide_hook_payload({"hookEventName": "beforeSubmitPrompt"}) is False
+
+    def test_neither_key_defaults_ide(self):
+        assert _is_cursor_ide_hook_payload({"conversation_id": "c"}) is True
+
+
 # ---------------------------------------------------------------------------
 # _dispatch tests
 # ---------------------------------------------------------------------------
@@ -182,7 +206,7 @@ class TestDispatch:
             h.assert_not_called()
 
     def test_no_backend_send_fails_gracefully(self, monkeypatch):
-        """send_span failure doesn't crash — root span sent from afterAgentResponse."""
+        """send_span failure doesn't crash — IDE defers root to afterAgentResponse (hook_event_name)."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
             mock.patch("cursor_tracing.hooks.handlers.send_span", return_value=False) as send_mock,
@@ -191,21 +215,21 @@ class TestDispatch:
             _dispatch(
                 "beforeSubmitPrompt",
                 {
+                    "hook_event_name": "beforeSubmitPrompt",
                     "conversation_id": "c1",
                     "generation_id": "g1",
                 },
             )
-            # Root span is deferred — not sent yet
-            send_mock.assert_not_called()
+            assert send_mock.call_count == 0
             _dispatch(
                 "afterAgentResponse",
                 {
+                    "hook_event_name": "afterAgentResponse",
                     "conversation_id": "c1",
                     "generation_id": "g1",
                     "response": "done",
                 },
             )
-            # LLM child span + deferred root span both sent
             assert send_mock.call_count == 2
 
 
@@ -216,8 +240,8 @@ class TestDispatch:
 
 class TestHandleBeforeSubmitPrompt:
 
-    def test_deferred_root_span_sent_at_agent_response(self, captured_spans, monkeypatch):
-        """Root span is deferred until afterAgentResponse, then sent with input+output."""
+    def test_cli_payload_sends_root_before_submit(self, captured_spans, monkeypatch):
+        """CLI-style payload (hookEventName only): root CHAIN at submit; LLM at afterAgentResponse."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
             mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
@@ -227,6 +251,7 @@ class TestHandleBeforeSubmitPrompt:
             _dispatch(
                 "beforeSubmitPrompt",
                 {
+                    "hookEventName": "beforeSubmitPrompt",
                     "conversation_id": "conv-1",
                     "generation_id": "gen-1",
                     "prompt": "fix the bug",
@@ -235,13 +260,18 @@ class TestHandleBeforeSubmitPrompt:
             )
 
         save_mock.assert_called_once_with("gen-1", "aabb" * 4)
-        # Root span is deferred — not sent yet
-        assert len(captured_spans) == 0
+        assert len(captured_spans) == 1
+        root0 = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert root0["name"] == "User Prompt"
+        root_attrs0 = {a["key"]: a["value"] for a in root0["attributes"]}
+        assert root_attrs0["input.value"]["stringValue"] == "fix the bug"
+        assert "output.value" not in root_attrs0
 
         with mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=9000):
             _dispatch(
                 "afterAgentResponse",
                 {
+                    "hookEventName": "afterAgentResponse",
                     "conversation_id": "conv-1",
                     "generation_id": "gen-1",
                     "response": "I fixed the bug",
@@ -249,18 +279,55 @@ class TestHandleBeforeSubmitPrompt:
                 },
             )
 
-        # afterAgentResponse sends LLM child + deferred root
-        root_spans = [
-            s for s in captured_spans if s["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["name"] == "User Prompt"
-        ]
-        assert len(root_spans) == 1
-        span = root_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-        attrs = {a["key"]: a["value"] for a in span["attributes"]}
-        assert attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
-        assert attrs["input.value"]["stringValue"] == "fix the bug"
-        assert attrs["output.value"]["stringValue"] == "I fixed the bug"
-        assert attrs["session.id"]["stringValue"] == "conv-1"
-        assert span["name"] == "User Prompt"
+        names = [s["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["name"] for s in captured_spans]
+        assert names == ["User Prompt", "Agent Response"]
+        llm = captured_spans[1]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        llm_attrs = {a["key"]: a["value"] for a in llm["attributes"]}
+        assert llm_attrs["openinference.span.kind"]["stringValue"] == "LLM"
+        assert llm_attrs["input.value"]["stringValue"] == "fix the bug"
+        assert llm_attrs["output.value"]["stringValue"] == "I fixed the bug"
+        assert llm_attrs["session.id"]["stringValue"] == "conv-1"
+
+    def test_ide_payload_defers_root_chain_to_after_response(self, captured_spans, monkeypatch):
+        """IDE payload (hook_event_name): original deferred CHAIN with full duration and output on root."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="aabb" * 4),
+        ):
+            _dispatch(
+                "beforeSubmitPrompt",
+                {
+                    "hook_event_name": "beforeSubmitPrompt",
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "prompt": "fix the bug",
+                    "model_name": "claude-4",
+                },
+            )
+
+        assert len(captured_spans) == 0
+
+        with mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=9000):
+            _dispatch(
+                "afterAgentResponse",
+                {
+                    "hook_event_name": "afterAgentResponse",
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "response": "I fixed the bug",
+                    "model_name": "claude-4",
+                },
+            )
+
+        names = [s["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["name"] for s in captured_spans]
+        assert names == ["User Prompt", "Agent Response"]
+        root = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        root_attrs = {a["key"]: a["value"] for a in root["attributes"]}
+        assert root_attrs["input.value"]["stringValue"] == "fix the bug"
+        assert root_attrs["output.value"]["stringValue"] == "I fixed the bug"
+        assert root["startTimeUnixNano"].startswith("5000")
+        assert root["endTimeUnixNano"].startswith("9000")
 
 
 # ---------------------------------------------------------------------------

@@ -67,6 +67,24 @@ def _event_name(input_json: dict) -> str:
     return _jq_str(input_json, "hook_event_name", "hookEventName", "event_name", "eventName", "event")
 
 
+def _is_cursor_ide_hook_payload(input_json: dict) -> bool:
+    """Return True when the stdin JSON looks like Cursor IDE (vs CLI) hook payloads.
+
+    IDE emits ``hook_event_name``; CLI emits ``hookEventName`` — same split as ``_event_name``.
+    Root CHAIN timing: IDE keeps the original deferred span (sent at afterAgentResponse with
+    full turn duration and output on CHAIN). CLI sends the root at beforeSubmitPrompt so
+    strict OTLP backends see the parent before tool spans.
+
+    If neither key is set, default to IDE so existing payloads without a discriminator keep
+    the original semantics.
+    """
+    if input_json.get("hook_event_name"):
+        return True
+    if input_json.get("hookEventName"):
+        return False
+    return True
+
+
 def _trace_id_from_event(gen_id: str, conversation_id: str) -> str:
     """Derive a trace ID from generation or conversation ID.
 
@@ -127,14 +145,20 @@ def _dispatch(event: str, input_json: dict) -> None:
 
 
 def _handle_before_submit_prompt(input_json, conversation_id, gen_id, trace_id, now_ms):
-    """Root span for the turn — deferred until afterAgentResponse so it gets output.value."""
+    """Root CHAIN for the turn.
+
+    * **IDE** (``hook_event_name``): deferred until afterAgentResponse — original CHAIN span
+      with full duration and output on the root.
+    * **CLI** (``hookEventName`` only): sent here so tool spans that fire before
+      afterAgentResponse parent to an existing span on strict OTLP backends.
+    """
     sid = span_id_16()
     gen_root_span_save(gen_id, sid)
 
     prompt = _jq_str(input_json, "prompt", "input", "text")
     model = _jq_str(input_json, "model", "model_name")
+    deferred_root = _is_cursor_ide_hook_payload(input_json)
 
-    # Save root span state — sent by afterAgentResponse with output + timing
     state_push(
         f"root_{sanitize(gen_id)}",
         {
@@ -144,13 +168,40 @@ def _handle_before_submit_prompt(input_json, conversation_id, gen_id, trace_id, 
             "start_ms": now_ms,
             "prompt": prompt,
             "model": model,
+            "deferred_root": deferred_root,
         },
     )
-    log(f"beforeSubmitPrompt: deferred root span {sid} (trace={trace_id})")
+
+    if deferred_root:
+        log(f"beforeSubmitPrompt: deferred root span {sid} (trace={trace_id})")
+        return
+
+    root_attrs = {
+        "openinference.span.kind": "CHAIN",
+        "input.value": prompt,
+        "session.id": conversation_id,
+    }
+    if model:
+        root_attrs["llm.model_name"] = model
+
+    root_span = build_span(
+        "User Prompt",
+        "CHAIN",
+        sid,
+        trace_id,
+        "",
+        now_ms,
+        now_ms,
+        root_attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
+    )
+    send_span(root_span)
+    log(f"beforeSubmitPrompt: root span {sid} (trace={trace_id})")
 
 
 def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, now_ms):
-    """LLM child span + send deferred root span with input+output."""
+    """LLM child span; IDE also sends deferred User Prompt CHAIN when applicable."""
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
@@ -159,10 +210,37 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
     # "model" is a base field on all hook events
     model = _jq_str(input_json, "model", "model_name")
 
-    # Read prompt from deferred root state
     safe_gen = sanitize(gen_id) if gen_id else ""
     root_state = state_pop(f"root_{safe_gen}") if safe_gen else None
     prompt = root_state.get("prompt", "") if root_state else ""
+    deferred_root = root_state.get("deferred_root", True) if root_state else True
+
+    # IDE: send User Prompt CHAIN first (parent before LLM for strict backends), full I/O + duration.
+    if root_state and deferred_root:
+        root_attrs = {
+            "openinference.span.kind": "CHAIN",
+            "input.value": prompt,
+            "output.value": response,
+            "session.id": root_state.get("conversation_id", conversation_id),
+        }
+        root_model = model or root_state.get("model", "")
+        if root_model:
+            root_attrs["llm.model_name"] = root_model
+
+        root_span = build_span(
+            "User Prompt",
+            "CHAIN",
+            root_state["span_id"],
+            root_state.get("trace_id", trace_id),
+            "",
+            root_state.get("start_ms", now_ms),
+            now_ms,
+            root_attrs,
+            SERVICE_NAME,
+            SCOPE_NAME,
+        )
+        send_span(root_span)
+        log(f"afterAgentResponse: sent deferred root span {root_state['span_id']}")
 
     # Send LLM child span with input + output + model
     attrs = {
@@ -188,33 +266,6 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
     )
     send_span(span)
     log(f"afterAgentResponse: child span {sid}")
-
-    # Send deferred root span with input + output
-    if root_state:
-        root_attrs = {
-            "openinference.span.kind": "CHAIN",
-            "input.value": prompt,
-            "output.value": response,
-            "session.id": root_state.get("conversation_id", conversation_id),
-        }
-        root_model = model or root_state.get("model", "")
-        if root_model:
-            root_attrs["llm.model_name"] = root_model
-
-        root_span = build_span(
-            "User Prompt",
-            "CHAIN",
-            root_state["span_id"],
-            root_state.get("trace_id", trace_id),
-            "",
-            root_state.get("start_ms", now_ms),
-            now_ms,
-            root_attrs,
-            SERVICE_NAME,
-            SCOPE_NAME,
-        )
-        send_span(root_span)
-        log(f"afterAgentResponse: sent deferred root span {root_state['span_id']}")
 
 
 def _handle_after_agent_thought(input_json, conversation_id, gen_id, trace_id, now_ms):
