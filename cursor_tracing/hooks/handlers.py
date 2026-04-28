@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Cursor hook handler: single entry point dispatching all 14 Cursor hook events.
+"""Cursor hook handler: single entry point dispatching all 15 Cursor hook events.
 
 Replaces cursor-tracing/hooks/hook-handler.sh (475 lines).
 
-Input contract: JSON on stdin, all 14 events (IDE + CLI) routed here.
+Input contract: JSON on stdin, all 15 events (IDE + CLI) routed here.
 stdout: MUST print permissive JSON response, even on error.
 stderr: redirected to ARIZE_LOG_FILE before dispatch.
 """
@@ -57,6 +57,14 @@ def _jq_str(input_json: dict, *keys, default: str = "") -> str:
         if val is not None and val != "":
             return str(val)
     return default
+
+
+def _to_int(v):
+    """Coerce *v* to int if possible; return None for None, empty, or ``"--"``."""
+    try:
+        return int(v) if v not in (None, "", "--") else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _event_name(input_json: dict) -> str:
@@ -129,6 +137,7 @@ def _dispatch(event: str, input_json: dict) -> None:
         "afterTabFileEdit": _handle_after_tab_file_edit,
         "stop": _handle_stop,
         "sessionStart": _handle_session_start,
+        "sessionEnd": _handle_session_end,
         "postToolUse": _handle_post_tool_use,
     }
 
@@ -181,6 +190,8 @@ def _handle_before_submit_prompt(input_json, conversation_id, gen_id, trace_id, 
         "input.value": prompt,
         "session.id": conversation_id,
     }
+    if conversation_id:
+        root_attrs["cursor.conversation.id"] = conversation_id
     if model:
         root_attrs["llm.model_name"] = model
 
@@ -217,12 +228,15 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
 
     # IDE: send User Prompt CHAIN first (parent before LLM for strict backends), full I/O + duration.
     if root_state and deferred_root:
+        root_conv_id = root_state.get("conversation_id", conversation_id)
         root_attrs = {
             "openinference.span.kind": "CHAIN",
             "input.value": prompt,
             "output.value": response,
-            "session.id": root_state.get("conversation_id", conversation_id),
+            "session.id": root_conv_id,
         }
+        if root_conv_id:
+            root_attrs["cursor.conversation.id"] = root_conv_id
         root_model = model or root_state.get("model", "")
         if root_model:
             root_attrs["llm.model_name"] = root_model
@@ -249,6 +263,8 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
         "output.value": response,
         "session.id": conversation_id,
     }
+    if conversation_id:
+        attrs["cursor.conversation.id"] = conversation_id
     if model:
         attrs["llm.model_name"] = model
 
@@ -280,6 +296,8 @@ def _handle_after_agent_thought(input_json, conversation_id, gen_id, trace_id, n
         "output.value": thought,
         "session.id": conversation_id,
     }
+    if conversation_id:
+        attrs["cursor.conversation.id"] = conversation_id
 
     span = build_span(
         "Agent Thinking",
@@ -347,6 +365,8 @@ def _handle_after_shell_execution(input_json, conversation_id, gen_id, trace_id,
         "output.value": output,
         "session.id": conversation_id,
     }
+    if conversation_id:
+        attrs["cursor.conversation.id"] = conversation_id
     if exit_code:
         attrs["shell.exit_code"] = exit_code
 
@@ -422,6 +442,8 @@ def _handle_after_mcp_execution(input_json, conversation_id, gen_id, trace_id, n
         "output.value": result,
         "session.id": conversation_id,
     }
+    if conversation_id:
+        attrs["cursor.conversation.id"] = conversation_id
 
     span = build_span(
         f"MCP: {tool_name}",
@@ -452,6 +474,8 @@ def _handle_before_read_file(input_json, conversation_id, gen_id, trace_id, now_
         "input.value": file_path,
         "session.id": conversation_id,
     }
+    if conversation_id:
+        attrs["cursor.conversation.id"] = conversation_id
 
     span = build_span(
         "Read File",
@@ -484,6 +508,8 @@ def _handle_after_file_edit(input_json, conversation_id, gen_id, trace_id, now_m
         "input.value": input_val,
         "session.id": conversation_id,
     }
+    if conversation_id:
+        attrs["cursor.conversation.id"] = conversation_id
 
     span = build_span(
         "File Edit",
@@ -514,6 +540,8 @@ def _handle_before_tab_file_read(input_json, conversation_id, gen_id, trace_id, 
         "input.value": file_path,
         "session.id": conversation_id,
     }
+    if conversation_id:
+        attrs["cursor.conversation.id"] = conversation_id
 
     span = build_span(
         "Tab Read File",
@@ -546,6 +574,8 @@ def _handle_after_tab_file_edit(input_json, conversation_id, gen_id, trace_id, n
         "input.value": input_val,
         "session.id": conversation_id,
     }
+    if conversation_id:
+        attrs["cursor.conversation.id"] = conversation_id
 
     span = build_span(
         "Tab File Edit",
@@ -575,10 +605,41 @@ def _handle_stop(input_json, conversation_id, gen_id, trace_id, now_ms):
         "openinference.span.kind": "CHAIN",
         "session.id": conversation_id,
     }
+    if conversation_id:
+        attrs["cursor.conversation.id"] = conversation_id
     if status:
         attrs["cursor.stop.status"] = status
     if loop_count:
         attrs["cursor.stop.loop_count"] = loop_count
+
+    # Token counts from CLI stop payload
+    # Use explicit None checks — 0 is a valid token count but falsy with ``or``
+    _inp_tok = input_json.get("input_tokens")
+    prompt_tokens = _to_int(_inp_tok if _inp_tok is not None else input_json.get("inputTokens"))
+    _out_tok = input_json.get("output_tokens")
+    completion_tokens = _to_int(_out_tok if _out_tok is not None else input_json.get("outputTokens"))
+    _cr_tok = input_json.get("cache_read_tokens")
+    cache_read = _to_int(_cr_tok if _cr_tok is not None else input_json.get("cacheReadTokens"))
+    _cw_tok = input_json.get("cache_write_tokens")
+    cache_write = _to_int(_cw_tok if _cw_tok is not None else input_json.get("cacheWriteTokens"))
+    model = _jq_str(input_json, "model")
+    _dur = input_json.get("duration_ms")
+    duration_ms = _to_int(_dur if _dur is not None else input_json.get("durationMs"))
+
+    if prompt_tokens is not None:
+        attrs["llm.token_count.prompt"] = prompt_tokens
+    if completion_tokens is not None:
+        attrs["llm.token_count.completion"] = completion_tokens
+    if cache_read is not None:
+        attrs["llm.token_count.cache_read"] = cache_read
+    if cache_write is not None:
+        attrs["llm.token_count.cache_write"] = cache_write
+    if prompt_tokens is not None and completion_tokens is not None:
+        attrs["llm.token_count.total"] = prompt_tokens + completion_tokens
+    if model:
+        attrs["llm.model_name"] = model
+    if duration_ms is not None:
+        attrs["cursor.stop.duration_ms"] = duration_ms
 
     span = build_span(
         "Agent Stop",
@@ -607,6 +668,8 @@ def _handle_session_start(input_json, conversation_id, gen_id, trace_id, now_ms)
         "openinference.span.kind": "CHAIN",
         "session.id": conversation_id,
     }
+    if conversation_id:
+        attrs["cursor.conversation.id"] = conversation_id
 
     cwd = _jq_str(input_json, "cwd", "workspace_root")
     if cwd:
@@ -636,15 +699,87 @@ def _handle_session_start(input_json, conversation_id, gen_id, trace_id, now_ms)
     log(f"sessionStart: span {sid} (trace={trace_id})")
 
 
+def _handle_session_end(input_json, conversation_id, gen_id, trace_id, now_ms):
+    """CHAIN span for Cursor CLI sessionEnd event — closes the session.
+
+    Reuses tokens/duration from the payload when present.  Always cleans up
+    the gen_id keyed root span if one was saved by sessionStart.
+    """
+    sid = span_id_16()
+    parent = gen_root_span_get(gen_id)
+
+    _dur = input_json.get("duration_ms")
+    duration_ms = _to_int(_dur if _dur is not None else input_json.get("durationMs"))
+    final_status = _jq_str(input_json, "final_status", "finalStatus", "status")
+    reason = _jq_str(input_json, "reason")
+
+    attrs = {
+        "openinference.span.kind": "CHAIN",
+        "session.id": conversation_id,
+    }
+    if conversation_id:
+        attrs["cursor.conversation.id"] = conversation_id
+    if duration_ms is not None:
+        attrs["cursor.session.duration_ms"] = duration_ms
+    if final_status:
+        attrs["cursor.session.final_status"] = final_status
+    if reason:
+        attrs["cursor.session.reason"] = reason
+
+    # Token fields can also appear on sessionEnd
+    _inp_tok = input_json.get("input_tokens")
+    prompt_tokens = _to_int(_inp_tok if _inp_tok is not None else input_json.get("inputTokens"))
+    _out_tok = input_json.get("output_tokens")
+    completion_tokens = _to_int(_out_tok if _out_tok is not None else input_json.get("outputTokens"))
+    if prompt_tokens is not None:
+        attrs["llm.token_count.prompt"] = prompt_tokens
+    if completion_tokens is not None:
+        attrs["llm.token_count.completion"] = completion_tokens
+    if prompt_tokens is not None and completion_tokens is not None:
+        attrs["llm.token_count.total"] = prompt_tokens + completion_tokens
+
+    span = build_span(
+        "Session End",
+        "CHAIN",
+        sid,
+        trace_id,
+        parent,
+        now_ms,
+        now_ms,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
+    )
+    send_span(span)
+
+    if gen_id:
+        state_cleanup_generation(gen_id)
+    log(f"sessionEnd: span {sid}, cleaned up gen={gen_id}")
+
+
 _SHELL_TOOL_NAMES = frozenset({"shell", "terminal", "bash", "run_command"})
+
+_DEDICATED_TOOL_NAMES = frozenset({
+    "shell", "terminal", "bash", "run_command", "run_shell",
+    "read_file", "read", "view_file", "view",
+    "edit_file", "edit", "write_file", "write", "create_file", "delete_file",
+    "tab_file_read", "tab_file_edit",
+    "mcp", "mcp_execution",
+})
 
 
 def _handle_post_tool_use(input_json, conversation_id, gen_id, trace_id, now_ms):
     """TOOL span for Cursor CLI postToolUse event."""
+    tool_name = _jq_str(input_json, "tool_name", "toolName", "name", "tool")
+
+    # Dedup: skip tools that have dedicated before*/after* handlers
+    if tool_name.lower() in _DEDICATED_TOOL_NAMES:
+        log(f"postToolUse: skipping {tool_name!r} — covered by dedicated handler")
+        return
+
     sid = span_id_16()
     parent = gen_root_span_get(gen_id) if gen_id else ""
 
-    tool_name = _jq_str(input_json, "tool_name", "toolName", "name", "tool")
     tool_input = _jq_str(input_json, "tool_input", "toolInput", "input", "arguments", "args")
     output = _jq_str(input_json, "result", "output", "response", "stdout")
 
@@ -658,6 +793,8 @@ def _handle_post_tool_use(input_json, conversation_id, gen_id, trace_id, now_ms)
         "openinference.span.kind": "TOOL",
         "session.id": conversation_id,
     }
+    if conversation_id:
+        attrs["cursor.conversation.id"] = conversation_id
     if tool_name:
         attrs["tool.name"] = tool_name
     if tool_input:
@@ -691,7 +828,7 @@ def _handle_post_tool_use(input_json, conversation_id, gen_id, trace_id, now_ms)
 def main():
     """Entry point for arize-hook-cursor. Cursor hook.
 
-    Input contract: JSON on stdin, all 14 events (IDE + CLI) routed here.
+    Input contract: JSON on stdin, all 15 events (IDE + CLI) routed here.
     stdout: MUST print permissive JSON response, even on error.
     stderr: redirected to ARIZE_LOG_FILE before dispatch.
     """
