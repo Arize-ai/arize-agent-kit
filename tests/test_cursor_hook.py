@@ -1487,7 +1487,10 @@ class TestHandleStopTokenCounts:
                 },
             )
 
-        attrs = {a["key"]: a["value"] for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
+        attrs = {
+            a["key"]: a["value"]
+            for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+        }
         assert attrs["llm.token_count.prompt"]["intValue"] == 100
         assert "llm.token_count.completion" not in attrs
         assert "llm.token_count.cache_read" not in attrs
@@ -1676,9 +1679,9 @@ class TestConversationIdAttribute:
         for sent in captured_spans:
             span = sent["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
             attrs = {a["key"]: a["value"] for a in span["attributes"]}
-            assert attrs.get("cursor.conversation.id", {}).get("stringValue") == "conv-abc", (
-                f"cursor.conversation.id missing or wrong on {event} span {span['name']}"
-            )
+            assert (
+                attrs.get("cursor.conversation.id", {}).get("stringValue") == "conv-abc"
+            ), f"cursor.conversation.id missing or wrong on {event} span {span['name']}"
 
     def test_conversation_id_attribute_omitted_when_missing(self, captured_spans, monkeypatch):
         """When conversation_id is empty, cursor.conversation.id is not set."""

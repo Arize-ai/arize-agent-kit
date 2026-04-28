@@ -759,13 +759,29 @@ def _handle_session_end(input_json, conversation_id, gen_id, trace_id, now_ms):
 
 _SHELL_TOOL_NAMES = frozenset({"shell", "terminal", "bash", "run_command"})
 
-_DEDICATED_TOOL_NAMES = frozenset({
-    "shell", "terminal", "bash", "run_command", "run_shell",
-    "read_file", "read", "view_file", "view",
-    "edit_file", "edit", "write_file", "write", "create_file", "delete_file",
-    "tab_file_read", "tab_file_edit",
-    "mcp", "mcp_execution",
-})
+_DEDICATED_TOOL_NAMES = frozenset(
+    {
+        "shell",
+        "terminal",
+        "bash",
+        "run_command",
+        "run_shell",
+        "read_file",
+        "read",
+        "view_file",
+        "view",
+        "edit_file",
+        "edit",
+        "write_file",
+        "write",
+        "create_file",
+        "delete_file",
+        "tab_file_read",
+        "tab_file_edit",
+        "mcp",
+        "mcp_execution",
+    }
+)
 
 
 def _handle_post_tool_use(input_json, conversation_id, gen_id, trace_id, now_ms):

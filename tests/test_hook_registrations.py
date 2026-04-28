@@ -563,12 +563,10 @@ class TestCursorDocsTokenCounts:
         skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
 
         for name, content in [("README.md", readme), ("SKILL.md", skill)]:
-            assert "llm.token_count.prompt" in content, (
-                f"cursor_tracing {name} missing llm.token_count.prompt"
-            )
-            assert "llm.token_count.cache_read" in content or "llm.token_count.total" in content, (
-                f"cursor_tracing {name} missing llm.token_count.cache_read or llm.token_count.total"
-            )
+            assert "llm.token_count.prompt" in content, f"cursor_tracing {name} missing llm.token_count.prompt"
+            assert (
+                "llm.token_count.cache_read" in content or "llm.token_count.total" in content
+            ), f"cursor_tracing {name} missing llm.token_count.cache_read or llm.token_count.total"
 
 
 class TestCursorDocsPostToolUseDedup:
@@ -601,9 +599,9 @@ class TestCursorDocsPostToolUseDedup:
                     break
                 idx += 1
 
-            assert has_suppressed or has_skipped or has_dedicated, (
-                f"cursor_tracing {name} does not describe postToolUse dedup behavior"
-            )
+            assert (
+                has_suppressed or has_skipped or has_dedicated
+            ), f"cursor_tracing {name} does not describe postToolUse dedup behavior"
 
 
 class TestCursorDocsConversationId:
@@ -615,9 +613,7 @@ class TestCursorDocsConversationId:
         skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
 
         for name, content in [("README.md", readme), ("SKILL.md", skill)]:
-            assert "cursor.conversation.id" in content, (
-                f"cursor_tracing {name} missing cursor.conversation.id"
-            )
+            assert "cursor.conversation.id" in content, f"cursor_tracing {name} missing cursor.conversation.id"
 
 
 class TestStateFileExtension:
