@@ -594,25 +594,34 @@ def _ensure_windows_user_path(path: Path) -> bool:
         return False
 
     try:
-        import winreg  # type: ignore[import-not-found]
+        import winreg
     except ImportError:
         info("Warning: could not update Windows user PATH: winreg is unavailable")
         return False
 
     try:
-        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_READ | winreg.KEY_WRITE) as key:
+        hkey_current_user = getattr(winreg, "HKEY_CURRENT_USER")
+        key_read = getattr(winreg, "KEY_READ")
+        key_write = getattr(winreg, "KEY_WRITE")
+        reg_expand_sz = getattr(winreg, "REG_EXPAND_SZ")
+        reg_sz = getattr(winreg, "REG_SZ")
+        create_key_ex = getattr(winreg, "CreateKeyEx")
+        query_value_ex = getattr(winreg, "QueryValueEx")
+        set_value_ex = getattr(winreg, "SetValueEx")
+
+        with create_key_ex(hkey_current_user, "Environment", 0, key_read | key_write) as key:
             try:
-                current, value_type = winreg.QueryValueEx(key, "Path")
+                current, value_type = query_value_ex(key, "Path")
             except FileNotFoundError:
-                current, value_type = "", winreg.REG_EXPAND_SZ
+                current, value_type = "", reg_expand_sz
 
             if _path_contains(str(current), path_str, separator=";"):
                 return False
 
             new_path = path_str + (";" + str(current) if current else "")
-            if value_type not in (winreg.REG_EXPAND_SZ, winreg.REG_SZ):
-                value_type = winreg.REG_EXPAND_SZ
-            winreg.SetValueEx(key, "Path", 0, value_type, new_path)
+            if value_type not in (reg_expand_sz, reg_sz):
+                value_type = reg_expand_sz
+            set_value_ex(key, "Path", 0, value_type, new_path)
     except OSError as exc:
         info(f"Warning: could not update Windows user PATH: {exc}")
         return False
@@ -620,7 +629,9 @@ def _ensure_windows_user_path(path: Path) -> bool:
     try:
         import ctypes
 
-        ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x001A, 0, "Environment", 0, 5000, None)
+        windll = getattr(ctypes, "windll", None)
+        if windll is not None:
+            windll.user32.SendMessageTimeoutW(0xFFFF, 0x001A, 0, "Environment", 0, 5000, None)
     except Exception:
         pass
 

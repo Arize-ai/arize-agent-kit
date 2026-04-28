@@ -136,14 +136,16 @@ class TestTomlHelpers:
         assert parsed["otel"]["exporter"]["otlp-http"]["protocol"] == "json"
 
     def test_parse_preserves_unrelated_sections(self, tmp_path):
-        content = textwrap.dedent("""\
+        content = textwrap.dedent(
+            """\
             [model]
             name = "gpt-4"
 
             [otel.exporter.otlp-http]
             endpoint = "http://127.0.0.1:4318/v1/logs"
             protocol = "json"
-        """)
+        """
+        )
         parsed = codex_install._toml_line_parse(content)
         assert parsed["model"]["name"] == "gpt-4"
         assert parsed["otel"]["exporter"]["otlp-http"]["endpoint"] == "http://127.0.0.1:4318/v1/logs"
@@ -842,11 +844,13 @@ class TestTomlFallbackQuoting:
 
     def test_fallback_roundtrips_quoted_section_keys(self, tmp_path, monkeypatch):
         monkeypatch.setattr("codex_tracing.install._tomllib", None)
-        toml_text = textwrap.dedent("""\
+        toml_text = textwrap.dedent(
+            """\
             [mcp_servers."@scope/server"]
             command = "npx"
             args = ["-y", "@scope/server"]
-        """)
+        """
+        )
         p = tmp_path / "config.toml"
         p.write_text(toml_text)
 
@@ -868,10 +872,12 @@ class TestTomlFallbackQuoting:
 
     def test_fallback_repairs_malformed_unquoted_keys(self, tmp_path, monkeypatch):
         monkeypatch.setattr("codex_tracing.install._tomllib", None)
-        toml_text = textwrap.dedent("""\
+        toml_text = textwrap.dedent(
+            """\
             [plugins.@scope/server]
             enabled = true
-        """)
+        """
+        )
         p = tmp_path / "config.toml"
         p.write_text(toml_text)
 
@@ -919,10 +925,12 @@ class TestTomlFallbackQuoting:
     def test_fallback_deeply_nested_quoted_keys(self, tmp_path, monkeypatch):
         """Multiple levels with quoted keys parse and round-trip correctly."""
         monkeypatch.setattr("codex_tracing.install._tomllib", None)
-        toml_text = textwrap.dedent("""\
+        toml_text = textwrap.dedent(
+            """\
             [a."b.c"."d/e"]
             x = 1
-        """)
+        """
+        )
         p = tmp_path / "deep.toml"
         p.write_text(toml_text)
 
@@ -938,13 +946,15 @@ class TestTomlFallbackQuoting:
     def test_fallback_multiple_sections_with_quoted_keys(self, tmp_path, monkeypatch):
         """Multiple sections with special-char keys coexist correctly."""
         monkeypatch.setattr("codex_tracing.install._tomllib", None)
-        toml_text = textwrap.dedent("""\
+        toml_text = textwrap.dedent(
+            """\
             [servers."@org/alpha"]
             port = 8080
 
             [servers."@org/beta"]
             port = 9090
-        """)
+        """
+        )
         p = tmp_path / "multi.toml"
         p.write_text(toml_text)
 
