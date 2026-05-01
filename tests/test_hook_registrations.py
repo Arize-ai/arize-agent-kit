@@ -542,6 +542,80 @@ class TestCursorDocsUnsupportedHooks:
             )
 
 
+class TestCursorDocsSessionEnd:
+    """Verify Cursor docs mention sessionEnd."""
+
+    def test_cursor_docs_list_session_end(self):
+        """Both Cursor docs must contain the literal substring sessionEnd."""
+        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
+        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
+
+        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
+            assert "sessionEnd" in content, f"cursor_tracing {name} missing sessionEnd"
+
+
+class TestCursorDocsTokenCounts:
+    """Verify Cursor docs describe token counts on stop."""
+
+    def test_cursor_docs_describe_token_counts_on_stop(self):
+        """Both Cursor docs must mention llm.token_count.prompt and at least one of cache_read or total."""
+        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
+        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
+
+        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
+            assert "llm.token_count.prompt" in content, f"cursor_tracing {name} missing llm.token_count.prompt"
+            assert (
+                "llm.token_count.cache_read" in content or "llm.token_count.total" in content
+            ), f"cursor_tracing {name} missing llm.token_count.cache_read or llm.token_count.total"
+
+
+class TestCursorDocsPostToolUseDedup:
+    """Verify Cursor docs describe postToolUse dedup behavior."""
+
+    @staticmethod
+    def _normalize(text: str) -> str:
+        return " ".join(text.lower().split())
+
+    def test_cursor_docs_describe_post_tool_use_dedup(self):
+        """Both Cursor docs must indicate postToolUse is suppressed for tools with dedicated handlers."""
+        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
+        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
+
+        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
+            normalized = self._normalize(content)
+            has_suppressed = "posttooluse is suppressed for these" in normalized
+            has_skipped = "posttooluse is skipped for shell" in normalized
+            # Check "dedicated handler" within 200 chars of "posttooluse"
+            has_dedicated = False
+            lower_content = content.lower()
+            idx = 0
+            while True:
+                idx = lower_content.find("posttooluse", idx)
+                if idx == -1:
+                    break
+                window = lower_content[max(0, idx - 200) : idx + 200]
+                if "dedicated handler" in window:
+                    has_dedicated = True
+                    break
+                idx += 1
+
+            assert (
+                has_suppressed or has_skipped or has_dedicated
+            ), f"cursor_tracing {name} does not describe postToolUse dedup behavior"
+
+
+class TestCursorDocsConversationId:
+    """Verify Cursor docs describe cursor.conversation.id attribute."""
+
+    def test_cursor_docs_describe_conversation_id_attribute(self):
+        """Both Cursor docs must contain cursor.conversation.id."""
+        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
+        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
+
+        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
+            assert "cursor.conversation.id" in content, f"cursor_tracing {name} missing cursor.conversation.id"
+
+
 class TestStateFileExtension:
     """Verify docs reference .yaml state files, not .json."""
 

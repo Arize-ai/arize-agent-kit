@@ -4,7 +4,7 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 
 ## Features
 
-- 12 hook-based span types covering the full Cursor session lifecycle
+- 15 hook-based span types covering the full Cursor session lifecycle
 - Before/after event merging for shell execution and MCP tool use via disk-backed state stack
 - Sends spans directly to Phoenix (REST) or Arize AX (HTTP) — no background process needed
 - Per-harness backend credentials via `harnesses.cursor.*` in config
@@ -88,16 +88,17 @@ If you used the installer, hooks.json is generated automatically with the correc
 
 If your project already has a `.cursor/hooks.json`, merge the hook entries rather than overwriting the file. The setup script handles this automatically.
 
-> **Note:** All 12 hook events route to the same `arize-hook-cursor` CLI entry point. The handler reads `hook_event_name` from the stdin JSON payload and dispatches to the appropriate logic.
+> **Note:** All 15 hook events route to the same `arize-hook-cursor` CLI entry point. The handler reads `hook_event_name` from the stdin JSON payload and dispatches to the appropriate logic.
 
 ## Hook Events
 
 ### IDE Hooks
 
-The Cursor IDE fires 12 hook events. Each produces one OpenInference span (or pushes state for later merging):
+The Cursor IDE fires 15 hook events. Each produces one OpenInference span (or pushes state for later merging):
 
 | Hook Event | Span Name | Span Kind | Description |
 |------------|-----------|-----------|-------------|
+| `sessionStart` | Session Start | CHAIN | Root span for the conversation; captures session metadata |
 | `beforeSubmitPrompt` | User Prompt | CHAIN | Root span for the turn; captures user prompt text |
 | `afterAgentResponse` | Agent Response | LLM | Agent's response with input/output values |
 | `afterAgentThought` | Agent Thinking | CHAIN | Agent's intermediate reasoning step |
@@ -109,7 +110,9 @@ The Cursor IDE fires 12 hook events. Each produces one OpenInference span (or pu
 | `afterFileEdit` | File Edit | TOOL | File path and edit details |
 | `beforeTabFileRead` | Tab Read File | TOOL | File read from a tab context |
 | `afterTabFileEdit` | Tab File Edit | TOOL | File edit from a tab context |
-| `stop` | Agent Stop | CHAIN | Session or conversation stop event |
+| `postToolUse` | Tool: {name} | TOOL | Generic tool span; postToolUse is suppressed for tools with a dedicated handler (Shell, Read, File Edit, Tab ops, MCP) to avoid duplicate spans |
+| `stop` | Agent Stop | CHAIN | Per-turn stop event with token counts when available |
+| `sessionEnd` | Session End | CHAIN | End-of-session span with duration and final status |
 
 ### CLI Hooks
 
@@ -117,6 +120,7 @@ Cursor CLI currently emits a smaller hook surface than the IDE. The supported
 CLI hooks in this package are:
 
 - `sessionStart`
+- `sessionEnd`
 - `beforeShellExecution`
 - `afterShellExecution`
 - `afterFileEdit`
@@ -127,6 +131,15 @@ Cursor CLI hooks do not currently emit afterAgentResponse or afterAgentThought.
 
 Full Cursor CLI assistant and thinking coverage requires parsing --output-format stream-json, which is out of scope for this change.
 
+### What We Capture
+
+- **`sessionStart`** produces a `Session Start` CHAIN span that acts as the root for the conversation.
+- **`sessionEnd`** produces a `Session End` CHAIN span with `cursor.session.duration_ms`, `cursor.session.final_status`, `cursor.session.reason`, and end-of-session token counts when available.
+- **`stop`** produces an `Agent Stop` CHAIN span with per-turn token counts captured when the payload includes them: `llm.token_count.prompt`, `llm.token_count.completion`, `llm.token_count.cache_read`, `llm.token_count.cache_write`, `llm.token_count.total`, and `llm.model_name`.
+- **`postToolUse`** produces a generic `Tool: <name>` span ONLY for tools without a dedicated handler. Shell, file read/edit, tab file ops, and MCP execution are handled by their dedicated `before*`/`after*` events; the generic postToolUse is suppressed for these to avoid duplicate spans.
+
+Every span includes `cursor.conversation.id` as a span attribute. Since `sessionStart` and per-turn activity use different `trace_id` values, `cursor.conversation.id` is the recommended cross-trace join key in Arize. To gather all activity for a Cursor session regardless of trace, filter spans by `attributes.cursor.conversation.id = "<id>"`.
+
 ### Hooks JSON Example (IDE + CLI)
 
 ```json
@@ -134,6 +147,7 @@ Full Cursor CLI assistant and thinking coverage requires parsing --output-format
   "version": 1,
   "hooks": {
     "sessionStart": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
+    "sessionEnd": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
     "beforeSubmitPrompt": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
     "afterAgentResponse": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
     "afterAgentThought": [{ "command": "~/.arize/harness/venv/bin/arize-hook-cursor" }],
@@ -226,7 +240,7 @@ Hook logic lives in `core/` at the repository root (installed as a Python packag
 core/
   hooks/cursor/
     adapter.py       Cursor-specific state stack, ID generation, sanitize
-    handlers.py      12-event dispatcher entry point
+    handlers.py      15-event dispatcher entry point
   common.py          Shared: span building, direct send, state, logging, IDs
   config.py          YAML config helper
   constants.py       Single source of truth for all paths

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for cursor_tracing.hooks.handlers — the Cursor hook dispatcher and 14 event handlers."""
+"""Tests for cursor_tracing.hooks.handlers — the Cursor hook dispatcher and 15 event handlers."""
 
 import io
 import json
@@ -1124,6 +1124,21 @@ class TestDispatchNewEvents:
             )
             h.assert_called_once()
 
+    def test_dispatch_routes_session_end(self, monkeypatch):
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("cursor_tracing.hooks.handlers._handle_session_end") as h,
+        ):
+            _dispatch(
+                "sessionEnd",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "g1",
+                },
+            )
+            h.assert_called_once()
+
     def test_dispatch_routes_post_tool_use(self, monkeypatch):
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
@@ -1260,25 +1275,25 @@ class TestHandlePostToolUse:
                 {
                     "conversation_id": "conv-pt",
                     "generation_id": "gen-pt",
-                    "toolName": "read_file",
-                    "toolInput": '{"path": "src/main.py"}',
-                    "result": "<file contents elided>",
+                    "toolName": "code_search",
+                    "toolInput": '{"query": "main function"}',
+                    "result": "<search results>",
                 },
             )
 
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
-        assert span["name"] == "Tool: read_file"
+        assert span["name"] == "Tool: code_search"
         assert attrs["openinference.span.kind"]["stringValue"] == "TOOL"
-        assert attrs["tool.name"]["stringValue"] == "read_file"
-        assert attrs["input.value"]["stringValue"] == '{"path": "src/main.py"}'
-        assert attrs["output.value"]["stringValue"] == "<file contents elided>"
+        assert attrs["tool.name"]["stringValue"] == "code_search"
+        assert attrs["input.value"]["stringValue"] == '{"query": "main function"}'
+        assert attrs["output.value"]["stringValue"] == "<search results>"
         assert attrs["session.id"]["stringValue"] == "conv-pt"
         assert span["parentSpanId"] == "parent-pt"
 
-    def test_post_tool_use_shell_command_uses_command_as_input(self, captured_spans, monkeypatch):
-        """Shell-like postToolUse uses 'command' field as input.value."""
+    def test_post_tool_use_unknown_tool_uses_command_field_when_present(self, captured_spans, monkeypatch):
+        """Non-deduped shell-like tool uses 'command' field as input.value fallback."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
             mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
@@ -1289,10 +1304,9 @@ class TestHandlePostToolUse:
                 {
                     "conversation_id": "c1",
                     "generation_id": "g1",
-                    "toolName": "shell",
+                    "toolName": "custom_runner",
                     "command": "ls -la",
                     "stdout": "total 40\ndrwxr-xr-x ...",
-                    "exit_code": 0,
                 },
             )
 
@@ -1300,33 +1314,9 @@ class TestHandlePostToolUse:
             a["key"]: a["value"]
             for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
         }
-        assert attrs["input.value"]["stringValue"] == "ls -la"
+        # custom_runner is not in _SHELL_TOOL_NAMES so command field is NOT used as input
+        # tool_input comes from the standard extraction keys
         assert attrs["output.value"]["stringValue"] == "total 40\ndrwxr-xr-x ..."
-
-    def test_post_tool_use_bash_tool_uses_command(self, captured_spans, monkeypatch):
-        """Other shell-like tool names (bash, terminal, run_command) also use command."""
-        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        for tool in ("bash", "terminal", "run_command"):
-            captured_spans.clear()
-            with (
-                mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
-                mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
-            ):
-                _dispatch(
-                    "postToolUse",
-                    {
-                        "conversation_id": "c1",
-                        "generation_id": "g1",
-                        "toolName": tool,
-                        "command": "echo hi",
-                    },
-                )
-
-            attrs = {
-                a["key"]: a["value"]
-                for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
-            }
-            assert attrs["input.value"]["stringValue"] == "echo hi", f"Failed for tool={tool}"
 
     def test_post_tool_use_missing_fields_omitted(self, captured_spans, monkeypatch):
         """Missing optional fields are omitted from attributes."""
@@ -1347,3 +1337,420 @@ class TestHandlePostToolUse:
         assert "tool.name" not in attr_keys
         assert "input.value" not in attr_keys
         assert "output.value" not in attr_keys
+
+    def test_post_tool_use_skips_shell_tool(self, captured_spans, monkeypatch):
+        """postToolUse with tool_name='shell' is skipped (covered by dedicated handler)."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+        ):
+            _dispatch(
+                "postToolUse",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "g1",
+                    "toolName": "shell",
+                    "command": "ls -la",
+                },
+            )
+
+        assert len(captured_spans) == 0
+
+    @pytest.mark.parametrize(
+        "tool_name",
+        ["shell", "Shell", "TERMINAL", "bash", "read_file", "edit_file", "tab_file_read", "mcp"],
+    )
+    def test_post_tool_use_skips_each_dedicated_tool_name(self, captured_spans, monkeypatch, tool_name):
+        """postToolUse short-circuits for each known dedicated tool name (case-insensitive)."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+        ):
+            _dispatch(
+                "postToolUse",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "g1",
+                    "toolName": tool_name,
+                },
+            )
+
+        assert len(captured_spans) == 0, f"Expected no span for tool_name={tool_name!r}"
+
+    def test_post_tool_use_emits_for_unknown_tool_name(self, captured_spans, monkeypatch):
+        """postToolUse emits a span for tools not in the dedup set."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+        ):
+            _dispatch(
+                "postToolUse",
+                {
+                    "conversation_id": "c1",
+                    "generation_id": "g1",
+                    "toolName": "glob",
+                    "toolInput": '{"pattern": "*.py"}',
+                },
+            )
+
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert span["name"] == "Tool: glob"
+        assert attrs["tool.name"]["stringValue"] == "glob"
+        assert attrs["input.value"]["stringValue"] == '{"pattern": "*.py"}'
+
+
+# ---------------------------------------------------------------------------
+# _handle_stop token count tests
+# ---------------------------------------------------------------------------
+
+
+class TestHandleStopTokenCounts:
+
+    def test_stop_captures_token_counts(self, captured_spans, monkeypatch):
+        """Stop payload with token fields produces llm.token_count.* attributes."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="root1"),
+            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation"),
+        ):
+            _dispatch(
+                "stop",
+                {
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "status": "completed",
+                    "input_tokens": 85919,
+                    "output_tokens": 1523,
+                    "cache_read_tokens": 68000,
+                    "cache_write_tokens": 0,
+                    "model": "claude-sonnet-4.5",
+                },
+            )
+
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["llm.token_count.prompt"]["intValue"] == 85919
+        assert attrs["llm.token_count.completion"]["intValue"] == 1523
+        assert attrs["llm.token_count.cache_read"]["intValue"] == 68000
+        assert attrs["llm.token_count.cache_write"]["intValue"] == 0
+        assert attrs["llm.token_count.total"]["intValue"] == 87442
+        assert attrs["llm.model_name"]["stringValue"] == "claude-sonnet-4.5"
+
+    def test_stop_omits_token_attrs_when_payload_has_none(self, captured_spans, monkeypatch):
+        """Stop payload without token fields produces no llm.token_count.* attributes."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation"),
+        ):
+            _dispatch(
+                "stop",
+                {
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "status": "completed",
+                },
+            )
+
+        attr_keys = {a["key"] for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
+        assert "llm.token_count.prompt" not in attr_keys
+        assert "llm.token_count.completion" not in attr_keys
+        assert "llm.token_count.cache_read" not in attr_keys
+        assert "llm.token_count.cache_write" not in attr_keys
+        assert "llm.token_count.total" not in attr_keys
+        assert "llm.model_name" not in attr_keys
+
+    def test_stop_token_count_handles_string_and_dash_values(self, captured_spans, monkeypatch):
+        """String token values are coerced; '--' and None are omitted."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation"),
+        ):
+            _dispatch(
+                "stop",
+                {
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "input_tokens": "100",
+                    "output_tokens": "--",
+                    "cache_read_tokens": None,
+                },
+            )
+
+        attrs = {
+            a["key"]: a["value"]
+            for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+        }
+        assert attrs["llm.token_count.prompt"]["intValue"] == 100
+        assert "llm.token_count.completion" not in attrs
+        assert "llm.token_count.cache_read" not in attrs
+        assert "llm.token_count.total" not in attrs
+
+
+# ---------------------------------------------------------------------------
+# _handle_session_end tests
+# ---------------------------------------------------------------------------
+
+
+class TestHandleSessionEnd:
+
+    def test_session_end_emits_chain_span_with_duration_and_status(self, captured_spans, monkeypatch):
+        """sessionEnd produces a CHAIN span with duration, status, and reason."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=9000),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="root-se"),
+            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation"),
+        ):
+            _dispatch(
+                "sessionEnd",
+                {
+                    "conversation_id": "conv-end",
+                    "generation_id": "gen-end",
+                    "duration_ms": 7447445,
+                    "final_status": "completed",
+                    "reason": "window_close",
+                },
+            )
+
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert span["name"] == "Session End"
+        assert attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
+        assert attrs["cursor.session.duration_ms"]["intValue"] == 7447445
+        assert attrs["cursor.session.final_status"]["stringValue"] == "completed"
+        assert attrs["cursor.session.reason"]["stringValue"] == "window_close"
+        assert attrs["session.id"]["stringValue"] == "conv-end"
+        assert span["parentSpanId"] == "root-se"
+
+    def test_session_end_cleans_up_generation(self, captured_spans, monkeypatch):
+        """sessionEnd calls state_cleanup_generation with the gen_id."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=9000),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation") as cleanup,
+        ):
+            _dispatch(
+                "sessionEnd",
+                {
+                    "conversation_id": "conv-end",
+                    "generation_id": "g-123",
+                },
+            )
+
+        cleanup.assert_called_once_with("g-123")
+
+    def test_session_end_handles_empty_payload(self, captured_spans, monkeypatch):
+        """sessionEnd with only conversation_id emits a span without optional attrs."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=9000),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation"),
+        ):
+            _dispatch(
+                "sessionEnd",
+                {
+                    "conversation_id": "conv-end",
+                },
+            )
+
+        assert len(captured_spans) == 1
+        attr_keys = {a["key"] for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
+        assert "session.id" in attr_keys
+        assert "cursor.conversation.id" in attr_keys
+        assert "cursor.session.duration_ms" not in attr_keys
+        assert "cursor.session.final_status" not in attr_keys
+        assert "cursor.session.reason" not in attr_keys
+        assert "llm.token_count.prompt" not in attr_keys
+
+
+# ---------------------------------------------------------------------------
+# cursor.conversation.id attribute tests
+# ---------------------------------------------------------------------------
+
+
+class TestConversationIdAttribute:
+
+    # Minimal payloads per event that produce at least one span
+    _EVENT_PAYLOADS = {
+        "beforeSubmitPrompt": {
+            "hookEventName": "beforeSubmitPrompt",  # CLI path — sends span immediately
+            "conversation_id": "conv-abc",
+            "generation_id": "gen-abc",
+            "prompt": "test",
+        },
+        "afterAgentResponse": {
+            "conversation_id": "conv-abc",
+            "generation_id": "gen-aar",
+            "text": "response",
+        },
+        "afterAgentThought": {
+            "conversation_id": "conv-abc",
+            "generation_id": "gen-aat",
+            "thought": "thinking",
+        },
+        "afterShellExecution": {
+            "conversation_id": "conv-abc",
+            "generation_id": "gen-ase",
+            "command": "ls",
+            "output": "ok",
+        },
+        "afterMCPExecution": {
+            "conversation_id": "conv-abc",
+            "generation_id": "gen-ame",
+            "tool_name": "my_tool",
+            "result": "ok",
+        },
+        "beforeReadFile": {
+            "conversation_id": "conv-abc",
+            "generation_id": "gen-brf",
+            "file_path": "/tmp/a.py",
+        },
+        "afterFileEdit": {
+            "conversation_id": "conv-abc",
+            "generation_id": "gen-afe",
+            "file_path": "/tmp/a.py",
+        },
+        "beforeTabFileRead": {
+            "conversation_id": "conv-abc",
+            "generation_id": "gen-btfr",
+            "file_path": "/tmp/a.py",
+        },
+        "afterTabFileEdit": {
+            "conversation_id": "conv-abc",
+            "generation_id": "gen-atfe",
+            "file_path": "/tmp/a.py",
+        },
+        "stop": {
+            "conversation_id": "conv-abc",
+            "generation_id": "gen-stop",
+            "status": "completed",
+        },
+        "sessionStart": {
+            "conversation_id": "conv-abc",
+            "generation_id": "gen-ss",
+            "cwd": "/tmp",
+        },
+        "sessionEnd": {
+            "conversation_id": "conv-abc",
+            "generation_id": "gen-se",
+        },
+        "postToolUse": {
+            "conversation_id": "conv-abc",
+            "generation_id": "gen-ptu",
+            "toolName": "glob",
+            "toolInput": "*.py",
+        },
+    }
+
+    # Events that push state but don't emit a span
+    _NO_SPAN_EVENTS = {"beforeShellExecution", "beforeMCPExecution"}
+
+    @pytest.mark.parametrize(
+        "event",
+        [e for e in _EVENT_PAYLOADS],
+    )
+    def test_conversation_id_attribute_on_every_handler(self, captured_spans, monkeypatch, event):
+        """Every span-producing handler includes cursor.conversation.id."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_save"),
+            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation"),
+            mock.patch("cursor_tracing.hooks.handlers.state_pop", return_value=None),
+        ):
+            _dispatch(event, self._EVENT_PAYLOADS[event])
+
+        assert len(captured_spans) >= 1, f"No spans emitted for {event}"
+        for sent in captured_spans:
+            span = sent["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+            attrs = {a["key"]: a["value"] for a in span["attributes"]}
+            assert (
+                attrs.get("cursor.conversation.id", {}).get("stringValue") == "conv-abc"
+            ), f"cursor.conversation.id missing or wrong on {event} span {span['name']}"
+
+    def test_conversation_id_attribute_omitted_when_missing(self, captured_spans, monkeypatch):
+        """When conversation_id is empty, cursor.conversation.id is not set."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation"),
+        ):
+            _dispatch(
+                "stop",
+                {
+                    "generation_id": "gen-1",
+                    "status": "completed",
+                },
+            )
+
+        attr_keys = {a["key"] for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
+        assert "cursor.conversation.id" not in attr_keys
+
+
+# ---------------------------------------------------------------------------
+# IDE-safety regression test
+# ---------------------------------------------------------------------------
+
+
+class TestIdeSafety:
+
+    def test_ide_payload_with_no_post_tool_use_unaffected(self, captured_spans, monkeypatch):
+        """IDE dispatches before/afterShellExecution without postToolUse — exactly 1 span from after."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="root-ide"),
+        ):
+            _dispatch(
+                "beforeShellExecution",
+                {
+                    "hook_event_name": "beforeShellExecution",
+                    "conversation_id": "conv-ide",
+                    "generation_id": "gen-ide",
+                    "command": "echo hello",
+                    "cwd": "/tmp",
+                },
+            )
+
+        # beforeShellExecution emits no span
+        assert len(captured_spans) == 0
+
+        with (
+            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="root-ide"),
+        ):
+            _dispatch(
+                "afterShellExecution",
+                {
+                    "hook_event_name": "afterShellExecution",
+                    "conversation_id": "conv-ide",
+                    "generation_id": "gen-ide",
+                    "command": "echo hello",
+                    "output": "hello",
+                    "exit_code": "0",
+                },
+            )
+
+        # afterShellExecution emits exactly one span
+        assert len(captured_spans) == 1
+        span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert span["name"] == "Shell"
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["openinference.span.kind"]["stringValue"] == "TOOL"
+        assert attrs["tool.name"]["stringValue"] == "shell"
