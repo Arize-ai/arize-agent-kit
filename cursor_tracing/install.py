@@ -14,12 +14,14 @@ from core.setup import (
     info,
     merge_harness_entry,
     prompt_backend,
+    prompt_content_logging,
     prompt_project_name,
     prompt_user_id,
     remove_harness_entry,
     symlink_skills,
     unlink_skills,
     venv_bin,
+    write_logging_config,
 )
 from cursor_tracing.constants import (
     DISPLAY_NAME,
@@ -64,6 +66,14 @@ def install(with_skills: bool = False) -> None:
     else:
         project_name = prompt_project_name(get_value(config, f"harnesses.{HARNESS_NAME}.project_name") or HARNESS_NAME)
         merge_harness_entry(HARNESS_NAME, project_name)
+
+    # Logging settings are global. Prompt only if no `logging:` block exists yet —
+    # subsequent harness installs reuse what the first wizard wrote.
+    if (config.get("logging") if config else None) is None:
+        logging_block = prompt_content_logging()
+        write_logging_config(logging_block)
+    else:
+        info("Using existing logging settings from config.yaml")
 
     _register_cursor_hooks()
     if with_skills:

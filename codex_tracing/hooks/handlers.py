@@ -29,11 +29,13 @@ from core.common import (
     build_multi_span,
     build_span,
     debug_dump,
+    env,
     error,
     generate_span_id,
     generate_trace_id,
     get_timestamp_ms,
     log,
+    redact_content,
 )
 from core.common import send_span as send_span_to_backend
 
@@ -400,6 +402,7 @@ def _build_child_spans(
             # arguments contains the tool input as JSON (e.g. {"cmd":"pwd","workdir":"..."})
             tool_input = str(ra.get("arguments") or ra.get("input") or "")
             tool_output = str(ra.get("output") or ra.get("result") or ra.get("tool.output") or "")
+            tool_output = redact_content(env.log_tool_content, tool_output)
             tool_duration_ms = _safe_int(ra.get("duration_ms", 0))
 
         tool_start_ms = decision_ns // 1_000_000 or event_start_time
@@ -506,6 +509,9 @@ def _handle_notify(input_json: dict) -> None:
 
     if not assistant_output:
         assistant_output = "(No response)"
+
+    # Redact user prompt unless opted in. Model responses are always included.
+    user_prompt = redact_content(env.log_prompts, user_prompt)
 
     debug_dump(f"{debug_prefix}_text", {"input": user_prompt, "assistant": assistant_output})
 

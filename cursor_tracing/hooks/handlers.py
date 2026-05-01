@@ -10,7 +10,7 @@ stderr: redirected to ARIZE_LOG_FILE before dispatch.
 import json
 import sys
 
-from core.common import build_span, env, error, get_timestamp_ms, log, send_span
+from core.common import build_span, env, error, get_timestamp_ms, log, redact_content, send_span
 from cursor_tracing.hooks.adapter import (
     SCOPE_NAME,
     SERVICE_NAME,
@@ -164,7 +164,7 @@ def _handle_before_submit_prompt(input_json, conversation_id, gen_id, trace_id, 
     sid = span_id_16()
     gen_root_span_save(gen_id, sid)
 
-    prompt = _jq_str(input_json, "prompt", "input", "text")
+    prompt = redact_content(env.log_prompts, _jq_str(input_json, "prompt", "input", "text"))
     model = _jq_str(input_json, "model", "model_name")
     deferred_root = _is_cursor_ide_hook_payload(input_json)
 
@@ -358,6 +358,9 @@ def _handle_after_shell_execution(input_json, conversation_id, gen_id, trace_id,
     output = _jq_str(input_json, "output", "stdout", "result")
     exit_code = _jq_str(input_json, "exit_code", "exitCode")
 
+    command = redact_content(env.log_tool_details, command)
+    output = redact_content(env.log_tool_content, output)
+
     attrs = {
         "openinference.span.kind": "TOOL",
         "tool.name": "shell",
@@ -400,9 +403,9 @@ def _handle_before_mcp_execution(input_json, conversation_id, gen_id, trace_id, 
         f"mcp_{sanitize(gen_id)}",
         {
             "tool_name": tool_name,
-            "tool_input": tool_input,
-            "url": mcp_url,
-            "command": mcp_cmd,
+            "tool_input": redact_content(env.log_tool_content, tool_input),
+            "url": redact_content(env.log_tool_details, mcp_url),
+            "command": redact_content(env.log_tool_details, mcp_cmd),
             "start_ms": str(now_ms),
             "trace_id": trace_id,
             "conversation_id": conversation_id,
@@ -433,7 +436,7 @@ def _handle_after_mcp_execution(input_json, conversation_id, gen_id, trace_id, n
         tool_name = after_tool
     tool_name = tool_name or "unknown"
 
-    result = _jq_str(input_json, "result", "output", "result_json")
+    result = redact_content(env.log_tool_content, _jq_str(input_json, "result", "output", "result_json"))
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -466,7 +469,7 @@ def _handle_before_read_file(input_json, conversation_id, gen_id, trace_id, now_
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
-    file_path = _jq_str(input_json, "file_path", "filePath", "path")
+    file_path = redact_content(env.log_tool_details, _jq_str(input_json, "file_path", "filePath", "path"))
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -501,6 +504,7 @@ def _handle_after_file_edit(input_json, conversation_id, gen_id, trace_id, now_m
     file_path = _jq_str(input_json, "file_path", "filePath", "path")
     edits = _jq_str(input_json, "edits", "changes", "diff")
     input_val = f"{file_path}: {edits}" if edits else file_path
+    input_val = redact_content(env.log_tool_details, input_val)
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -532,7 +536,7 @@ def _handle_before_tab_file_read(input_json, conversation_id, gen_id, trace_id, 
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
-    file_path = _jq_str(input_json, "file_path", "filePath", "path")
+    file_path = redact_content(env.log_tool_details, _jq_str(input_json, "file_path", "filePath", "path"))
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -567,6 +571,7 @@ def _handle_after_tab_file_edit(input_json, conversation_id, gen_id, trace_id, n
     file_path = _jq_str(input_json, "file_path", "filePath", "path")
     edits = _jq_str(input_json, "edits", "changes", "diff")
     input_val = f"{file_path}: {edits}" if edits else file_path
+    input_val = redact_content(env.log_tool_details, input_val)
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -796,6 +801,9 @@ def _handle_post_tool_use(input_json, conversation_id, gen_id, trace_id, now_ms)
 
     tool_input = _jq_str(input_json, "tool_input", "toolInput", "input", "arguments", "args")
     output = _jq_str(input_json, "result", "output", "response", "stdout")
+
+    tool_input = redact_content(env.log_tool_content, tool_input)
+    output = redact_content(env.log_tool_content, output)
 
     attrs = {
         "openinference.span.kind": "TOOL",

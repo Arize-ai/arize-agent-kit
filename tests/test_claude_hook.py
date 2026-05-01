@@ -39,6 +39,14 @@ from core.common import StateManager
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _enable_logging(monkeypatch):
+    """Existing assertions expect raw content in spans; opt in to all logging."""
+    monkeypatch.setenv("ARIZE_LOG_PROMPTS", "true")
+    monkeypatch.setenv("ARIZE_LOG_TOOL_DETAILS", "true")
+    monkeypatch.setenv("ARIZE_LOG_TOOL_CONTENT", "true")
+
+
 @pytest.fixture
 def state(tmp_path):
     """Create a StateManager with a temp state file, pre-initialized."""
@@ -1172,3 +1180,85 @@ class TestEntryPoints:
             entry_fn()  # should not raise
         captured = capsys.readouterr()
         assert "test-boom" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# Content redaction (security flags)
+# ---------------------------------------------------------------------------
+
+
+def _attrs(span):
+    """Helper: extract a span payload's attributes as a {key: value-dict} mapping."""
+    return {a["key"]: a["value"] for a in span["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
+
+
+class TestContentRedaction:
+    """Verify ARIZE_LOG_PROMPTS / TOOL_DETAILS / TOOL_CONTENT control span content."""
+
+    @pytest.fixture(autouse=True)
+    def _redaction_defaults(self, monkeypatch):
+        # Override the module-level _enable_logging fixture: turn everything off
+        # except prompts (which defaults on per the design).
+        monkeypatch.setenv("ARIZE_LOG_PROMPTS", "true")
+        monkeypatch.setenv("ARIZE_LOG_TOOL_DETAILS", "false")
+        monkeypatch.setenv("ARIZE_LOG_TOOL_CONTENT", "false")
+
+    def test_post_tool_use_redacts_content_and_details_by_default(self, mock_resolve, state, captured_spans):
+        state.set("current_trace_id", "trace-abc")
+        state.set("current_trace_span_id", "span-parent")
+        _handle_post_tool_use(
+            {
+                "tool_name": "Read",
+                "tool_use_id": "t1",
+                "tool_input": {"file_path": "/secret/path.py"},
+                "tool_response": "secret content",
+            }
+        )
+        attrs = _attrs(captured_spans[0])
+        assert attrs["input.value"]["stringValue"].startswith("<redacted (")
+        assert attrs["output.value"]["stringValue"].startswith("<redacted (")
+        assert attrs["tool.file_path"]["stringValue"].startswith("<redacted (")
+        assert attrs["tool.description"]["stringValue"].startswith("<redacted (")
+
+    def test_post_tool_use_no_zero_redacted_for_empty_optional_fields(self, mock_resolve, state, captured_spans):
+        """Non-Bash tools should not emit a `<redacted (0 chars)>` tool.command attr."""
+        state.set("current_trace_id", "trace-abc")
+        state.set("current_trace_span_id", "span-parent")
+        _handle_post_tool_use(
+            {
+                "tool_name": "Read",
+                "tool_use_id": "t1",
+                "tool_input": {"file_path": "/foo.py"},
+                "tool_response": "x",
+            }
+        )
+        attrs = _attrs(captured_spans[0])
+        assert "tool.command" not in attrs
+        assert "tool.url" not in attrs
+        assert "tool.query" not in attrs
+
+    def test_user_prompt_redacted_when_flag_off(self, mock_resolve, state, captured_spans, monkeypatch):
+        monkeypatch.setenv("ARIZE_LOG_PROMPTS", "false")
+        _handle_user_prompt_submit({"prompt": "secret prompt", "session_id": "s1"})
+        stored = state.get("current_trace_prompt")
+        assert stored is not None and stored.startswith("<redacted (")
+
+    def test_user_prompt_kept_when_flag_on(self, mock_resolve, state):
+        _handle_user_prompt_submit({"prompt": "hello", "session_id": "s1"})
+        assert state.get("current_trace_prompt") == "hello"
+
+    def test_permission_request_redacts_tool_input(self, mock_resolve, state, captured_spans):
+        state.set("current_trace_id", "trace-abc")
+        state.set("current_trace_span_id", "span-parent")
+        _handle_permission_request({"permission": "ask", "tool_name": "Bash", "tool_input": {"command": "rm -rf /"}})
+        attrs = _attrs(captured_spans[0])
+        assert attrs["input.value"]["stringValue"].startswith("<redacted (")
+
+    def test_notification_redacts_message_when_prompts_off(self, mock_resolve, state, captured_spans, monkeypatch):
+        monkeypatch.setenv("ARIZE_LOG_PROMPTS", "false")
+        state.set("current_trace_id", "trace-abc")
+        state.set("current_trace_span_id", "span-parent")
+        _handle_notification({"message": "hi", "title": "alert", "type": "info"})
+        attrs = _attrs(captured_spans[0])
+        assert attrs["notification.message"]["stringValue"].startswith("<redacted (")
+        assert attrs["notification.title"]["stringValue"].startswith("<redacted (")

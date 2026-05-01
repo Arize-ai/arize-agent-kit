@@ -54,6 +54,12 @@ def _mock_prompts(monkeypatch, backend=None):
     )
     monkeypatch.setattr(_install, "prompt_project_name", lambda default: default)
     monkeypatch.setattr(_install, "prompt_user_id", lambda: "")
+    monkeypatch.setattr(
+        _install,
+        "prompt_content_logging",
+        lambda: {"prompts": True, "tool_details": True, "tool_content": True},
+    )
+    monkeypatch.setattr(_install, "write_logging_config", lambda block, config_path=None: None)
     monkeypatch.setattr("sys.stdout", _fake_stdout())
 
 
@@ -211,6 +217,12 @@ class TestInstallSecondHarnessOffersCopyFrom:
         monkeypatch.setattr(_install, "prompt_backend", fake_prompt_backend)
         monkeypatch.setattr(_install, "prompt_project_name", lambda default: default)
         monkeypatch.setattr(_install, "prompt_user_id", lambda: "")
+        monkeypatch.setattr(
+            _install,
+            "prompt_content_logging",
+            lambda: {"prompts": True, "tool_details": True, "tool_content": True},
+        )
+        monkeypatch.setattr(_install, "write_logging_config", lambda block, config_path=None: None)
         monkeypatch.setattr("sys.stdout", _fake_stdout())
 
         install()
@@ -253,6 +265,12 @@ class TestInstallExistingCopilotEntryOnlyUpdatesProjectName:
 
         # prompt_project_name returns a new name
         monkeypatch.setattr(_install, "prompt_project_name", lambda default: "my-copilot")
+        monkeypatch.setattr(
+            _install,
+            "prompt_content_logging",
+            lambda: {"prompts": True, "tool_details": True, "tool_content": True},
+        )
+        monkeypatch.setattr(_install, "write_logging_config", lambda block, config_path=None: None)
         monkeypatch.setattr("sys.stdout", _fake_stdout())
 
         install()

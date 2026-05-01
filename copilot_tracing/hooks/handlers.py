@@ -23,11 +23,13 @@ from copilot_tracing.hooks.adapter import (
 from core.common import (
     StateManager,
     build_span,
+    env,
     error,
     generate_span_id,
     generate_trace_id,
     get_timestamp_ms,
     log,
+    redact_content,
     send_span,
 )
 
@@ -141,7 +143,7 @@ def _save_pending_turn(state: StateManager, prompt: str) -> None:
     """CLI mode: save a new prompt as a pending turn for deferred sending."""
     state.increment("trace_count")
     trace_count = state.get("trace_count") or "1"
-    state.set("pending_turn_prompt", prompt)
+    state.set("pending_turn_prompt", redact_content(env.log_prompts, prompt))
     state.set("pending_turn_trace_id", generate_trace_id())
     state.set("pending_turn_span_id", generate_span_id())
     state.set("pending_turn_start_time", str(get_timestamp_ms()))
@@ -169,7 +171,7 @@ def _handle_session_start(input_json: dict) -> None:
     initial_prompt = input_json.get("initialPrompt", "")
     if initial_prompt:
         if vscode:
-            state.set("initial_prompt", initial_prompt)
+            state.set("initial_prompt", redact_content(env.log_prompts, initial_prompt))
         else:
             # CLI: save as pending turn for deferred sending
             _save_pending_turn(state, initial_prompt)
@@ -224,7 +226,7 @@ def _handle_user_prompt_submitted(input_json: dict) -> None:
         state.set("current_trace_id", generate_trace_id())
         state.set("current_trace_span_id", generate_span_id())
         state.set("current_trace_start_time", str(get_timestamp_ms()))
-        state.set("current_trace_prompt", prompt)
+        state.set("current_trace_prompt", redact_content(env.log_prompts, prompt))
 
         # Track transcript position
         transcript = input_json.get("transcript_path", "")
@@ -326,6 +328,20 @@ def _handle_post_tool_use(input_json: dict) -> None:
     start_time = state.get(f"tool_{tool_id}_start") or str(get_timestamp_ms())
     end_time = str(get_timestamp_ms())
     state.delete(f"tool_{tool_id}_start")
+
+    # Redaction: tool input/output may contain raw file contents or command output;
+    # tool_command/file_path/url/query/description describe what was requested.
+    tool_input = redact_content(env.log_tool_content, tool_input)
+    tool_response = redact_content(env.log_tool_content, tool_response)
+    tool_description = redact_content(env.log_tool_details, tool_description)
+    if tool_command:
+        tool_command = redact_content(env.log_tool_details, tool_command)
+    if tool_file_path:
+        tool_file_path = redact_content(env.log_tool_details, tool_file_path)
+    if tool_url:
+        tool_url = redact_content(env.log_tool_details, tool_url)
+    if tool_query:
+        tool_query = redact_content(env.log_tool_details, tool_query)
 
     # Build attributes
     user_id = state.get("user_id") or ""

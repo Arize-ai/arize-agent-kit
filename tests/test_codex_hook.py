@@ -33,6 +33,14 @@ def _mock_sleep(monkeypatch):
     return sleep_calls
 
 
+@pytest.fixture(autouse=True)
+def _enable_logging(monkeypatch):
+    """Existing assertions expect raw content; opt in to all logging by default."""
+    monkeypatch.setenv("ARIZE_LOG_PROMPTS", "true")
+    monkeypatch.setenv("ARIZE_LOG_TOOL_DETAILS", "true")
+    monkeypatch.setenv("ARIZE_LOG_TOOL_CONTENT", "true")
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

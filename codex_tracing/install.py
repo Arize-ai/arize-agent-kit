@@ -41,6 +41,7 @@ from core.setup import (
     info,
     merge_harness_entry,
     prompt_backend,
+    prompt_content_logging,
     prompt_project_name,
     prompt_user_id,
     remove_harness_entry,
@@ -48,6 +49,7 @@ from core.setup import (
     unlink_skills,
     venv_bin,
     write_config,
+    write_logging_config,
 )
 
 # Try to import tomllib (3.11+), then tomli, then fall back to None
@@ -791,6 +793,14 @@ def install(with_skills: bool = False) -> None:
             )
         else:
             info("would write config.yaml with backend credentials")
+
+    # Logging settings are global. Prompt only if no `logging:` block exists yet —
+    # subsequent harness installs reuse what the first wizard wrote.
+    if (config.get("logging") if config else None) is None:
+        logging_block = prompt_content_logging()
+        write_logging_config(logging_block)
+    else:
+        info("Using existing logging settings from config.yaml")
 
     # 3. Ensure codex config dir exists
     if not dry_run():

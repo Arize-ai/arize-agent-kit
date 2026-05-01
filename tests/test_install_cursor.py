@@ -101,6 +101,12 @@ def _mock_prompts(monkeypatch, backend=None):
     )
     monkeypatch.setattr(cursor_install, "prompt_project_name", lambda default: default)
     monkeypatch.setattr(cursor_install, "prompt_user_id", lambda: "")
+    monkeypatch.setattr(
+        cursor_install,
+        "prompt_content_logging",
+        lambda: {"prompts": True, "tool_details": True, "tool_content": True},
+    )
+    monkeypatch.setattr(cursor_install, "write_logging_config", lambda block, config_path=None: None)
     monkeypatch.setattr("sys.stdout", _fake_stdout())
 
 
@@ -209,6 +215,12 @@ class TestCopyFrom:
         monkeypatch.setattr(cursor_install, "prompt_backend", fake_prompt_backend)
         monkeypatch.setattr(cursor_install, "prompt_project_name", lambda default: default)
         monkeypatch.setattr(cursor_install, "prompt_user_id", lambda: "")
+        monkeypatch.setattr(
+            cursor_install,
+            "prompt_content_logging",
+            lambda: {"prompts": True, "tool_details": True, "tool_content": True},
+        )
+        monkeypatch.setattr(cursor_install, "write_logging_config", lambda block, config_path=None: None)
         monkeypatch.setattr("sys.stdout", _fake_stdout())
 
         cursor_install.install(with_skills=False)
@@ -255,6 +267,12 @@ class TestExistingEntry:
         monkeypatch.setattr(cursor_install, "prompt_backend", fail_prompt_backend)
         monkeypatch.setattr(cursor_install, "prompt_project_name", lambda default: "my-cursor")
         monkeypatch.setattr(cursor_install, "prompt_user_id", lambda: "")
+        monkeypatch.setattr(
+            cursor_install,
+            "prompt_content_logging",
+            lambda: {"prompts": True, "tool_details": True, "tool_content": True},
+        )
+        monkeypatch.setattr(cursor_install, "write_logging_config", lambda block, config_path=None: None)
         monkeypatch.setattr("sys.stdout", _fake_stdout())
 
         cursor_install.install(with_skills=False)

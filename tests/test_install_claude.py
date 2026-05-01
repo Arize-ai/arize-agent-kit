@@ -89,6 +89,10 @@ def _mock_prompts(monkeypatch, backend=None):
     )
     monkeypatch.setattr(claude_install, "prompt_project_name", lambda default: default)
     monkeypatch.setattr(claude_install, "prompt_user_id", lambda: "")
+    monkeypatch.setattr(
+        claude_install, "prompt_content_logging", lambda: {"prompts": True, "tool_details": True, "tool_content": True}
+    )
+    monkeypatch.setattr(claude_install, "write_logging_config", lambda block, config_path=None: None)
     monkeypatch.setattr("sys.stdout", _fake_stdout())
 
 
@@ -251,6 +255,12 @@ class TestCopyFrom:
         )
         monkeypatch.setattr(claude_install, "prompt_project_name", lambda default: default)
         monkeypatch.setattr(claude_install, "prompt_user_id", lambda: "")
+        monkeypatch.setattr(
+            claude_install,
+            "prompt_content_logging",
+            lambda: {"prompts": True, "tool_details": True, "tool_content": True},
+        )
+        monkeypatch.setattr(claude_install, "write_logging_config", lambda block, config_path=None: None)
         monkeypatch.setattr("sys.stdout", _fake_stdout())
 
         claude_install.install(with_skills=False)

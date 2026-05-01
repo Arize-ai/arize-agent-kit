@@ -74,6 +74,17 @@ def fake_home(tmp_path, monkeypatch):
     return tmp_path
 
 
+@pytest.fixture(autouse=True)
+def _stub_logging_prompts(monkeypatch):
+    """Auto-stub the content-logging wizard so tests don't block on stdin."""
+    monkeypatch.setattr(
+        codex_install,
+        "prompt_content_logging",
+        lambda: {"prompts": True, "tool_details": True, "tool_content": True},
+    )
+    monkeypatch.setattr(codex_install, "write_logging_config", lambda block, config_path=None: None)
+
+
 @pytest.fixture()
 def mock_buffer():
     """Mock the buffer service control functions."""

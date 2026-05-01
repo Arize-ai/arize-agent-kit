@@ -17,7 +17,17 @@ from claude_code_tracing.hooks.adapter import (
     resolve_session,
     resolve_transcript_path,
 )
-from core.common import build_span, error, generate_span_id, generate_trace_id, get_timestamp_ms, log, send_span
+from core.common import (
+    build_span,
+    env,
+    error,
+    generate_span_id,
+    generate_trace_id,
+    get_timestamp_ms,
+    log,
+    redact_content,
+    send_span,
+)
 
 # ---------------------------------------------------------------------------
 # Shared helper
@@ -102,6 +112,20 @@ def _handle_post_tool_use(input_json: dict) -> None:
     end_time = str(get_timestamp_ms())
     state.delete(f"tool_{tool_id}_start")
 
+    # Redaction: tool input/output may contain raw file contents or command output;
+    # tool_command/file_path/url/query/description describe what was requested.
+    tool_input = redact_content(env.log_tool_content, tool_input)
+    tool_response = redact_content(env.log_tool_content, tool_response)
+    tool_description = redact_content(env.log_tool_details, tool_description)
+    if tool_command:
+        tool_command = redact_content(env.log_tool_details, tool_command)
+    if tool_file_path:
+        tool_file_path = redact_content(env.log_tool_details, tool_file_path)
+    if tool_url:
+        tool_url = redact_content(env.log_tool_details, tool_url)
+    if tool_query:
+        tool_query = redact_content(env.log_tool_details, tool_query)
+
     # Build attributes
     user_id = state.get("user_id") or ""
     attrs = {
@@ -184,7 +208,8 @@ def _handle_user_prompt_submit(input_json: dict) -> None:
     state.set("current_trace_id", generate_trace_id())
     state.set("current_trace_span_id", generate_span_id())
     state.set("current_trace_start_time", str(get_timestamp_ms()))
-    state.set("current_trace_prompt", input_json.get("prompt", "") or "")
+    prompt = input_json.get("prompt", "") or ""
+    state.set("current_trace_prompt", redact_content(env.log_prompts, prompt))
 
     # Track transcript position
     transcript = input_json.get("transcript_path", "")
@@ -378,6 +403,9 @@ def _handle_subagent_stop(input_json: dict) -> None:
     if not output:
         output = "(No response)"
 
+    # Subagent output is a tool-like result — redact unless opted in.
+    output = redact_content(env.log_tool_content, output)
+
     total_tokens = in_tokens + out_tokens
 
     # Build attributes
@@ -476,8 +504,8 @@ def _handle_notification(input_json: dict) -> None:
         return
 
     session_id = state.get("session_id")
-    message = input_json.get("message", "")
-    title = input_json.get("title", "")
+    message = redact_content(env.log_prompts, input_json.get("message", ""))
+    title = redact_content(env.log_prompts, input_json.get("title", ""))
     notification_type = input_json.get("type", "info")
 
     attrs = {
@@ -520,7 +548,7 @@ def _handle_permission_request(input_json: dict) -> None:
     session_id = state.get("session_id")
     permission = input_json.get("permission", "")
     tool_name = input_json.get("tool_name", "")
-    tool_input = json.dumps(input_json.get("tool_input", {}))
+    tool_input = redact_content(env.log_tool_details, json.dumps(input_json.get("tool_input", {})))
 
     attrs = {
         "session.id": session_id,

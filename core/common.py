@@ -6,6 +6,7 @@ key-value state backed by YAML files), and OTLP span building functions.
 Replaces the jq-based state functions in common.sh lines 46-109 and
 build_span/build_multi_span from common.sh lines 277-317 / codex common.sh lines 110-145.
 """
+import functools
 import json as _json
 import os
 import shutil
@@ -65,8 +66,53 @@ class _Env:
     def space_id(self) -> str:
         return os.environ.get("ARIZE_SPACE_ID", "")
 
+    @functools.cached_property
+    def _logging_config(self) -> dict:
+        """Top-level `logging:` block from config.yaml. Loaded once per process."""
+        try:
+            from core.config import load_config
+
+            block = load_config().get("logging")
+            return block if isinstance(block, dict) else {}
+        except Exception:
+            return {}
+
+    def _resolve_log_flag(self, env_key: str, config_key: str, default: bool) -> bool:
+        """env var > config.yaml `logging.<key>` > default."""
+        raw = os.environ.get(env_key)
+        if raw is not None:
+            return raw.lower() == "true"
+        val = self._logging_config.get(config_key)
+        if isinstance(val, bool):
+            return val
+        return default
+
+    @property
+    def log_prompts(self) -> bool:
+        return self._resolve_log_flag("ARIZE_LOG_PROMPTS", "prompts", True)
+
+    @property
+    def log_tool_details(self) -> bool:
+        return self._resolve_log_flag("ARIZE_LOG_TOOL_DETAILS", "tool_details", True)
+
+    @property
+    def log_tool_content(self) -> bool:
+        return self._resolve_log_flag("ARIZE_LOG_TOOL_CONTENT", "tool_content", True)
+
 
 env = _Env()
+
+
+def redact_content(allowed: bool, content: str) -> str:
+    """Return content if logging is enabled, else a length-only placeholder.
+
+    Used to keep size/debugging signal while stripping sensitive payloads
+    (prompts, tool arguments, tool output) from exported spans.
+    """
+    text = content or ""
+    if allowed:
+        return text
+    return f"<redacted ({len(text)} chars)>"
 
 
 # ---------------------------------------------------------------------------

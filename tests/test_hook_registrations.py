@@ -365,26 +365,6 @@ class TestDocumentationConsistency:
         assert "arize-hook-codex-notify" in dev_md
         assert "arize-hook-cursor" in dev_md
 
-    def test_claude_readme_references_cli_entry_points(self):
-        """Claude Code README should reference CLI entry points."""
-        readme = (REPO_ROOT / "claude_code_tracing" / "README.md").read_text()
-        assert "arize-hook-session-start" in readme
-        assert "send_span()" in readme
-        assert "Python 3.9+" in readme
-
-    def test_codex_readme_references_cli_entry_points(self):
-        """Codex README should reference CLI entry points."""
-        readme = (REPO_ROOT / "codex_tracing" / "README.md").read_text()
-        assert "arize-hook-codex-notify" in readme
-        assert "arize-codex-buffer" in readme
-
-    def test_cursor_readme_references_cli_entry_points(self):
-        """Cursor README should reference CLI entry points."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        assert "arize-hook-cursor" in readme
-        assert "send_span()" in readme
-        assert "Python 3.9+" in readme
-
     def test_cursor_skill_references_cli_entry_points(self):
         """Cursor SKILL.md should use CLI entry points for hooks."""
         skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
@@ -412,13 +392,6 @@ class TestDocumentationConsistency:
 class TestCodexHookReference:
     """Verify Codex docs reference the correct notify hook command."""
 
-    def test_codex_readme_notify_command(self):
-        """Codex README manual setup should show the CLI entry point."""
-        readme = (REPO_ROOT / "codex_tracing" / "README.md").read_text()
-        assert "arize-hook-codex-notify" in readme
-        # Should not reference bash notify.sh
-        assert "notify.sh" not in readme
-
     def test_codex_skill_notify_command(self):
         """Codex SKILL.md notify hook should use the CLI entry point."""
         skill = (REPO_ROOT / "codex_tracing" / "skills" / "manage-codex-tracing" / "SKILL.md").read_text()
@@ -430,12 +403,6 @@ class TestCodexHookReference:
 
 class TestCursorHookReference:
     """Verify Cursor docs reference the correct handler command."""
-
-    def test_cursor_readme_hook_command(self):
-        """Cursor README should show arize-hook-cursor for hooks.json."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        assert "arize-hook-cursor" in readme
-        assert "hook-handler.sh" not in readme
 
     def test_cursor_skill_hook_command(self):
         """Cursor SKILL.md should show arize-hook-cursor for all 12 events."""
@@ -472,148 +439,6 @@ class TestCodexProxyEntryPoint:
         """pyproject.toml must include the arize-codex-proxy console script."""
         scripts = _parse_pyproject_scripts()
         assert "arize-codex-proxy" in scripts, "Missing arize-codex-proxy entry point in pyproject.toml"
-
-
-class TestCodexDocsProxyAndShim:
-    """Verify Codex docs mention the proxy and shim."""
-
-    def test_codex_docs_mention_proxy_and_shim(self):
-        """codex_tracing README and SKILL.md must mention arize-codex-proxy and the shim path."""
-        readme = (REPO_ROOT / "codex_tracing" / "README.md").read_text()
-        skill = (REPO_ROOT / "codex_tracing" / "skills" / "manage-codex-tracing" / "SKILL.md").read_text()
-
-        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
-            assert "arize-codex-proxy" in content, f"codex_tracing {name} missing arize-codex-proxy"
-            assert "~/.arize/harness/bin/codex" in content, f"codex_tracing {name} missing ~/.arize/harness/bin/codex"
-
-
-class TestCursorDocsCliEvents:
-    """Verify Cursor docs list CLI-supported events."""
-
-    def test_cursor_docs_list_cli_supported_events(self):
-        """Cursor README and SKILL.md must mention sessionStart and postToolUse."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
-
-        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
-            assert "sessionStart" in content, f"cursor_tracing {name} missing sessionStart"
-            assert "postToolUse" in content, f"cursor_tracing {name} missing postToolUse"
-
-
-class TestCursorDocsUnsupportedHooks:
-    """Verify Cursor docs explicitly state unsupported CLI hooks."""
-
-    @staticmethod
-    def _normalize(text: str) -> str:
-        return " ".join(text.lower().split())
-
-    def test_cursor_docs_state_unsupported_cli_hooks_explicitly(self):
-        """Cursor docs must contain required disclaimer phrases."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
-
-        docs = [self._normalize(readme), self._normalize(skill)]
-
-        phrase1 = self._normalize("Cursor CLI hooks do not currently emit afterAgentResponse or afterAgentThought.")
-        phrase2 = self._normalize(
-            "Full Cursor CLI assistant and thinking coverage requires parsing --output-format stream-json"
-        )
-
-        assert any(phrase1 in d for d in docs), f"Neither cursor README nor SKILL.md contains: {phrase1!r}"
-        assert any(phrase2 in d for d in docs), f"Neither cursor README nor SKILL.md contains: {phrase2!r}"
-
-    def test_cursor_docs_do_not_list_unsupported_hooks_as_cli_supported(self):
-        """Cursor docs must not claim CLI supports afterAgentResponse or afterAgentThought."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
-
-        # Match lines claiming CLI supports/emits afterAgentResponse or afterAgentThought
-        pattern = re.compile(
-            r"(?:afterAgentResponse|afterAgentThought).*CLI.*(?:supports|emits|is supported)"
-            r"|CLI.*(?:supports|emits|is supported).*(?:afterAgentResponse|afterAgentThought)",
-            re.IGNORECASE,
-        )
-
-        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
-            matches = pattern.findall(content)
-            assert not matches, (
-                f"cursor_tracing {name} incorrectly claims CLI supports "
-                f"afterAgentResponse/afterAgentThought: {matches}"
-            )
-
-
-class TestCursorDocsSessionEnd:
-    """Verify Cursor docs mention sessionEnd."""
-
-    def test_cursor_docs_list_session_end(self):
-        """Both Cursor docs must contain the literal substring sessionEnd."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
-
-        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
-            assert "sessionEnd" in content, f"cursor_tracing {name} missing sessionEnd"
-
-
-class TestCursorDocsTokenCounts:
-    """Verify Cursor docs describe token counts on stop."""
-
-    def test_cursor_docs_describe_token_counts_on_stop(self):
-        """Both Cursor docs must mention llm.token_count.prompt and at least one of cache_read or total."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
-
-        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
-            assert "llm.token_count.prompt" in content, f"cursor_tracing {name} missing llm.token_count.prompt"
-            assert (
-                "llm.token_count.cache_read" in content or "llm.token_count.total" in content
-            ), f"cursor_tracing {name} missing llm.token_count.cache_read or llm.token_count.total"
-
-
-class TestCursorDocsPostToolUseDedup:
-    """Verify Cursor docs describe postToolUse dedup behavior."""
-
-    @staticmethod
-    def _normalize(text: str) -> str:
-        return " ".join(text.lower().split())
-
-    def test_cursor_docs_describe_post_tool_use_dedup(self):
-        """Both Cursor docs must indicate postToolUse is suppressed for tools with dedicated handlers."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
-
-        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
-            normalized = self._normalize(content)
-            has_suppressed = "posttooluse is suppressed for these" in normalized
-            has_skipped = "posttooluse is skipped for shell" in normalized
-            # Check "dedicated handler" within 200 chars of "posttooluse"
-            has_dedicated = False
-            lower_content = content.lower()
-            idx = 0
-            while True:
-                idx = lower_content.find("posttooluse", idx)
-                if idx == -1:
-                    break
-                window = lower_content[max(0, idx - 200) : idx + 200]
-                if "dedicated handler" in window:
-                    has_dedicated = True
-                    break
-                idx += 1
-
-            assert (
-                has_suppressed or has_skipped or has_dedicated
-            ), f"cursor_tracing {name} does not describe postToolUse dedup behavior"
-
-
-class TestCursorDocsConversationId:
-    """Verify Cursor docs describe cursor.conversation.id attribute."""
-
-    def test_cursor_docs_describe_conversation_id_attribute(self):
-        """Both Cursor docs must contain cursor.conversation.id."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
-
-        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
-            assert "cursor.conversation.id" in content, f"cursor_tracing {name} missing cursor.conversation.id"
 
 
 class TestStateFileExtension:

@@ -504,8 +504,9 @@ class TestClaudeSetup:
         """Full Claude _run() flow for Phoenix backend writes settings.json and config.yaml."""
         config_path, settings_file = self._setup_install_env(tmp_path, monkeypatch)
 
-        # Inputs: backend=1 (Phoenix), endpoint=default, project_name=default, user_id=""
-        inputs = iter(["1", "", "", ""])
+        # Inputs: backend=1 (Phoenix), endpoint=default, project_name=default, user_id="",
+        # then three content-logging prompts (defaults: Y, N, N).
+        inputs = iter(["1", "", "", "", "", "", ""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
         monkeypatch.setattr("core.setup.getpass", lambda prompt="": "")
 
@@ -527,9 +528,10 @@ class TestClaudeSetup:
         """Full Claude _run() flow for Arize AX backend."""
         config_path, settings_file = self._setup_install_env(tmp_path, monkeypatch)
 
-        # Inputs: backend=2, space_id, otlp_endpoint=default, project_name=default, user_id="alice"
-        # api_key goes through getpass
-        inputs = iter(["2", "my-space", "", "", "alice"])
+        # Inputs: backend=2, space_id, otlp_endpoint=default, project_name=default,
+        # user_id="alice", then three content-logging prompts (defaults).
+        # api_key goes through getpass.
+        inputs = iter(["2", "my-space", "", "", "alice", "", "", ""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
         monkeypatch.setattr("core.setup.getpass", lambda prompt="": "my-key")
 
@@ -935,8 +937,9 @@ class TestCursorSetup:
         """Cursor _run() with no existing config prompts and writes config.yaml."""
         config_path = self._patch_cursor_install(tmp_path, monkeypatch)
 
-        # Inputs: project_name=default, backend=1, endpoint=default, user_id=""
-        inputs = iter(["", "1", "", ""])
+        # Inputs: backend=1, endpoint=default, project_name=default, user_id="",
+        # then three content-logging prompts (defaults).
+        inputs = iter(["1", "", "", "", "", "", ""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
         monkeypatch.setattr("core.setup.getpass", lambda prompt="": "")
 
@@ -973,8 +976,9 @@ class TestCursorSetup:
         with open(config_path, "w") as f:
             yaml.safe_dump(existing, f)
 
-        # Inputs: project_name=default (no backend prompts since cursor entry exists)
-        inputs = iter([""])
+        # Inputs: project_name=default (no backend prompts since cursor entry exists),
+        # then three content-logging prompts (defaults).
+        inputs = iter(["", "", "", ""])
         monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
 
         from core.setup.cursor import _run

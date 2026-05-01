@@ -276,6 +276,43 @@ def prompt_project_name(default: str) -> str:
     return name if name else default
 
 
+def prompt_content_logging() -> dict:
+    """Prompt for content logging settings. Returns the dict to write under `logging:`.
+
+    All three default to True to match the kit's existing capture-everything
+    behavior. Users opt out per category.
+    """
+    print("")
+    if sys.stdout.isatty() and os.name != "nt":
+        print("\033[1;33mSecurity:\033[0m Traces can contain sensitive data — credentials, PII, file contents.")
+    else:
+        print("Security: Traces can contain sensitive data — credentials, PII, file contents.")
+    print("All content is logged by default. Opt out per category to match your security needs.")
+    print("")
+
+    log_prompts = input("  Log user prompts? [Y/n]: ").strip().lower()
+    log_tool_details = input("  Log what tools were asked to do (commands, file paths, URLs)? [Y/n]: ").strip().lower()
+    log_tool_content = input("  Log what tools returned (file contents, command output)? [Y/n]: ").strip().lower()
+
+    return {
+        "prompts": log_prompts not in ("n", "no"),
+        "tool_details": log_tool_details not in ("n", "no"),
+        "tool_content": log_tool_content not in ("n", "no"),
+    }
+
+
+def write_logging_config(logging_block: dict, config_path: str | None = None) -> None:
+    """Merge a logging block into the top-level `logging:` key in config.yaml."""
+    config = load_config(config_path)
+    if not config:
+        config = {}
+    set_value(config, "logging", logging_block)
+    if dry_run():
+        info("would write logging block to config.yaml")
+        return
+    save_config(config, config_path)
+
+
 def prompt_user_id() -> str:
     """Optional user ID prompt. Returns "" if skipped."""
     print("")
