@@ -20,6 +20,9 @@ SERVICE_NAME = _HARNESS["service_name"]  # "copilot"
 SCOPE_NAME = _HARNESS["scope_name"]  # "arize-copilot-plugin"
 STATE_DIR = STATE_BASE_DIR / _HARNESS["state_subdir"]  # ~/.arize/harness/state/copilot
 
+# Route hook stderr to a per-harness log file unless the user already set one.
+os.environ.setdefault("ARIZE_LOG_FILE", str(_HARNESS["default_log_file"]))
+
 
 def is_vscode_mode(input_json: dict) -> bool:
     """Detect VS Code Copilot by presence of sessionId or hookEventName.

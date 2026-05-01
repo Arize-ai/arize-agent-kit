@@ -127,56 +127,7 @@ class TestPyprojectEntryPointsUpdated:
 
 
 # ---------------------------------------------------------------------------
-# 4. DEVELOPMENT.md updated
-# ---------------------------------------------------------------------------
-
-
-class TestDevelopmentMdUpdated:
-    """DEVELOPMENT.md entry-point table and architecture references use new paths."""
-
-    @pytest.fixture
-    def dev_md(self):
-        return (REPO_ROOT / "DEVELOPMENT.md").read_text()
-
-    def test_entry_point_table_has_new_claude_path(self, dev_md):
-        assert "claude_code_tracing.hooks.handlers:session_start" in dev_md
-
-    def test_entry_point_table_has_new_codex_path(self, dev_md):
-        assert "codex_tracing.hooks.handlers:notify" in dev_md
-
-    def test_entry_point_table_has_new_cursor_path(self, dev_md):
-        assert "cursor_tracing.hooks.handlers:main" in dev_md
-
-    def test_entry_point_table_has_new_codex_buffer_path(self, dev_md):
-        assert "codex_tracing.codex_buffer_ctl:main" in dev_md
-
-    def test_entry_point_table_has_new_codex_proxy_path(self, dev_md):
-        assert "codex_tracing.hooks.proxy:main" in dev_md
-
-    def test_adapter_module_reference(self, dev_md):
-        """Architecture section references <harness>_tracing/hooks/adapter.py."""
-        assert "<harness>_tracing/hooks/adapter.py" in dev_md
-
-    def test_import_example_updated(self, dev_md):
-        """Import example uses <harness>_tracing.hooks.adapter."""
-        assert "<harness>_tracing.hooks.adapter" in dev_md
-
-    def test_no_core_hooks_reference_in_dev_md(self, dev_md):
-        """No 'core.hooks' or 'core/hooks' patterns in DEVELOPMENT.md."""
-        assert "core.hooks" not in dev_md
-        assert "core/hooks" not in dev_md
-
-    def test_no_core_codex_buffer_in_dev_md(self, dev_md):
-        assert "core.codex_buffer" not in dev_md
-        assert "core/codex_buffer" not in dev_md
-
-    def test_codex_buffer_path_reference(self, dev_md):
-        """The buffer service reference uses codex_tracing/ path."""
-        assert "codex_tracing/codex_buffer.py" in dev_md
-
-
-# ---------------------------------------------------------------------------
-# 6. Entry-point target modules and functions exist
+# 5. Entry-point target modules and functions exist
 # ---------------------------------------------------------------------------
 
 
@@ -212,7 +163,7 @@ class TestEntryPointTargetsExist:
 
 
 # ---------------------------------------------------------------------------
-# 7. Installed entry-point scripts reference new paths
+# 6. Installed entry-point scripts reference new paths
 # ---------------------------------------------------------------------------
 
 
@@ -259,7 +210,7 @@ class TestInstalledScripts:
 
 
 # ---------------------------------------------------------------------------
-# 8. Hooks directories exist in harness packages
+# 7. Hooks directories exist in harness packages
 # ---------------------------------------------------------------------------
 
 
@@ -293,7 +244,7 @@ class TestHooksDirsInHarnessPackages:
 
 
 # ---------------------------------------------------------------------------
-# 9. Coverage omit updated
+# 8. Coverage omit updated
 # ---------------------------------------------------------------------------
 
 

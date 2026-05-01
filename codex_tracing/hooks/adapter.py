@@ -20,6 +20,9 @@ SERVICE_NAME = _HARNESS["service_name"]  # "codex"
 SCOPE_NAME = _HARNESS["scope_name"]  # "arize-codex-plugin"
 STATE_DIR = STATE_BASE_DIR / _HARNESS["state_subdir"]  # ~/.arize/harness/state/codex
 
+# Route hook stderr to a per-harness log file unless the user already set one.
+os.environ.setdefault("ARIZE_LOG_FILE", str(_HARNESS["default_log_file"]))
+
 
 def load_env_file(path: Path) -> None:
     """Source a simple KEY=VALUE env file (no shell expansion).

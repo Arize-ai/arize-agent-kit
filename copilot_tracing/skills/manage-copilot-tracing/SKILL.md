@@ -211,7 +211,7 @@ Tell the user:
 - After saving, open a new Copilot session and traces will appear in their Phoenix UI or Arize AX dashboard under the project name
 - Mention `ARIZE_DRY_RUN=true` to test without sending data (set as env var before launching Copilot)
 - Mention `ARIZE_VERBOSE=true` for debug output
-- Hook logs are written to `/tmp/arize-copilot.log`
+- Hook logs are written to `~/.arize/harness/logs/copilot.log`
 - CLI mode is "input-only" -- agent response text and token counts are not exposed by Copilot CLI, so those fields will be absent on CLI spans
 
 ## Hook Events
@@ -250,7 +250,7 @@ Common issues and fixes, split by platform:
 
 | Problem | Fix |
 |---------|-----|
-| Traces not appearing | Verify config exists: `cat ~/.arize/harness/config.yaml`. Check hook log: `tail -20 /tmp/arize-copilot.log` |
+| Traces not appearing | Verify config exists: `cat ~/.arize/harness/config.yaml`. Check hook log: `tail -20 ~/.arize/harness/logs/copilot.log` |
 | Spans missing output/tokens | Verify `.github/hooks/stop.json` is registered and `transcript_path` appears in the payload -- transcript parsing is required for full I/O capture |
 | Hooks not firing | Verify each `.github/hooks/*.json` file exists in the project root and `command` uses the absolute venv binary path |
 | `PreToolUse` blocking tools | Check the handler prints the correct permission JSON. Test: `echo '{"hookEventName":"PreToolUse","tool_name":"test"}' \| arize-hook-copilot-pre-tool` |
@@ -260,7 +260,7 @@ Common issues and fixes, split by platform:
 
 | Problem | Fix |
 |---------|-----|
-| Traces not appearing | Verify `.github/hooks/hooks.json` exists with `version: 1`. Check hook log: `tail -20 /tmp/arize-copilot.log` |
+| Traces not appearing | Verify `.github/hooks/hooks.json` exists with `version: 1`. Check hook log: `tail -20 ~/.arize/harness/logs/copilot.log` |
 | No output on spans | Expected -- Copilot CLI does not expose agent responses, so CLI spans have input only |
 | No token counts | Expected -- CLI payloads do not include model name or token usage |
 | Hooks not firing | Verify `.github/hooks/hooks.json` uses the `bash` field (not `command`) and camelCase event names |

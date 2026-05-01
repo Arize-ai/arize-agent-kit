@@ -52,7 +52,16 @@ class _Env:
 
     @property
     def log_file(self) -> str:
-        return os.environ.get("ARIZE_LOG_FILE", "/tmp/arize-agent-kit.log")
+        # Each harness adapter sets ARIZE_LOG_FILE to its per-harness path under
+        # ~/.arize/harness/logs/ at import time; the env var also acts as the
+        # explicit user override. Fall back to the shared kit log only when no
+        # adapter has run (e.g. ad-hoc imports of core.common).
+        override = os.environ.get("ARIZE_LOG_FILE")
+        if override:
+            return override
+        from core.constants import LOG_DIR
+
+        return str(LOG_DIR / "agent-kit.log")
 
     @property
     def phoenix_endpoint(self) -> str:

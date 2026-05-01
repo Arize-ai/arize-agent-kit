@@ -305,8 +305,7 @@ class TestNoBashReferences:
 
         Per-harness install.py files now exist (the router dispatches to them),
         so we only check that user-facing READMEs point to install.sh as the
-        entry point. Internal docs / DEVELOPMENT.md may legitimately mention
-        install.py.
+        entry point.
         """
         user_facing = [
             REPO_ROOT / "README.md",
@@ -349,21 +348,6 @@ class TestDocumentationConsistency:
         """Root README.md should reference install.sh as the user-facing entry point."""
         readme = (REPO_ROOT / "README.md").read_text()
         assert "install.sh" in readme
-
-    def test_development_md_references_python(self):
-        """DEVELOPMENT.md should reference Python-based dev setup."""
-        dev_md = (REPO_ROOT / "DEVELOPMENT.md").read_text()
-        assert "pip install -e" in dev_md
-        assert "pytest" in dev_md
-
-    def test_development_md_has_cli_entry_points_table(self):
-        """DEVELOPMENT.md should document CLI entry points."""
-        dev_md = (REPO_ROOT / "DEVELOPMENT.md").read_text()
-        assert "arize-codex-buffer" in dev_md
-        assert "arize-config" in dev_md
-        assert "arize-hook-session-start" in dev_md
-        assert "arize-hook-codex-notify" in dev_md
-        assert "arize-hook-cursor" in dev_md
 
     def test_cursor_skill_references_cli_entry_points(self):
         """Cursor SKILL.md should use CLI entry points for hooks."""

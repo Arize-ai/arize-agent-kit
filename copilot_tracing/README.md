@@ -3,47 +3,57 @@
 Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for GitHub Copilot in VS Code and the Copilot CLI. Spans are exported to [Arize AX](https://arize.com) or [Phoenix](https://github.com/Arize-ai/phoenix).
 
 ## Setup
+The installer prompts for your backend (Phoenix or Arize AX) and project name, writes credentials to `~/.arize/harness/config.yaml`, and registers VS Code (`.github/hooks/*.json`) and Copilot CLI (`.github/hooks/hooks.json`) hooks.
 
 ### Remote setup
 
 macOS / Linux:
 
 ```bash
+# Install
 curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- copilot
+
+# Uninstall
+curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- uninstall copilot
 ```
 
 Windows (PowerShell):
 
 ```powershell
+# Install
 iwr -useb https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.bat -OutFile $env:TEMP\install.bat
 & $env:TEMP\install.bat copilot
+
+# Uninstall
+iwr -useb https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.bat -OutFile $env:TEMP\install.bat
+& $env:TEMP\install.bat uninstall copilot
 ```
 
 ### Local setup
 
-macOS / Linux:
-
 ```bash
 git clone https://github.com/Arize-ai/arize-agent-kit.git
 cd arize-agent-kit
+```
+
+macOS / Linux:
+
+```bash
+# Install
 ./install.sh copilot
+
+# Uninstall
+./install.sh uninstall copilot
 ```
 
 Windows:
 
 ```powershell
-git clone https://github.com/Arize-ai/arize-agent-kit.git
-cd arize-agent-kit
+# Install
 install.bat copilot
-```
 
-The installer prompts for your backend (Phoenix or Arize AX) and project name, writes credentials to `~/.arize/harness/config.yaml`, and registers VS Code (`.github/hooks/*.json`) and Copilot CLI (`.github/hooks/hooks.json`) hooks.
-
-### Uninstall
-
-```bash
-./install.sh uninstall copilot       # macOS / Linux
-install.bat uninstall copilot        # Windows
+# Uninstall
+install.bat uninstall copilot
 ```
 
 ## Default Settings
@@ -59,7 +69,4 @@ install.bat uninstall copilot        # Windows
 | VS Code hook events | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop` |
 | CLI hook events | `sessionStart`, `userPromptSubmitted`, `preToolUse`, `postToolUse`, `errorOccurred`, `sessionEnd` |
 | State directory | `~/.arize/harness/state/copilot/` |
-| Log file | `/tmp/arize-copilot.log` |
-| Tracing enabled (`ARIZE_TRACE_ENABLED`) | `true` |
-
-See the [root README](../README.md) for backend configuration details.
+| Log file | `~/.arize/harness/logs/copilot.log` |

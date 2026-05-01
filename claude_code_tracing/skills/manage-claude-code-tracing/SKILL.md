@@ -176,7 +176,7 @@ Tell the user:
 - After restarting, traces will appear in their Phoenix UI or Arize AX dashboard under the project name
 - Mention `ARIZE_DRY_RUN=true` to test without sending data
 - Mention `ARIZE_VERBOSE=true` for debug output
-- Hook logs are written to `/tmp/arize-claude-code.log`
+- Hook logs are written to `~/.arize/harness/logs/claude-code.log`
 
 **Note**: Project-local settings override global settings for the same variables.
 
@@ -277,7 +277,7 @@ await client.close();
 
 ### 6. Validate
 
-Tell the user to add `"ARIZE_DRY_RUN": "true"` to their settings file to verify hooks fire without sending data, and check `/tmp/arize-claude-code.log` for output.
+Tell the user to add `"ARIZE_DRY_RUN": "true"` to their settings file to verify hooks fire without sending data, and check `~/.arize/harness/logs/claude-code.log` for output.
 
 ### Agent SDK Compatibility
 
@@ -287,7 +287,7 @@ For full Agent SDK documentation, see: https://platform.claude.com/docs/en/agent
 - **TypeScript SDK**: All 9 hooks are supported -- full parity with the CLI.
 - **Python SDK**: `SessionStart`, `SessionEnd`, `Notification`, and `PermissionRequest` hooks are not available. The plugin handles this automatically -- session state is lazily initialized on the first `UserPromptSubmit`. Core tracing (LLM spans, tool spans, subagent spans) works fully.
 - Tracing env vars must be passed via a settings file in `ClaudeAgentOptions` -- the SDK subprocess does not inherit shell environment variables.
-- If the user is **troubleshooting** an existing Agent SDK setup, you can help by checking log files (`/tmp/arize-claude-code.log`), verifying the settings file contains the correct env vars, verifying `~/.arize/harness/config.yaml` has correct backend credentials, or enabling dry-run mode.
+- If the user is **troubleshooting** an existing Agent SDK setup, you can help by checking log files (`~/.arize/harness/logs/claude-code.log`), verifying the settings file contains the correct env vars, verifying `~/.arize/harness/config.yaml` has correct backend credentials, or enabling dry-run mode.
 
 ## Troubleshoot
 
@@ -298,7 +298,7 @@ Common issues and fixes:
 | Traces not appearing | Check `ARIZE_TRACE_ENABLED` is `"true"` in Claude settings, and verify config exists: `cat ~/.arize/harness/config.yaml` |
 | Config missing | Run the installer or create `~/.arize/harness/config.yaml` manually (include `harnesses` section) |
 | Phoenix unreachable | Verify Phoenix is running: `curl -sf <endpoint>/v1/traces` |
-| No output in terminal | Hook stderr is discarded by Claude Code; check `/tmp/arize-claude-code.log` |
+| No output in terminal | Hook stderr is discarded by Claude Code; check `~/.arize/harness/logs/claude-code.log` |
 | Want to test without sending | Set `ARIZE_DRY_RUN` to `"true"` in env config |
 | Want verbose logging | Set `ARIZE_VERBOSE` to `"true"` in env config |
 | Wrong project name | Set `harnesses.claude-code.project_name` in `~/.arize/harness/config.yaml` (default: `"claude-code"`) |

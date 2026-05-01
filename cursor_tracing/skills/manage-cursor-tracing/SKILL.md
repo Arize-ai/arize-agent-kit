@@ -167,7 +167,7 @@ Tell the user:
 - After saving, open a new Cursor session and traces will appear in their Phoenix UI or Arize AX dashboard under the project name
 - Mention `ARIZE_DRY_RUN=true` to test without sending data (set as env var before launching Cursor)
 - Mention `ARIZE_VERBOSE=true` for debug output
-- Hook logs are written to `/tmp/arize-cursor.log`
+- Hook logs are written to `~/.arize/harness/logs/cursor.log`
 
 ## Hook Events
 
@@ -254,7 +254,7 @@ Common issues and fixes:
 
 | Problem | Fix |
 |---------|-----|
-| Traces not appearing | Verify config exists: `cat ~/.arize/harness/config.yaml`. Check hook log: `tail -20 /tmp/arize-cursor.log` |
+| Traces not appearing | Verify config exists: `cat ~/.arize/harness/config.yaml`. Check hook log: `tail -20 ~/.arize/harness/logs/cursor.log` |
 | Config missing | Run the installer or create `~/.arize/harness/config.yaml` manually (include `harnesses.cursor` section) |
 | Phoenix unreachable | Verify Phoenix is running: `curl -sf <endpoint>/v1/traces` |
 | Hooks not firing | Verify `.cursor/hooks.json` exists in the project root and paths are correct (use absolute paths) |

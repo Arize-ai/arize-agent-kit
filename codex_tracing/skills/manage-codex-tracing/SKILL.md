@@ -300,7 +300,7 @@ Tell the user:
 - If the buffer service has no buffered events, tracing still works with flat Turn spans (graceful degradation)
 - Mention `ARIZE_DRY_RUN=true` to test without sending data
 - Mention `ARIZE_VERBOSE=true` and `ARIZE_TRACE_DEBUG=true` for debug output
-- Logs: buffer service at `~/.arize/harness/logs/codex-buffer.log`, harness at `/tmp/arize-codex.log`
+- Logs: buffer service at `~/.arize/harness/logs/codex-buffer.log`, harness at `~/.arize/harness/logs/codex.log`
 
 ### Environment Variables Reference
 
@@ -317,7 +317,7 @@ Tell the user:
 | `ARIZE_DRY_RUN` | No | `false` | Print spans instead of sending |
 | `ARIZE_VERBOSE` | No | `false` | Enable verbose logging |
 | `ARIZE_TRACE_DEBUG` | No | `false` | Write debug JSON to `~/.arize/harness/state/codex/debug/` |
-| `ARIZE_LOG_FILE` | No | `/tmp/arize-codex.log` | Log file path |
+| `ARIZE_LOG_FILE` | No | `~/.arize/harness/logs/codex.log` | Log file path |
 | `ARIZE_CODEX_BUFFER_PORT` | No | `4318` | Port for the Codex buffer service |
 
 ## Troubleshoot
@@ -330,7 +330,7 @@ Common issues and fixes:
 | Notify hook not firing | Verify `notify` line in `~/.codex/config.toml` points to correct path |
 | Phoenix unreachable | Verify Phoenix is running: `curl -sf <endpoint>/v1/traces` |
 | Buffer service not running | Check config: `cat ~/.arize/harness/config.yaml`. Start: `arize-codex-buffer start` |
-| No output in terminal | Notify runs in background; check `/tmp/arize-codex.log` and `~/.arize/harness/logs/codex-buffer.log` |
+| No output in terminal | Notify runs in background; check `~/.arize/harness/logs/codex.log` and `~/.arize/harness/logs/codex-buffer.log` |
 | Want to test without sending | Set `ARIZE_DRY_RUN=true` in env or `export ARIZE_DRY_RUN=true` |
 | Want verbose logging | Set `ARIZE_VERBOSE=true` in env or `export ARIZE_VERBOSE=true` |
 | Wrong project name | Set `ARIZE_PROJECT_NAME` in `~/.codex/arize-env.sh` (default: `codex`) |

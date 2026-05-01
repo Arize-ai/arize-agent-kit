@@ -24,6 +24,9 @@ SCOPE_NAME = _HARNESS["scope_name"]  # "arize-cursor-plugin"
 STATE_DIR = STATE_BASE_DIR / _HARNESS["state_subdir"]  # ~/.arize/harness/state/cursor
 MAX_ATTR_CHARS = int(os.environ.get("CURSOR_TRACE_MAX_ATTR_CHARS", "100000"))
 
+# Route hook stderr to a per-harness log file unless the user already set one.
+os.environ.setdefault("ARIZE_LOG_FILE", str(_HARNESS["default_log_file"]))
+
 
 def trace_id_from_generation(gen_id: str) -> str:
     """Deterministic 32-hex trace ID from a Cursor generation_id.
