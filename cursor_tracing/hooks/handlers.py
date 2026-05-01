@@ -757,8 +757,6 @@ def _handle_session_end(input_json, conversation_id, gen_id, trace_id, now_ms):
     log(f"sessionEnd: span {sid}, cleaned up gen={gen_id}")
 
 
-_SHELL_TOOL_NAMES = frozenset({"shell", "terminal", "bash", "run_command"})
-
 _DEDICATED_TOOL_NAMES = frozenset(
     {
         "shell",
@@ -798,12 +796,6 @@ def _handle_post_tool_use(input_json, conversation_id, gen_id, trace_id, now_ms)
 
     tool_input = _jq_str(input_json, "tool_input", "toolInput", "input", "arguments", "args")
     output = _jq_str(input_json, "result", "output", "response", "stdout")
-
-    # Shell-like tools: prefer the top-level ``command`` field as input
-    if tool_name.lower() in _SHELL_TOOL_NAMES:
-        command = _jq_str(input_json, "command")
-        if command:
-            tool_input = command
 
     attrs = {
         "openinference.span.kind": "TOOL",
