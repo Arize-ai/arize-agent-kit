@@ -721,11 +721,11 @@ class TestBufferEnsure:
         with patch("codex_tracing.codex_buffer_ctl.buffer_start", side_effect=RuntimeError("boom")):
             buffer_ensure()  # should not raise
 
-    def test_always_calls_start(self, ctl_paths):
-        """ensure() always delegates to buffer_start for identity verification."""
+    def test_calls_start_without_evicting_stale_buffer(self, ctl_paths):
+        """ensure() delegates to buffer_start but preserves healthy in-memory buffers."""
         with patch("codex_tracing.codex_buffer_ctl.buffer_start") as mock_start:
             buffer_ensure()
-            mock_start.assert_called_once()
+            mock_start.assert_called_once_with(evict_stale=False)
 
 
 # ---------------------------------------------------------------------------
@@ -1126,6 +1126,27 @@ class TestBufferStartIdentity:
         result = buffer_start()
         assert result is True
         assert any(pid == 12345 and sig == signal.SIGTERM for pid, sig in kill_calls)
+
+    def test_start_without_evict_stale_preserves_healthy_mismatched_buffer(
+        self, ctl_paths, sample_config, monkeypatch
+    ):
+        """Hook-time start preserves a healthy listener even when build_path differs."""
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", lambda *a, **kw: True)
+        monkeypatch.setattr(
+            "codex_tracing.codex_buffer_ctl._health_identity",
+            lambda h, p: {"pid": 12345, "build_path": "/old/worktree/codex_buffer.py"},
+        )
+
+        mock_evict = MagicMock()
+        mock_popen = MagicMock()
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._evict_stale", mock_evict)
+        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.subprocess.Popen", mock_popen)
+
+        result = buffer_start(evict_stale=False)
+
+        assert result is True
+        mock_evict.assert_not_called()
+        mock_popen.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

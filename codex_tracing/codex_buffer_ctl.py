@@ -240,11 +240,22 @@ def buffer_status() -> tuple:
     return ("stopped", None, None)
 
 
-def buffer_start() -> bool:
+def buffer_start(evict_stale: bool = True) -> bool:
     """Start the buffer service if not already running.
+
+    Args:
+        evict_stale: When True, replace a healthy listener whose build identity
+            does not match this package. Hook-time callers pass False because the
+            buffer is in-memory; evicting it right before a drain drops the tool
+            events accumulated during the turn.
 
     Returns True if the buffer is running after this call, False on failure.
     """
+    host, port = _resolve_host_port()
+
+    if not evict_stale and _health_check(host, port, timeout=2.0):
+        return True
+
     # If a pidfile exists and the process is alive, verify its identity before
     # trusting it.  A stale old-build daemon with a surviving pidfile must not
     # prevent recovery.
@@ -255,11 +266,12 @@ def buffer_start() -> bool:
         except (ValueError, OSError):
             pid = None
         if pid and _is_process_alive(pid):
-            host_pre, port_pre = _resolve_host_port()
-            identity = _health_identity(host_pre, port_pre)
+            identity = _health_identity(host, port)
             remote_bp = identity.get("build_path")
             expected = _expected_build_path()
             if remote_bp and os.path.realpath(remote_bp) == os.path.realpath(expected):
+                return True
+            if not evict_stale and _health_check(host, port, timeout=2.0):
                 return True
             # Pidfile process is alive but identity doesn't match — fall through
             # to the identity-aware health check which will evict it.
@@ -279,8 +291,6 @@ def buffer_start() -> bool:
         _log(f"Buffer runtime not found at {CODEX_BUFFER_BIN} or {buffer_py}")
         return False
 
-    host, port = _resolve_host_port()
-
     # Identity-aware health check — detect and evict stale daemons
     if _health_check(host, port, timeout=2.0):
         identity = _health_identity(host, port)
@@ -289,6 +299,12 @@ def buffer_start() -> bool:
 
         if remote_bp and os.path.realpath(remote_bp) == os.path.realpath(expected):
             # Truly ours, current build
+            return True
+
+        if not evict_stale:
+            # Preserve buffered events for hook-time drains.  The listener is
+            # healthy enough to answer the buffer API, so prefer imperfect spans
+            # over losing the turn's child events by restarting the daemon.
             return True
 
         # Stale or foreign: build_path missing, mismatched, or points to deleted file
@@ -459,12 +475,13 @@ def buffer_stop(force: bool = False) -> str:
 def buffer_ensure() -> None:
     """Silent idempotent start. Never raises. Suitable for hooks.
 
-    Always delegates to buffer_start() which performs identity verification
-    and can evict stale daemons.  Do NOT short-circuit via buffer_status()
-    because status reports "running" for any healthy listener, even stale ones.
+    Hook invocations must not evict a healthy listener just because its
+    build_path differs from this package. The buffer is in-memory, so a restart
+    immediately before notify/drain loses the tool events accumulated earlier in
+    the same turn.
     """
     try:
-        buffer_start()
+        buffer_start(evict_stale=False)
     except Exception:
         pass
 
