@@ -501,10 +501,9 @@ def _handle_after_file_edit(input_json, conversation_id, gen_id, trace_id, now_m
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
-    file_path = _jq_str(input_json, "file_path", "filePath", "path")
-    edits = _jq_str(input_json, "edits", "changes", "diff")
+    file_path = redact_content(env.log_tool_details, _jq_str(input_json, "file_path", "filePath", "path"))
+    edits = redact_content(env.log_tool_content, _jq_str(input_json, "edits", "changes", "diff"))
     input_val = f"{file_path}: {edits}" if edits else file_path
-    input_val = redact_content(env.log_tool_details, input_val)
 
     attrs = {
         "openinference.span.kind": "TOOL",
@@ -568,10 +567,9 @@ def _handle_after_tab_file_edit(input_json, conversation_id, gen_id, trace_id, n
     sid = span_id_16()
     parent = gen_root_span_get(gen_id)
 
-    file_path = _jq_str(input_json, "file_path", "filePath", "path")
-    edits = _jq_str(input_json, "edits", "changes", "diff")
+    file_path = redact_content(env.log_tool_details, _jq_str(input_json, "file_path", "filePath", "path"))
+    edits = redact_content(env.log_tool_content, _jq_str(input_json, "edits", "changes", "diff"))
     input_val = f"{file_path}: {edits}" if edits else file_path
-    input_val = redact_content(env.log_tool_details, input_val)
 
     attrs = {
         "openinference.span.kind": "TOOL",

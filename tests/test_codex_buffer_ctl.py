@@ -1127,9 +1127,7 @@ class TestBufferStartIdentity:
         assert result is True
         assert any(pid == 12345 and sig == signal.SIGTERM for pid, sig in kill_calls)
 
-    def test_start_without_evict_stale_preserves_healthy_mismatched_buffer(
-        self, ctl_paths, sample_config, monkeypatch
-    ):
+    def test_start_without_evict_stale_preserves_healthy_mismatched_buffer(self, ctl_paths, sample_config, monkeypatch):
         """Hook-time start preserves a healthy listener even when build_path differs."""
         monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", lambda *a, **kw: True)
         monkeypatch.setattr(

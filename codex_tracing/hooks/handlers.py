@@ -401,6 +401,7 @@ def _build_child_spans(
             ra = result.get("attrs", {})
             # arguments contains the tool input as JSON (e.g. {"cmd":"pwd","workdir":"..."})
             tool_input = str(ra.get("arguments") or ra.get("input") or "")
+            tool_input = redact_content(env.log_tool_details, tool_input)
             tool_output = str(ra.get("output") or ra.get("result") or ra.get("tool.output") or "")
             tool_output = redact_content(env.log_tool_content, tool_output)
             tool_duration_ms = _safe_int(ra.get("duration_ms", 0))
