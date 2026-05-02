@@ -231,18 +231,19 @@ class TestSessionEnd:
 class TestBeforeAgent:
     def test_sets_trace_state(self, mock_resolve, state):
         """before_agent sets current_trace_id, span_id, start_time, prompt."""
-        _handle_before_agent({"prompt": "explain this code"})
+        _handle_before_agent({"messages": [{"role": "user", "content": "explain this code"}]})
         assert state.get("current_trace_id") is not None
         assert len(state.get("current_trace_id")) == 32
         assert state.get("current_trace_span_id") is not None
         assert len(state.get("current_trace_span_id")) == 16
         assert state.get("current_trace_start_time") is not None
         assert state.get("trace_count") == "1"
+        assert state.get("current_trace_prompt") == "explain this code"
 
     def test_redacts_prompt_at_save_time(self, mock_resolve, state, monkeypatch):
         """Prompt is redacted at save time when log_prompts is False."""
         monkeypatch.setenv("ARIZE_LOG_PROMPTS", "false")
-        _handle_before_agent({"prompt": "secret prompt"})
+        _handle_before_agent({"messages": [{"role": "user", "content": "secret prompt"}]})
         saved = state.get("current_trace_prompt")
         assert saved is not None
         assert "redacted" in saved
@@ -251,13 +252,13 @@ class TestBeforeAgent:
     def test_saves_prompt_when_allowed(self, mock_resolve, state, monkeypatch):
         """Prompt is saved as-is when log_prompts is True."""
         monkeypatch.setenv("ARIZE_LOG_PROMPTS", "true")
-        _handle_before_agent({"prompt": "visible prompt"})
+        _handle_before_agent({"messages": [{"role": "user", "content": "visible prompt"}]})
         assert state.get("current_trace_prompt") == "visible prompt"
 
     def test_empty_prompt(self, mock_resolve, state):
         """Handles missing prompt gracefully."""
         _handle_before_agent({})
-        assert state.get("current_trace_prompt") is not None  # should be ""
+        assert state.get("current_trace_prompt") == ""
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +273,7 @@ class TestAfterAgent:
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "explain this")
-        _handle_after_agent({"response": "Here is the explanation."})
+        _handle_after_agent({"response": {"content": "Here is the explanation."}})
         assert len(captured_spans) == 1
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
@@ -288,7 +289,7 @@ class TestAfterAgent:
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "<redacted (13 chars)>")
-        _handle_after_agent({"response": "secret output"})
+        _handle_after_agent({"response": {"content": "secret output"}})
         assert len(captured_spans) == 1
         attrs = _get_span_attrs(captured_spans[0])
         assert "redacted" in attrs["output.value"]["stringValue"]
@@ -299,7 +300,7 @@ class TestAfterAgent:
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "test")
-        _handle_after_agent({"response": "ok"})
+        _handle_after_agent({"response": {"content": "ok"}})
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["user.id"]["stringValue"] == "test-user"
 
@@ -310,7 +311,7 @@ class TestAfterAgent:
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "test")
-        _handle_after_agent({"response": "ok"})
+        _handle_after_agent({"response": {"content": "ok"}})
         attrs = _get_span_attrs(captured_spans[0])
         assert "user.id" not in attrs
 
@@ -320,7 +321,7 @@ class TestAfterAgent:
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "test")
-        _handle_after_agent({"response": "ok"})
+        _handle_after_agent({"response": {"content": "ok"}})
         assert state.get("current_trace_id") is None
         assert state.get("current_trace_span_id") is None
         assert state.get("current_trace_start_time") is None
@@ -332,7 +333,7 @@ class TestAfterAgent:
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "test")
-        _handle_after_agent({"response": "ok"})
+        _handle_after_agent({"response": {"content": "ok"}})
         span = _get_span(captured_spans[0])
         assert "parentSpanId" not in span
 
@@ -381,12 +382,10 @@ class TestAfterModel:
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_model_call_id", "mc-1")
         state.set("model_mc-1_start", "1000")
+        state.set("model_mc-1_prompt", json.dumps([{"role": "user", "content": "what is 2+2?"}]))
         inp = {
             "model": "gemini-2.5-pro",
-            "prompt": "what is 2+2?",
-            "response": "4",
-            "input_tokens": 10,
-            "output_tokens": 5,
+            "response": {"content": "4", "usage": {"prompt_tokens": 10, "candidates_tokens": 5}},
             "model_call_id": "mc-1",
         }
         _handle_after_model(inp)
@@ -397,8 +396,8 @@ class TestAfterModel:
         assert attrs["llm.token_count.prompt"]["intValue"] == 10
         assert attrs["llm.token_count.completion"]["intValue"] == 5
         assert attrs["llm.token_count.total"]["intValue"] == 15
-        assert attrs["session.id"]["stringValue"] == "test-session-gemini"
-        assert attrs["project.name"]["stringValue"] == "test-gemini-project"
+        assert attrs["input.value"]["stringValue"] == json.dumps([{"role": "user", "content": "what is 2+2?"}])
+        assert attrs["output.value"]["stringValue"] == "4"
 
     def test_span_name_includes_model(self, mock_resolve, state, captured_spans):
         """Span name is 'LLM: {model_name}' when model is provided."""
@@ -445,11 +444,11 @@ class TestAfterModel:
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_model_call_id", "mc-1")
         state.set("model_mc-1_start", "1000")
+        state.set("model_mc-1_prompt", "secret prompt")
         _handle_after_model(
             {
                 "model": "gemini-2.5-pro",
-                "prompt": "secret prompt",
-                "response": "secret response",
+                "response": {"content": "secret response"},
                 "model_call_id": "mc-1",
             }
         )
@@ -508,15 +507,14 @@ class TestAfterModel:
         state.set("current_model_call_id", "mc-1")
         state.set("model_mc-1_start", "1000")
         structured = [{"role": "user", "content": "hello"}]
+        state.set("model_mc-1_prompt", json.dumps(structured))
         _handle_after_model(
             {
                 "model": "gemini-2.5-pro",
-                "prompt": structured,
                 "model_call_id": "mc-1",
             }
         )
         attrs = _get_span_attrs(captured_spans[0])
-        # Should be JSON-encoded
         assert attrs["input.value"]["stringValue"] == json.dumps(structured)
 
     def test_includes_user_id(self, mock_resolve, state, captured_spans):
@@ -1042,13 +1040,13 @@ class TestEntryPoints:
 class TestTurnFlow:
     def test_before_after_agent_produces_chain_span(self, mock_resolve, state, captured_spans):
         """BeforeAgent followed by AfterAgent produces a CHAIN span."""
-        _handle_before_agent({"prompt": "explain X"})
+        _handle_before_agent({"messages": [{"role": "user", "content": "explain X"}]})
         trace_id = state.get("current_trace_id")
         span_id = state.get("current_trace_span_id")
         assert trace_id is not None
         assert span_id is not None
 
-        _handle_after_agent({"response": "X is..."})
+        _handle_after_agent({"response": {"content": "X is..."}})
         assert len(captured_spans) == 1
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
@@ -1059,19 +1057,16 @@ class TestTurnFlow:
     def test_model_span_nested_in_turn(self, mock_resolve, state, captured_spans):
         """BeforeModel/AfterModel within a turn produces a child LLM span."""
         # Start turn
-        _handle_before_agent({"prompt": "test"})
+        _handle_before_agent({"messages": [{"role": "user", "content": "test"}]})
         trace_id = state.get("current_trace_id")
         parent_span_id = state.get("current_trace_span_id")
 
         # Model call within turn
-        _handle_before_model({"model_call_id": "mc-1"})
+        _handle_before_model({"model_call_id": "mc-1", "messages": [{"role": "user", "content": "test"}]})
         _handle_after_model(
             {
                 "model": "gemini-2.5-pro",
-                "prompt": "test",
-                "response": "answer",
-                "input_tokens": 5,
-                "output_tokens": 3,
+                "response": {"content": "answer", "usage": {"prompt_tokens": 5, "candidates_tokens": 3}},
                 "model_call_id": "mc-1",
             }
         )
@@ -1083,7 +1078,7 @@ class TestTurnFlow:
     def test_tool_span_nested_in_turn(self, mock_resolve, state, captured_spans):
         """BeforeTool/AfterTool within a turn produces a child TOOL span."""
         # Start turn
-        _handle_before_agent({"prompt": "test"})
+        _handle_before_agent({"messages": [{"role": "user", "content": "test"}]})
         trace_id = state.get("current_trace_id")
         parent_span_id = state.get("current_trace_span_id")
 
@@ -1115,7 +1110,7 @@ class TestProjectNameOnAllSpans:
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "test")
-        _handle_after_agent({"response": "ok"})
+        _handle_after_agent({"response": {"content": "ok"}})
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["project.name"]["stringValue"] == "test-gemini-project"
 

@@ -29,14 +29,15 @@ def check_requirements() -> bool:
 
 def resolve_session(input_json: dict) -> StateManager:
     """Build a StateManager keyed off GEMINI_SESSION_ID env (preferred),
-    else input_json.get('session_id'), else a generated trace ID.
+    else input_json sessionId (standard) or session_id (legacy),
+    else a generated trace ID.
     State file: STATE_DIR / f'state_{key}.yaml'.
     Lock path: STATE_DIR / f'.lock_{key}'.
     Calls sm.init_state() before returning.
     """
     key = os.environ.get("GEMINI_SESSION_ID", "")
     if not key:
-        key = input_json.get("session_id", "")
+        key = input_json.get("sessionId") or input_json.get("session_id", "")
     if not key:
         key = generate_trace_id()
 
@@ -55,7 +56,7 @@ def resolve_session(input_json: dict) -> StateManager:
 def ensure_session_initialized(state: StateManager, input_json: dict) -> None:
     """Idempotent. If state already has 'session_id', no-op.
     Otherwise set: session_id (= the resolved key), session_start_time,
-    project_name (= env.project_name or basename of cwd or basename of os.getcwd()),
+    project_name (= env.project_name or basename of projectDir/cwd or os.getcwd()),
     trace_count = '0', tool_count = '0', user_id (= env.user_id or '').
     """
     existing = state.get("session_id")
@@ -68,7 +69,7 @@ def ensure_session_initialized(state: StateManager, input_json: dict) -> None:
     # project_name
     project_name = env.project_name
     if not project_name:
-        cwd = input_json.get("cwd", "")
+        cwd = input_json.get("projectDir") or input_json.get("cwd", "")
         project_name = os.path.basename(cwd) if cwd else os.path.basename(os.getcwd())
 
     state.set("session_id", session_id)

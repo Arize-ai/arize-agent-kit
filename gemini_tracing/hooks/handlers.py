@@ -132,7 +132,20 @@ def _handle_before_agent(input_json: dict) -> None:
     state.set("current_trace_id", generate_trace_id())
     state.set("current_trace_span_id", generate_span_id())
     state.set("current_trace_start_time", str(get_timestamp_ms()))
-    state.set("current_trace_prompt", redact_content(env.log_prompts, input_json.get("prompt", "")))
+
+    # Extract prompt: modern schema uses 'messages' array
+    prompt_str = ""
+    messages = input_json.get("messages", [])
+    if isinstance(messages, list) and messages:
+        # Last user message is typically the current prompt
+        last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
+        if last_user:
+            prompt_str = last_user.get("content", "")
+
+    if not isinstance(prompt_str, str):
+        prompt_str = json.dumps(prompt_str) if prompt_str else ""
+
+    state.set("current_trace_prompt", redact_content(env.log_prompts, prompt_str))
 
 
 def _handle_after_agent(input_json: dict) -> None:
@@ -151,12 +164,19 @@ def _handle_after_agent(input_json: dict) -> None:
     project_name = state.get("project_name") or ""
     user_id = state.get("user_id") or ""
 
+    # Extract response: modern schema uses nested 'response.content'
+    resp_obj = input_json.get("response", {})
+    if isinstance(resp_obj, dict):
+        response_str = str(resp_obj.get("content", ""))
+    else:
+        response_str = ""
+
     attrs = {
         "session.id": session_id,
         "openinference.span.kind": "CHAIN",
         "project.name": project_name,
         "input.value": prompt,
-        "output.value": redact_content(env.log_prompts, input_json.get("response", "")),
+        "output.value": redact_content(env.log_prompts, response_str),
     }
     if user_id:
         attrs["user.id"] = user_id
@@ -183,12 +203,17 @@ def _handle_after_agent(input_json: dict) -> None:
 
 
 def _handle_before_model(input_json: dict) -> None:
-    """Handle before_model: stash model call start time."""
+    """Handle before_model: stash model call start time and prompt."""
     state = resolve_session(input_json)
 
     model_call_id = input_json.get("model_call_id") or generate_span_id()
     state.set(f"model_{model_call_id}_start", str(get_timestamp_ms()))
     state.set("current_model_call_id", model_call_id)
+
+    # Extract prompt from messages (standard schema)
+    messages = input_json.get("messages", [])
+    if isinstance(messages, list) and messages:
+        state.set(f"model_{model_call_id}_prompt", json.dumps(messages))
 
 
 def _handle_after_model(input_json: dict) -> None:
@@ -222,23 +247,30 @@ def _handle_after_model(input_json: dict) -> None:
     # Model info
     model_name = input_json.get("model", "")
 
-    # Token counts
-    input_tokens = int(input_json.get("input_tokens", 0) or 0)
-    output_tokens = int(input_json.get("output_tokens", 0) or 0)
+    # Content and usage are nested in 'response' object
+    resp_obj = input_json.get("response", {})
+    if not isinstance(resp_obj, dict):
+        resp_obj = {}
+
+    usage = resp_obj.get("usage", {})
+    input_tokens = int(usage.get("prompt_tokens") or 0)
+    output_tokens = int(usage.get("candidates_tokens") or 0)
     total_tokens = input_tokens + output_tokens
 
-    # Prompt handling (may be structured)
-    prompt_raw = input_json.get("prompt", "")
-    if isinstance(prompt_raw, str):
-        prompt_str = prompt_raw
-    else:
-        prompt_str = json.dumps(prompt_raw)
+    # Prompt handling: use stashed messages from BeforeModel
+    prompt_str = ""
+    if model_call_id:
+        prompt_str = state.get(f"model_{model_call_id}_prompt") or ""
+        state.delete(f"model_{model_call_id}_prompt")
 
-    response_raw = input_json.get("response", "")
-    if isinstance(response_raw, str):
-        response_str = response_raw
-    else:
-        response_str = json.dumps(response_raw)
+    if not prompt_str:
+        # Fallback to current turn prompt if stashing failed
+        prompt_str = state.get("current_trace_prompt") or ""
+
+    # Response content
+    response_str = resp_obj.get("content", "")
+    if not isinstance(response_str, str):
+        response_str = json.dumps(response_str) if response_str else ""
 
     # Span name
     span_name = f"LLM: {model_name}" if model_name else "LLM"
