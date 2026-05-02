@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import time
 
-from core.common import StateManager, env, generate_span_id, generate_trace_id, get_timestamp_ms, log
+from core.common import StateManager, env, generate_trace_id, get_timestamp_ms, log
 from core.constants import HARNESSES, STATE_BASE_DIR
 
 # --- Module-level constants derived from HARNESSES ---
@@ -17,9 +17,6 @@ _HARNESS = HARNESSES["gemini"]
 SERVICE_NAME = _HARNESS["service_name"]  # "gemini"
 SCOPE_NAME = _HARNESS["scope_name"]  # "arize-gemini-plugin"
 STATE_DIR = STATE_BASE_DIR / _HARNESS["state_subdir"]  # ~/.arize/harness/state/gemini
-
-# Route hook stderr to a per-harness log file unless the user already set one.
-os.environ.setdefault("ARIZE_LOG_FILE", str(_HARNESS["default_log_file"]))
 
 
 def check_requirements() -> bool:

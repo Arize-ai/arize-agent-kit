@@ -209,9 +209,6 @@ class TestSessionEnd:
 
     def test_failsafe_closes_pending_turn(self, mock_resolve, state, captured_spans):
         """If pending_turn_* exists, session_end closes it as a fail-safe LLM span."""
-        state.set("pending_turn_trace_id", "t" * 32)
-        state.set("pending_turn_span_id", "s" * 16)
-        state.set("pending_turn_start_time", "1000")
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
         state.set("current_trace_start_time", "1000")

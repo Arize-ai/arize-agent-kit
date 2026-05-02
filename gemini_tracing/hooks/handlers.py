@@ -208,7 +208,10 @@ def _handle_after_model(input_json: dict) -> None:
     model_call_id = input_json.get("model_call_id") or state.get("current_model_call_id") or ""
 
     # Timing
-    start_time = state.get(f"model_{model_call_id}_start") or str(get_timestamp_ms()) if model_call_id else str(get_timestamp_ms())
+    if model_call_id:
+        start_time = state.get(f"model_{model_call_id}_start") or str(get_timestamp_ms())
+    else:
+        start_time = str(get_timestamp_ms())
     end_time = str(get_timestamp_ms())
 
     # Clean up state
