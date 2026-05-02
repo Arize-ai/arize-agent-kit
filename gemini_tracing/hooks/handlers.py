@@ -11,6 +11,7 @@ import sys
 
 from core.common import (
     build_span,
+    debug_dump,
     env,
     error,
     generate_span_id,
@@ -48,6 +49,58 @@ def _print_response() -> None:
     print(json.dumps({}))
 
 
+def _get_robust(data: dict, *keys, default=None):
+    """Try both snake_case and camelCase variants of keys."""
+    for key in keys:
+        # direct match
+        if key in data:
+            return data[key]
+        # camelCase variant (e.g. tool_name -> toolName)
+        if "_" in key:
+            parts = key.split("_")
+            camel = parts[0] + "".join(x.capitalize() for x in parts[1:])
+            if camel in data:
+                return data[camel]
+    return default
+
+
+def _extract_text(obj) -> str:
+    """Extract string content from various nested structures (parts, content, etc.)."""
+    if obj is None:
+        return ""
+    if isinstance(obj, str):
+        return obj
+    if isinstance(obj, list):
+        return "\n".join(_extract_text(item) for item in obj)
+    if isinstance(obj, dict):
+        # Handle 'parts' array (Gemini style)
+        if "parts" in obj:
+            return _extract_text(obj["parts"])
+        # Handle 'text' field
+        if "text" in obj:
+            return _extract_text(obj["text"])
+        # Handle 'content' field
+        if "content" in obj:
+            return _extract_text(obj["content"])
+    return str(obj)
+
+
+def _extract_tokens(input_json: dict) -> tuple[int, int]:
+    """Extract prompt and completion tokens from various usage schemas."""
+    # Try 'response' or 'modelResponse'
+    resp = _get_robust(input_json, "response", "model_response") or {}
+    # Try 'usage' or 'usageMetadata' (nested in response OR top-level)
+    usage = _get_robust(resp, "usage", "usage_metadata") or _get_robust(input_json, "usage", "usage_metadata") or {}
+
+    prompt = _get_robust(usage, "prompt_tokens", "prompt_token_count", default=0)
+    completion = _get_robust(usage, "candidates_tokens", "candidates_token_count", default=0)
+
+    try:
+        return int(prompt), int(completion)
+    except (ValueError, TypeError):
+        return 0, 0
+
+
 # ---------------------------------------------------------------------------
 # Internal handler implementations
 # ---------------------------------------------------------------------------
@@ -55,6 +108,7 @@ def _print_response() -> None:
 
 def _handle_session_start(input_json: dict) -> None:
     """Handle session start: initialize session."""
+    debug_dump("gemini_session_start", input_json)
     state = resolve_session(input_json)
     ensure_session_initialized(state, input_json)
     session_id = state.get("session_id") or ""
@@ -63,6 +117,7 @@ def _handle_session_start(input_json: dict) -> None:
 
 def _handle_session_end(input_json: dict) -> None:
     """Handle session end: close pending turns, log summary, clean up."""
+    debug_dump("gemini_session_end", input_json)
     state = resolve_session(input_json)
     session_id = state.get("session_id")
     if session_id is None:
@@ -125,6 +180,7 @@ def _handle_session_end(input_json: dict) -> None:
 
 def _handle_before_agent(input_json: dict) -> None:
     """Handle before_agent: start of a turn."""
+    debug_dump("gemini_before_agent", input_json)
     state = resolve_session(input_json)
     ensure_session_initialized(state, input_json)
 
@@ -135,12 +191,12 @@ def _handle_before_agent(input_json: dict) -> None:
 
     # Extract prompt: modern schema uses 'messages' array
     prompt_str = ""
-    messages = input_json.get("messages", [])
+    messages = _get_robust(input_json, "messages", default=[])
     if isinstance(messages, list) and messages:
         # Last user message is typically the current prompt
         last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
         if last_user:
-            prompt_str = last_user.get("content", "")
+            prompt_str = _extract_text(_get_robust(last_user, "content", default=""))
 
     if not isinstance(prompt_str, str):
         prompt_str = json.dumps(prompt_str) if prompt_str else ""
@@ -150,6 +206,7 @@ def _handle_before_agent(input_json: dict) -> None:
 
 def _handle_after_agent(input_json: dict) -> None:
     """Handle after_agent: build the root CHAIN span for the completed turn."""
+    debug_dump("gemini_after_agent", input_json)
     state = resolve_session(input_json)
 
     trace_id = state.get("current_trace_id")
@@ -164,12 +221,9 @@ def _handle_after_agent(input_json: dict) -> None:
     project_name = state.get("project_name") or ""
     user_id = state.get("user_id") or ""
 
-    # Extract response: modern schema uses nested 'response.content'
-    resp_obj = input_json.get("response", {})
-    if isinstance(resp_obj, dict):
-        response_str = str(resp_obj.get("content", ""))
-    else:
-        response_str = ""
+    # Extract response
+    resp_obj = _get_robust(input_json, "response", "model_response")
+    response_str = _extract_text(resp_obj)
 
     attrs = {
         "session.id": session_id,
@@ -204,20 +258,22 @@ def _handle_after_agent(input_json: dict) -> None:
 
 def _handle_before_model(input_json: dict) -> None:
     """Handle before_model: stash model call start time and prompt."""
+    debug_dump("gemini_before_model", input_json)
     state = resolve_session(input_json)
 
-    model_call_id = input_json.get("model_call_id") or generate_span_id()
+    model_call_id = _get_robust(input_json, "model_call_id") or generate_span_id()
     state.set(f"model_{model_call_id}_start", str(get_timestamp_ms()))
     state.set("current_model_call_id", model_call_id)
 
     # Extract prompt from messages (standard schema)
-    messages = input_json.get("messages", [])
+    messages = _get_robust(input_json, "messages", default=[])
     if isinstance(messages, list) and messages:
         state.set(f"model_{model_call_id}_prompt", json.dumps(messages))
 
 
 def _handle_after_model(input_json: dict) -> None:
     """Handle after_model: build an LLM span as child of current turn."""
+    debug_dump("gemini_after_model", input_json)
     state = resolve_session(input_json)
 
     trace_id = state.get("current_trace_id")
@@ -230,7 +286,7 @@ def _handle_after_model(input_json: dict) -> None:
     user_id = state.get("user_id") or ""
 
     # Resolve model call ID
-    model_call_id = input_json.get("model_call_id") or state.get("current_model_call_id") or ""
+    model_call_id = _get_robust(input_json, "model_call_id") or state.get("current_model_call_id") or ""
 
     # Timing
     if model_call_id:
@@ -245,16 +301,10 @@ def _handle_after_model(input_json: dict) -> None:
     state.delete("current_model_call_id")
 
     # Model info
-    model_name = input_json.get("model", "")
+    model_name = _get_robust(input_json, "model", "model_name", default="")
 
-    # Content and usage are nested in 'response' object
-    resp_obj = input_json.get("response", {})
-    if not isinstance(resp_obj, dict):
-        resp_obj = {}
-
-    usage = resp_obj.get("usage", {})
-    input_tokens = int(usage.get("prompt_tokens") or 0)
-    output_tokens = int(usage.get("candidates_tokens") or 0)
+    # Tokens
+    input_tokens, output_tokens = _extract_tokens(input_json)
     total_tokens = input_tokens + output_tokens
 
     # Prompt handling: use stashed messages from BeforeModel
@@ -268,9 +318,8 @@ def _handle_after_model(input_json: dict) -> None:
         prompt_str = state.get("current_trace_prompt") or ""
 
     # Response content
-    response_str = resp_obj.get("content", "")
-    if not isinstance(response_str, str):
-        response_str = json.dumps(response_str) if response_str else ""
+    resp_obj = _get_robust(input_json, "response", "model_response")
+    response_str = _extract_text(resp_obj)
 
     # Span name
     span_name = f"LLM: {model_name}" if model_name else "LLM"
@@ -306,14 +355,16 @@ def _handle_after_model(input_json: dict) -> None:
 
 def _handle_before_tool(input_json: dict) -> None:
     """Handle before_tool: record tool start time."""
+    debug_dump("gemini_before_tool", input_json)
     state = resolve_session(input_json)
 
-    tool_id = input_json.get("tool_call_id") or input_json.get("tool_name", "unknown")
+    tool_id = _get_robust(input_json, "tool_call_id", "tool_name", default="unknown")
     state.set(f"tool_{tool_id}_start", str(get_timestamp_ms()))
 
 
 def _handle_after_tool(input_json: dict) -> None:
     """Handle after_tool: build and send a TOOL span."""
+    debug_dump("gemini_after_tool", input_json)
     state = resolve_session(input_json)
 
     trace_id = state.get("current_trace_id")
@@ -327,13 +378,13 @@ def _handle_after_tool(input_json: dict) -> None:
 
     state.increment("tool_count")
 
-    tool_name = input_json.get("tool_name", "unknown")
-    tool_id = input_json.get("tool_call_id") or tool_name
+    tool_name = _get_robust(input_json, "tool_name", default="unknown")
+    tool_id = _get_robust(input_json, "tool_call_id") or tool_name
 
     # Raw values
-    tool_args_raw = input_json.get("tool_args") or {}
-    tool_input = json.dumps(tool_args_raw)
-    tool_output = str(input_json.get("tool_result", ""))
+    tool_args_raw = _get_robust(input_json, "tool_args") or {}
+    tool_input = json.dumps(tool_args_raw) if isinstance(tool_args_raw, (dict, list)) else str(tool_args_raw)
+    tool_output = _extract_text(_get_robust(input_json, "tool_result", "result"))
 
     # Tool-specific metadata enrichment
     tool_command = ""
@@ -344,24 +395,24 @@ def _handle_after_tool(input_json: dict) -> None:
 
     if isinstance(tool_args_raw, dict):
         if tool_name == "run_shell_command":
-            tool_command = tool_args_raw.get("command", "")
+            tool_command = _get_robust(tool_args_raw, "command", default="")
             tool_description = tool_command[:200]
         elif tool_name in ("read_file", "write_file", "replace", "edit"):
-            tool_file_path = tool_args_raw.get("file_path") or tool_args_raw.get("absolute_path", "")
+            tool_file_path = _get_robust(tool_args_raw, "file_path", "absolute_path", default="")
             tool_description = tool_file_path[:200]
         elif tool_name == "glob":
-            tool_query = tool_args_raw.get("pattern", "")
-            tool_file_path = tool_args_raw.get("path", "")
+            tool_query = _get_robust(tool_args_raw, "pattern", default="")
+            tool_file_path = _get_robust(tool_args_raw, "path", default="")
             tool_description = tool_query[:200]
         elif tool_name in ("search_file_content", "grep"):
-            tool_query = tool_args_raw.get("pattern", "")
-            tool_file_path = tool_args_raw.get("path", "")
+            tool_query = _get_robust(tool_args_raw, "pattern", default="")
+            tool_file_path = _get_robust(tool_args_raw, "path", default="")
             tool_description = f"grep: {tool_query[:100]}"
         elif tool_name == "web_fetch":
-            tool_url = tool_args_raw.get("url", "")
+            tool_url = _get_robust(tool_args_raw, "url", default="")
             tool_description = tool_url[:200]
         elif tool_name in ("google_web_search", "web_search"):
-            tool_query = tool_args_raw.get("query", "")
+            tool_query = _get_robust(tool_args_raw, "query", default="")
             tool_description = tool_query[:200]
         else:
             tool_description = tool_input[:200]
