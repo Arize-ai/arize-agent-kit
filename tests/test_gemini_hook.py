@@ -1102,3 +1102,74 @@ class TestProjectNameOnAllSpans:
         })
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["project.name"]["stringValue"] == "test-gemini-project"
+
+
+# ---------------------------------------------------------------------------
+# Integration tests: session initialization via actual adapter (not mocked)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionStartIntegration:
+    """Integration tests that exercise the real adapter without mocking resolve_session."""
+
+    @pytest.fixture
+    def gemini_state_dir(self, tmp_harness_dir, monkeypatch):
+        """Point adapter STATE_DIR to a temp directory."""
+        from gemini_tracing.hooks import adapter as _adapter
+
+        state_dir = tmp_harness_dir / "state" / "gemini"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(_adapter, "STATE_DIR", state_dir)
+        return state_dir
+
+    @pytest.fixture
+    def captured_spans_real(self):
+        """Mock send_span and collect all payloads sent."""
+        sent = []
+        with mock.patch("gemini_tracing.hooks.handlers.send_span", side_effect=lambda s: sent.append(s)):
+            yield sent
+
+    def test_session_start_initializes_state(self, tmp_harness_dir, gemini_state_dir, monkeypatch, captured_spans_real):
+        """Feed session_id/cwd payload to session_start. State file exists with correct keys."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        monkeypatch.delenv("GEMINI_SESSION_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+        monkeypatch.delenv("ARIZE_USER_ID", raising=False)
+
+        _handle_session_start({"session_id": "sess-123", "cwd": "/tmp/proj"})
+
+        state_file = gemini_state_dir / "state_sess-123.yaml"
+        assert state_file.exists()
+
+        import yaml
+
+        data = yaml.safe_load(state_file.read_text())
+        assert data["session_id"] == "sess-123"
+        assert data["trace_count"] == "0"
+
+    def test_session_id_from_env_when_payload_missing(self, tmp_harness_dir, gemini_state_dir, monkeypatch, captured_spans_real):
+        """GEMINI_SESSION_ID env is used when payload has no session_id."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        monkeypatch.setenv("GEMINI_SESSION_ID", "env-sid")
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+        monkeypatch.delenv("ARIZE_USER_ID", raising=False)
+
+        _handle_session_start({})
+
+        state_file = gemini_state_dir / "state_env-sid.yaml"
+        assert state_file.exists()
+
+    def test_session_id_generated_when_both_missing(self, tmp_harness_dir, gemini_state_dir, monkeypatch, captured_spans_real):
+        """When no env var and no payload session_id, a 32-hex key is generated."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        monkeypatch.delenv("GEMINI_SESSION_ID", raising=False)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+        monkeypatch.delenv("ARIZE_USER_ID", raising=False)
+
+        _handle_session_start({})
+
+        state_files = list(gemini_state_dir.glob("state_*.yaml"))
+        assert len(state_files) == 1
+        key = state_files[0].stem.replace("state_", "", 1)
+        assert len(key) == 32
+        int(key, 16)  # should not raise -- valid hex

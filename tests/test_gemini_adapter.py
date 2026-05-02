@@ -190,6 +190,12 @@ class TestEnsureSessionInitialized:
         assert project is not None
         assert len(project) > 0
 
+    def test_project_name_from_cwd_in_payload(self, gemini_state_dir, disable_env_vars):
+        """project_name uses basename of cwd from payload when env var not set."""
+        sm = self._make_state(gemini_state_dir, "proj-cwd-payload")
+        adapter.ensure_session_initialized(sm, {"cwd": "/some/path/myproj"})
+        assert sm.get("project_name") == "myproj"
+
     def test_counters_start_at_zero(self, gemini_state_dir, disable_env_vars):
         """trace_count and tool_count start at '0'."""
         sm = self._make_state(gemini_state_dir, "counters")

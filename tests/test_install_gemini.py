@@ -890,3 +890,64 @@ class TestSetupGeminiModule:
         monkeypatch.setattr(_install, "install", lambda: called.append("install"))
         setup_gemini.main()
         assert called == ["install"]
+
+
+# ---------------------------------------------------------------------------
+# Missing tests from task spec
+# ---------------------------------------------------------------------------
+
+
+class TestUninstallWhenNoSettingsFile:
+    """Calling uninstall() with no ~/.gemini/settings.json doesn't raise."""
+
+    def test_uninstall_when_no_settings_file(self, cwd_tmp, monkeypatch):
+        monkeypatch.setattr("sys.stdout", _fake_stdout())
+        # settings.json does not exist (cwd_tmp fixture redirects but never creates it)
+        assert not _gc.SETTINGS_FILE.is_file()
+        uninstall()  # should not raise
+
+
+class TestUninstallWhenSettingsMalformed:
+    """Uninstall with malformed settings.json should exit cleanly without overwriting."""
+
+    def test_uninstall_when_settings_malformed(self, settings_file, monkeypatch):
+        settings_file.parent.mkdir(parents=True, exist_ok=True)
+        original_content = "{not json!!!"
+        settings_file.write_text(original_content)
+
+        monkeypatch.setattr("sys.stdout", _fake_stdout())
+        # Current implementation sys.exit(1) on malformed JSON (same as install path)
+        with pytest.raises(SystemExit) as exc_info:
+            uninstall()
+        assert exc_info.value.code == 1
+
+        # The malformed file must not be overwritten
+        assert settings_file.read_text() == original_content
+
+
+class TestInstallPromptsForLogging:
+    """Install prompts for logging settings when logging block is missing."""
+
+    def test_install_prompts_for_logging_when_block_missing(self, cwd_tmp, monkeypatch):
+        """Fresh state: install() calls prompt_content_logging() exactly once
+        and write_logging_config() exactly once with the returned dict."""
+        from unittest.mock import MagicMock
+
+        logging_result = {"prompts": True, "tool_details": True, "tool_content": True}
+        mock_prompt_logging = MagicMock(return_value=logging_result)
+        mock_write_logging = MagicMock()
+
+        monkeypatch.setattr(
+            _install, "prompt_backend",
+            lambda existing_harnesses=None: PHOENIX_BACKEND,
+        )
+        monkeypatch.setattr(_install, "prompt_project_name", lambda default: default)
+        monkeypatch.setattr(_install, "prompt_user_id", lambda: "")
+        monkeypatch.setattr(_install, "prompt_content_logging", mock_prompt_logging)
+        monkeypatch.setattr(_install, "write_logging_config", mock_write_logging)
+        monkeypatch.setattr("sys.stdout", _fake_stdout())
+
+        install()
+
+        mock_prompt_logging.assert_called_once()
+        mock_write_logging.assert_called_once_with(logging_result)
