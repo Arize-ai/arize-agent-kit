@@ -53,6 +53,15 @@ EXPECTED_HARNESS_ENTRY_POINTS = {
     "arize-hook-copilot-error": "copilot_tracing.hooks.handlers:error_occurred",
     "arize-hook-copilot-session-end": "copilot_tracing.hooks.handlers:session_end",
     "arize-hook-copilot-subagent-stop": "copilot_tracing.hooks.handlers:subagent_stop",
+    # Gemini hooks
+    "arize-hook-gemini-session-start": "gemini_tracing.hooks.handlers:session_start",
+    "arize-hook-gemini-session-end": "gemini_tracing.hooks.handlers:session_end",
+    "arize-hook-gemini-before-agent": "gemini_tracing.hooks.handlers:before_agent",
+    "arize-hook-gemini-after-agent": "gemini_tracing.hooks.handlers:after_agent",
+    "arize-hook-gemini-before-model": "gemini_tracing.hooks.handlers:before_model",
+    "arize-hook-gemini-after-model": "gemini_tracing.hooks.handlers:after_model",
+    "arize-hook-gemini-before-tool": "gemini_tracing.hooks.handlers:before_tool",
+    "arize-hook-gemini-after-tool": "gemini_tracing.hooks.handlers:after_tool",
     # Cursor hook
     "arize-hook-cursor": "cursor_tracing.hooks.handlers:main",
 }
@@ -63,6 +72,7 @@ EXPECTED_SETUP_ENTRY_POINTS = {
     "arize-setup-codex": "core.setup.codex:main",
     "arize-setup-copilot": "core.setup.copilot:main",
     "arize-setup-cursor": "core.setup.cursor:main",
+    "arize-setup-gemini": "core.setup.gemini:main",
 }
 
 
@@ -181,6 +191,7 @@ class TestInstalledScripts:
             ("arize-codex-proxy", "from codex_tracing.hooks.proxy import main"),
             ("arize-hook-cursor", "from cursor_tracing.hooks.handlers import main"),
             ("arize-hook-copilot-session-start", "from copilot_tracing.hooks.handlers import session_start"),
+            ("arize-hook-gemini-session-start", "from gemini_tracing.hooks.handlers import session_start"),
         ],
     )
     def test_installed_script_import(self, script, expected_import):
@@ -199,6 +210,7 @@ class TestInstalledScripts:
             "arize-codex-buffer",
             "arize-hook-cursor",
             "arize-hook-copilot-session-start",
+            "arize-hook-gemini-session-start",
         ],
     )
     def test_installed_script_no_core_hooks(self, script):
@@ -224,6 +236,7 @@ class TestHooksDirsInHarnessPackages:
             ("codex_tracing", ["__init__.py", "adapter.py", "handlers.py", "proxy.py"]),
             ("copilot_tracing", ["__init__.py", "adapter.py", "handlers.py"]),
             ("cursor_tracing", ["__init__.py", "adapter.py", "handlers.py"]),
+            ("gemini_tracing", ["__init__.py", "adapter.py", "handlers.py"]),
         ],
     )
     def test_hooks_dir_has_expected_files(self, pkg, expected_files):

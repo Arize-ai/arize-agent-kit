@@ -59,10 +59,31 @@ class TestGeminiEntryPoints:
         count = self.text.count("arize-hook-gemini-")
         assert count == 8, f"Expected 8 gemini hook entries, got {count}"
 
-    def test_install_module_importable(self):
-        """The install module should be importable."""
-        from gemini_tracing.install import install, main, uninstall
+    def test_entry_points_importable(self):
+        """All referenced handler functions should be importable."""
+        from gemini_tracing.hooks.handlers import (
+            after_agent,
+            after_model,
+            after_tool,
+            before_agent,
+            before_model,
+            before_tool,
+            session_end,
+            session_start,
+        )
 
-        assert callable(install)
-        assert callable(uninstall)
+        for fn in [
+            session_start,
+            session_end,
+            before_agent,
+            after_agent,
+            before_model,
+            after_model,
+            before_tool,
+            after_tool,
+        ]:
+            assert callable(fn)
+
+        from core.setup.gemini import main
+
         assert callable(main)
