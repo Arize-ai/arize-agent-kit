@@ -317,13 +317,14 @@ class TestInstallExistingLoggingBlockSkipsPrompt:
         }
         config_path.write_text(yaml.dump(seed_config))
 
+        _mock_prompts(monkeypatch)
+
         prompt_logging_called = []
         monkeypatch.setattr(
             _install,
             "prompt_content_logging",
             lambda: prompt_logging_called.append(True) or {"prompts": True, "tool_details": True, "tool_content": True},
         )
-        _mock_prompts(monkeypatch)
 
         install()
 
@@ -713,19 +714,22 @@ class TestDedupeByHookName:
 
 
 class TestInstallHandlesMalformedSettings:
-    """Install handles malformed settings.json gracefully."""
+    """Install aborts on malformed settings.json to avoid overwriting user data."""
 
-    def test_malformed_json_treated_as_empty(self, settings_file, monkeypatch):
-        """Malformed JSON should be treated as {} and overwritten with hooks."""
+    def test_malformed_json_aborts_with_exit_1(self, settings_file, monkeypatch):
+        """Malformed JSON should abort with sys.exit(1), not silently overwrite."""
         settings_file.parent.mkdir(parents=True, exist_ok=True)
-        settings_file.write_text("{this is not valid json!!!")
+        original_content = "{this is not valid json!!!"
+        settings_file.write_text(original_content)
 
         _mock_prompts(monkeypatch)
-        install()
 
-        data = json.loads(settings_file.read_text())
-        assert "hooks" in data
-        assert len(data["hooks"]) == 8
+        with pytest.raises(SystemExit) as exc_info:
+            install()
+        assert exc_info.value.code == 1
+
+        # The malformed file must not be overwritten
+        assert settings_file.read_text() == original_content
 
 
 # ---------------------------------------------------------------------------

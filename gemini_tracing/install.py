@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 import sys
 
+from gemini_tracing.constants import EVENTS, HARNESS_NAME, HOOK_NAME, HOOK_TIMEOUT_MS
+
 from core.config import get_value, load_config
 from core.setup import (
     dry_run,
@@ -53,19 +55,31 @@ def _settings_dir():
 
 
 def _read_settings() -> dict:
-    """Read settings.json, returning empty dict on missing or empty files."""
+    """Read settings.json, returning empty dict on missing or empty files.
+
+    Raises ``SystemExit(1)`` on malformed JSON or permission errors so we
+    never silently overwrite a user file.
+    """
     path = _settings_file()
     if not path.is_file():
         return {}
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        from core.setup import err as _err
+
+        _err(f"Cannot read {path}: {exc}")
+        sys.exit(1)
     if not text.strip():
         info("settings.json is empty, treating as {}")
         return {}
     try:
         return json.loads(text)
-    except json.JSONDecodeError:
-        info("settings.json is malformed, treating as {}")
-        return {}
+    except json.JSONDecodeError as exc:
+        from core.setup import err as _err
+
+        _err(f"{path} contains invalid JSON; aborting. Please fix the file and retry.\n  {exc}")
+        sys.exit(1)
 
 
 def _write_settings(data: dict) -> None:
@@ -76,49 +90,12 @@ def _write_settings(data: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Hook helpers
-# ---------------------------------------------------------------------------
-
-
-def _hook_name() -> str:
-    """Return HOOK_NAME from constants (re-read for testability)."""
-    import gemini_tracing.constants as _c
-
-    return _c.HOOK_NAME
-
-
-def _hook_timeout_ms() -> int:
-    """Return HOOK_TIMEOUT_MS from constants."""
-    import gemini_tracing.constants as _c
-
-    return _c.HOOK_TIMEOUT_MS
-
-
-def _events() -> dict[str, str]:
-    """Return EVENTS dict from constants."""
-    import gemini_tracing.constants as _c
-
-    return _c.EVENTS
-
-
-def _harness_name() -> str:
-    """Return HARNESS_NAME from constants."""
-    import gemini_tracing.constants as _c
-
-    return _c.HARNESS_NAME
-
-
-# ---------------------------------------------------------------------------
 # Install / uninstall hooks in settings.json
 # ---------------------------------------------------------------------------
 
 
 def _install_hooks() -> None:
     """Write/merge our hook entries into ~/.gemini/settings.json."""
-    hook_name = _hook_name()
-    timeout = _hook_timeout_ms()
-    events = _events()
-
     if dry_run():
         info(f"would write Gemini hooks to {_settings_file()}")
         return
@@ -126,7 +103,7 @@ def _install_hooks() -> None:
     data = _read_settings()
     hooks_map: dict = data.setdefault("hooks", {})
 
-    for event, entry_point in events.items():
+    for event, entry_point in EVENTS.items():
         cmd = str(venv_bin(entry_point))
         event_list: list = hooks_map.setdefault(event, [])
 
@@ -134,7 +111,7 @@ def _install_hooks() -> None:
         event_list[:] = [
             block
             for block in event_list
-            if not any(h.get("name") == hook_name for h in block.get("hooks", []))
+            if not any(h.get("name") == HOOK_NAME for h in block.get("hooks", []))
         ]
 
         # Append our block
@@ -144,9 +121,9 @@ def _install_hooks() -> None:
                 "hooks": [
                     {
                         "type": "command",
-                        "name": hook_name,
+                        "name": HOOK_NAME,
                         "command": cmd,
-                        "timeout": timeout,
+                        "timeout": HOOK_TIMEOUT_MS,
                     }
                 ],
             }
@@ -161,9 +138,6 @@ def _uninstall_hooks() -> None:
     if not path.is_file():
         return
 
-    hook_name = _hook_name()
-    events = _events()
-
     if dry_run():
         info(f"would remove Gemini hooks from {path}")
         return
@@ -171,12 +145,12 @@ def _uninstall_hooks() -> None:
     data = _read_settings()
     hooks_map = data.get("hooks", {})
 
-    for event in events:
+    for event in EVENTS:
         event_list = hooks_map.get(event, [])
         filtered = [
             block
             for block in event_list
-            if not any(h.get("name") == hook_name for h in block.get("hooks", []))
+            if not any(h.get("name") == HOOK_NAME for h in block.get("hooks", []))
         ]
         if filtered:
             hooks_map[event] = filtered
@@ -201,22 +175,21 @@ def install() -> None:
     """Install Gemini tracing hooks and register in config.yaml."""
     ensure_shared_runtime()
 
-    harness = _harness_name()
     config = load_config()
-    existing_entry = get_value(config, f"harnesses.{harness}")
+    existing_entry = get_value(config, f"harnesses.{HARNESS_NAME}")
 
     if not existing_entry or not isinstance(existing_entry, dict) or "target" not in existing_entry:
         existing_harnesses = config.get("harnesses") if config else None
         target, credentials = prompt_backend(existing_harnesses)
-        project_name = prompt_project_name(harness)
+        project_name = prompt_project_name(HARNESS_NAME)
         user_id = prompt_user_id()
         if not dry_run():
-            write_config(target, credentials, harness, project_name, user_id=user_id)
+            write_config(target, credentials, HARNESS_NAME, project_name, user_id=user_id)
         else:
             info("would write config.yaml with backend credentials")
     else:
-        project_name = prompt_project_name(existing_entry.get("project_name") or harness)
-        merge_harness_entry(harness, project_name)
+        project_name = prompt_project_name(existing_entry.get("project_name") or HARNESS_NAME)
+        merge_harness_entry(HARNESS_NAME, project_name)
 
     # Logging settings are global. Prompt only if no `logging:` block exists yet.
     if (config.get("logging") if config else None) is None:
@@ -234,9 +207,8 @@ def uninstall() -> None:
     """Remove Gemini tracing hooks and deregister from config.yaml."""
     _uninstall_hooks()
 
-    harness = _harness_name()
-    remove_harness_entry(harness)
-    unlink_skills(harness)
+    remove_harness_entry(HARNESS_NAME)
+    unlink_skills(HARNESS_NAME)
     info("Gemini tracing uninstalled")
 
 
