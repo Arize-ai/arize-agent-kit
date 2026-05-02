@@ -705,3 +705,184 @@ class TestDedupeByHookName:
         data = json.loads(settings_file.read_text())
         # Should still have exactly 1 block for SessionStart
         assert len(data["hooks"]["SessionStart"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Malformed settings.json
+# ---------------------------------------------------------------------------
+
+
+class TestInstallHandlesMalformedSettings:
+    """Install handles malformed settings.json gracefully."""
+
+    def test_malformed_json_treated_as_empty(self, settings_file, monkeypatch):
+        """Malformed JSON should be treated as {} and overwritten with hooks."""
+        settings_file.parent.mkdir(parents=True, exist_ok=True)
+        settings_file.write_text("{this is not valid json!!!")
+
+        _mock_prompts(monkeypatch)
+        install()
+
+        data = json.loads(settings_file.read_text())
+        assert "hooks" in data
+        assert len(data["hooks"]) == 8
+
+
+# ---------------------------------------------------------------------------
+# Uninstall dry-run
+# ---------------------------------------------------------------------------
+
+
+class TestUninstallDryRunWritesNothing:
+    """Dry-run uninstall should not modify anything."""
+
+    def test_dry_run_uninstall_preserves_settings(self, settings_file, monkeypatch):
+        """Dry-run uninstall should not remove hooks from settings.json."""
+        _mock_prompts(monkeypatch)
+        install()
+
+        original = settings_file.read_text()
+
+        monkeypatch.setenv("ARIZE_DRY_RUN", "true")
+        uninstall()
+
+        assert settings_file.is_file()
+        assert settings_file.read_text() == original
+
+    def test_dry_run_uninstall_no_settings_no_error(self, cwd_tmp, monkeypatch):
+        """Dry-run uninstall with no settings.json should not error."""
+        monkeypatch.setenv("ARIZE_DRY_RUN", "true")
+        monkeypatch.setattr("sys.stdout", _fake_stdout())
+        # Should not raise
+        uninstall()
+
+
+# ---------------------------------------------------------------------------
+# JSON output validity
+# ---------------------------------------------------------------------------
+
+
+class TestSettingsJsonOutputValidity:
+    """Verify that settings.json output is always valid JSON."""
+
+    def test_output_is_valid_json(self, settings_file, monkeypatch):
+        """Output should always be parseable JSON."""
+        _mock_prompts(monkeypatch)
+        install()
+        text = settings_file.read_text()
+        # Should not raise
+        data = json.loads(text)
+        assert isinstance(data, dict)
+
+    def test_output_has_no_duplicate_keys(self, settings_file, monkeypatch):
+        """No duplicate event keys in the hooks dict."""
+        _mock_prompts(monkeypatch)
+        install()
+        data = json.loads(settings_file.read_text())
+        event_keys = list(data["hooks"].keys())
+        assert len(event_keys) == len(set(event_keys))
+
+
+# ---------------------------------------------------------------------------
+# Constants verification
+# ---------------------------------------------------------------------------
+
+
+class TestConstants:
+    """Verify constants are well-formed."""
+
+    def test_events_has_8_entries(self):
+        assert len(_gc.EVENTS) == 8
+
+    def test_harness_name_is_gemini(self):
+        assert _gc.HARNESS_NAME == "gemini"
+
+    def test_hook_name_is_arize_tracing(self):
+        assert _gc.HOOK_NAME == "arize-tracing"
+
+    def test_settings_file_is_under_settings_dir(self):
+        assert _gc.SETTINGS_FILE.parent == _gc.SETTINGS_DIR
+
+    def test_settings_file_name(self):
+        assert _gc.SETTINGS_FILE.name == "settings.json"
+
+    def test_hook_timeout_is_positive_int(self):
+        assert isinstance(_gc.HOOK_TIMEOUT_MS, int)
+        assert _gc.HOOK_TIMEOUT_MS > 0
+
+    def test_all_entry_points_have_gemini_prefix(self):
+        """All entry point names should start with arize-hook-gemini-."""
+        for ep in _gc.EVENTS.values():
+            assert ep.startswith("arize-hook-gemini-"), f"Unexpected entry point: {ep}"
+
+    def test_events_keys_are_camelcase(self):
+        """Event names should be CamelCase as per Gemini spec."""
+        for event in _gc.EVENTS:
+            assert event[0].isupper(), f"Event {event} should start with uppercase"
+
+
+# ---------------------------------------------------------------------------
+# Handlers importability
+# ---------------------------------------------------------------------------
+
+
+class TestHandlersImportable:
+    """All 8 handler functions should be importable and callable."""
+
+    def test_all_handlers_importable(self):
+        from gemini_tracing.hooks.handlers import (
+            after_agent,
+            after_model,
+            after_tool,
+            before_agent,
+            before_model,
+            before_tool,
+            session_end,
+            session_start,
+        )
+
+        for fn in [session_start, session_end, before_agent, after_agent, before_model, after_model, before_tool, after_tool]:
+            assert callable(fn)
+
+
+# ---------------------------------------------------------------------------
+# Setup wizard delegation
+# ---------------------------------------------------------------------------
+
+
+class TestSetupGeminiModule:
+    """core/setup/gemini.py delegates to gemini_tracing/install.py."""
+
+    def test_setup_module_importable(self):
+        from core.setup.gemini import install, main, uninstall
+
+        assert callable(install)
+        assert callable(uninstall)
+        assert callable(main)
+
+    def test_setup_install_delegates(self, cwd_tmp, monkeypatch):
+        """core.setup.gemini.install() should call gemini_tracing.install.install()."""
+        import core.setup.gemini as setup_gemini
+
+        called = []
+        monkeypatch.setattr(_install, "install", lambda: called.append("install"))
+        setup_gemini.install()
+        assert called == ["install"]
+
+    def test_setup_uninstall_delegates(self, cwd_tmp, monkeypatch):
+        """core.setup.gemini.uninstall() should call gemini_tracing.install.uninstall()."""
+        import core.setup.gemini as setup_gemini
+
+        called = []
+        monkeypatch.setattr(_install, "uninstall", lambda: called.append("uninstall"))
+        setup_gemini.uninstall()
+        assert called == ["uninstall"]
+
+    def test_setup_main_delegates_to_install(self, cwd_tmp, monkeypatch):
+        """core.setup.gemini.main() should call gemini_tracing.install.install()."""
+        import core.setup.gemini as setup_gemini
+
+        called = []
+        monkeypatch.setattr(_install, "install", lambda: called.append("install"))
+        setup_gemini.main()
+        assert called == ["install"]
