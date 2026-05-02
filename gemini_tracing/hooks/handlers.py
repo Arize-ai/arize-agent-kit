@@ -9,14 +9,6 @@ from __future__ import annotations
 import json
 import sys
 
-from gemini_tracing.hooks.adapter import (
-    SCOPE_NAME,
-    SERVICE_NAME,
-    check_requirements,
-    ensure_session_initialized,
-    gc_stale_state_files,
-    resolve_session,
-)
 from core.common import (
     build_span,
     env,
@@ -27,6 +19,14 @@ from core.common import (
     log,
     redact_content,
     send_span,
+)
+from gemini_tracing.hooks.adapter import (
+    SCOPE_NAME,
+    SERVICE_NAME,
+    check_requirements,
+    ensure_session_initialized,
+    gc_stale_state_files,
+    resolve_session,
 )
 
 # ---------------------------------------------------------------------------

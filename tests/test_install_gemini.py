@@ -386,7 +386,9 @@ class TestInstallPreservesUserSettings:
         settings_file.parent.mkdir(parents=True, exist_ok=True)
         existing = {
             "hooks": {
-                "CustomEvent": [{"matcher": "", "hooks": [{"type": "command", "name": "user-hook", "command": "/usr/bin/custom"}]}],
+                "CustomEvent": [
+                    {"matcher": "", "hooks": [{"type": "command", "name": "user-hook", "command": "/usr/bin/custom"}]}
+                ],
             }
         }
         settings_file.write_text(json.dumps(existing, indent=2) + "\n")
@@ -404,7 +406,10 @@ class TestInstallPreservesUserSettings:
         existing = {
             "hooks": {
                 "BeforeTool": [
-                    {"matcher": "grep", "hooks": [{"type": "command", "name": "user-grep-hook", "command": "/usr/bin/grep-hook"}]},
+                    {
+                        "matcher": "grep",
+                        "hooks": [{"type": "command", "name": "user-grep-hook", "command": "/usr/bin/grep-hook"}],
+                    },
                 ],
             }
         }
@@ -506,7 +511,10 @@ class TestUninstallPreservesUserHooks:
         # Add a user hook to BeforeTool
         data = json.loads(settings_file.read_text())
         data["hooks"]["BeforeTool"].append(
-            {"matcher": "grep", "hooks": [{"type": "command", "name": "user-grep-hook", "command": "/usr/bin/grep-hook"}]}
+            {
+                "matcher": "grep",
+                "hooks": [{"type": "command", "name": "user-grep-hook", "command": "/usr/bin/grep-hook"}],
+            }
         )
         settings_file.write_text(json.dumps(data, indent=2) + "\n")
 
@@ -845,7 +853,16 @@ class TestHandlersImportable:
             session_start,
         )
 
-        for fn in [session_start, session_end, before_agent, after_agent, before_model, after_model, before_tool, after_tool]:
+        for fn in [
+            session_start,
+            session_end,
+            before_agent,
+            after_agent,
+            before_model,
+            after_model,
+            before_tool,
+            after_tool,
+        ]:
             assert callable(fn)
 
 
@@ -938,7 +955,8 @@ class TestInstallPromptsForLogging:
         mock_write_logging = MagicMock()
 
         monkeypatch.setattr(
-            _install, "prompt_backend",
+            _install,
+            "prompt_backend",
             lambda existing_harnesses=None: PHOENIX_BACKEND,
         )
         monkeypatch.setattr(_install, "prompt_project_name", lambda default: default)

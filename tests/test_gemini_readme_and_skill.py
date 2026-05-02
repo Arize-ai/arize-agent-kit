@@ -165,13 +165,22 @@ class TestGeminiReadmeRemoteSetup:
         self.text = README_PATH.read_text()
 
     def test_curl_install_command(self):
-        assert "curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- gemini" in self.text
+        assert (
+            "curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- gemini"
+            in self.text
+        )
 
     def test_curl_uninstall_command(self):
-        assert "curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- uninstall gemini" in self.text
+        assert (
+            "curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- uninstall gemini"
+            in self.text
+        )
 
     def test_windows_iwr_command(self):
-        assert "iwr -useb https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.bat -OutFile $env:TEMP\\install.bat" in self.text
+        assert (
+            "iwr -useb https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.bat -OutFile $env:TEMP\\install.bat"
+            in self.text
+        )
 
     def test_windows_install_command(self):
         assert "& $env:TEMP\\install.bat gemini" in self.text
@@ -269,6 +278,7 @@ class TestGeminiReadmeNoProhibitedContent:
     def test_no_emojis(self):
         # Check for common emoji unicode ranges
         import re
+
         emoji_pattern = re.compile(
             "[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF"
             "\U0001F1E0-\U0001F1FF\U00002702-\U000027B0\U0001F900-\U0001F9FF]"
@@ -299,20 +309,19 @@ class TestGeminiReadmeMirrorsCopilot:
         copilot_headings = _extract_markdown_headings(self.copilot_text)
         gemini_levels = [h.split(" ")[0] for h in gemini_headings]
         copilot_levels = [h.split(" ")[0] for h in copilot_headings]
-        assert gemini_levels == copilot_levels, (
-            f"Heading levels differ.\nGemini: {gemini_levels}\nCopilot: {copilot_levels}"
-        )
+        assert (
+            gemini_levels == copilot_levels
+        ), f"Heading levels differ.\nGemini: {gemini_levels}\nCopilot: {copilot_levels}"
 
     def test_same_section_names_except_harness_specific(self):
         """Section names should match except for harness-specific terms."""
         gemini_headings = _extract_markdown_headings(self.gemini_text)
-        copilot_headings = _extract_markdown_headings(self.copilot_text)
         # Compare everything except title and Default Settings (which have different values)
         # Setup, Remote setup, Local setup should be identical
-        assert "## Setup" in [h for h in gemini_headings]
-        assert "### Remote setup" in [h for h in gemini_headings]
-        assert "### Local setup" in [h for h in gemini_headings]
-        assert "## Default Settings" in [h for h in gemini_headings]
+        assert "## Setup" in gemini_headings
+        assert "### Remote setup" in gemini_headings
+        assert "### Local setup" in gemini_headings
+        assert "## Default Settings" in gemini_headings
 
 
 # ---------------------------------------------------------------------------
@@ -511,7 +520,7 @@ class TestGeminiSkillNoCopilotLeakage:
         lines = self.text.splitlines()
         closing = next((i for i in range(1, len(lines)) if lines[i] == "---"), len(lines))
         frontmatter = "\n".join(lines[1:closing])
-        name_line = [l for l in frontmatter.splitlines() if l.startswith("name:")]
+        name_line = [line for line in frontmatter.splitlines() if line.startswith("name:")]
         assert len(name_line) == 1
         assert "copilot" not in name_line[0]
 
@@ -533,6 +542,7 @@ class TestGeminiSkillNoEmojis:
 
     def test_no_emojis(self):
         import re
+
         emoji_pattern = re.compile(
             "[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF"
             "\U0001F1E0-\U0001F1FF\U00002702-\U000027B0\U0001F900-\U0001F9FF]"
@@ -556,8 +566,7 @@ class TestGeminiSkillMirrorsCopilotStructure:
         gemini_h2 = self._extract_h2_headings(self.gemini_text)
         copilot_h2 = self._extract_h2_headings(self.copilot_text)
         assert len(gemini_h2) == len(copilot_h2), (
-            f"H2 count differs. Gemini: {len(gemini_h2)} ({gemini_h2}), "
-            f"Copilot: {len(copilot_h2)} ({copilot_h2})"
+            f"H2 count differs. Gemini: {len(gemini_h2)} ({gemini_h2}), " f"Copilot: {len(copilot_h2)} ({copilot_h2})"
         )
 
     def test_matching_h2_section_names(self):
@@ -567,15 +576,10 @@ class TestGeminiSkillMirrorsCopilotStructure:
 
         # Normalize: replace harness-specific terms for comparison
         def normalize(heading: str) -> str:
-            return (
-                heading.lower()
-                .replace("copilot", "HARNESS")
-                .replace("gemini", "HARNESS")
-            )
+            return heading.lower().replace("copilot", "HARNESS").replace("gemini", "HARNESS")
 
         gemini_normalized = [normalize(h) for h in gemini_h2]
         copilot_normalized = [normalize(h) for h in copilot_h2]
         assert gemini_normalized == copilot_normalized, (
-            f"H2 headings differ after normalization.\n"
-            f"Gemini: {gemini_h2}\nCopilot: {copilot_h2}"
+            f"H2 headings differ after normalization.\n" f"Gemini: {gemini_h2}\nCopilot: {copilot_h2}"
         )

@@ -295,11 +295,6 @@ class TestGcStaleStateFiles:
         old_time = time.time() - 90000
         os.utime(state_file, (old_time, old_time))
 
-        original_unlink = state_file.unlink
-
-        def failing_unlink(*args, **kwargs):
-            raise OSError("permission denied")
-
         # Patch Path.unlink to fail for this specific file
         import pathlib
 

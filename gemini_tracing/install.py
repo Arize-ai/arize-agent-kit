@@ -15,8 +15,6 @@ from __future__ import annotations
 import json
 import sys
 
-from gemini_tracing.constants import EVENTS, HARNESS_NAME, HOOK_NAME, HOOK_TIMEOUT_MS
-
 from core.config import get_value, load_config
 from core.setup import (
     dry_run,
@@ -33,7 +31,7 @@ from core.setup import (
     write_config,
     write_logging_config,
 )
-
+from gemini_tracing.constants import EVENTS, HARNESS_NAME, HOOK_NAME, HOOK_TIMEOUT_MS
 
 # ---------------------------------------------------------------------------
 # JSON helpers
@@ -109,9 +107,7 @@ def _install_hooks() -> None:
 
         # Remove any existing matcher-block that contains a hook with our name
         event_list[:] = [
-            block
-            for block in event_list
-            if not any(h.get("name") == HOOK_NAME for h in block.get("hooks", []))
+            block for block in event_list if not any(h.get("name") == HOOK_NAME for h in block.get("hooks", []))
         ]
 
         # Append our block
@@ -148,9 +144,7 @@ def _uninstall_hooks() -> None:
     for event in EVENTS:
         event_list = hooks_map.get(event, [])
         filtered = [
-            block
-            for block in event_list
-            if not any(h.get("name") == HOOK_NAME for h in block.get("hooks", []))
+            block for block in event_list if not any(h.get("name") == HOOK_NAME for h in block.get("hooks", []))
         ]
         if filtered:
             hooks_map[event] = filtered
