@@ -14,7 +14,7 @@ Configure OpenInference tracing for **Gemini CLI** sessions to Arize AX (cloud) 
 1. **Is the harness already installed?**
    - Check `~/.gemini/settings.json` for 8 hook entries with `name: arize-tracing`
    - Check `~/.arize/harness/config.yaml` for the `harnesses.gemini` block
-   - If both are present -> Jump to [Verify](#verify) or [Troubleshoot](#troubleshoot)
+   - If both are present -> Jump to [Validate](#validate) or [Troubleshoot](#troubleshoot)
 
 2. **Do they already have credentials?**
    - Yes -> Jump to [Configure Settings](#configure-settings)
@@ -144,7 +144,7 @@ To uninstall:
 
 The installer registers all 8 hook events (`SessionStart`, `SessionEnd`, `BeforeAgent`, `AfterAgent`, `BeforeModel`, `AfterModel`, `BeforeTool`, `AfterTool`) in `~/.gemini/settings.json` with `name: arize-tracing` on each entry.
 
-### Verify
+### Validate
 
 1. **Config exists**: Run `cat ~/.arize/harness/config.yaml` to verify the config file exists and has correct backend credentials under `harnesses.gemini`.
 2. **Phoenix** (if applicable): Run `curl -sf <endpoint>/v1/traces >/dev/null` to check connectivity.

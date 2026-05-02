@@ -17,6 +17,19 @@ COPILOT_README_PATH = REPO_ROOT / "copilot_tracing" / "README.md"
 COPILOT_SKILL_PATH = REPO_ROOT / "copilot_tracing" / "skills" / "manage-copilot-tracing" / "SKILL.md"
 
 
+def _extract_markdown_headings(text: str) -> list[str]:
+    """Extract heading lines, skipping lines inside fenced code blocks."""
+    headings: list[str] = []
+    in_code_block = False
+    for line in text.splitlines():
+        if line.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if not in_code_block and line.startswith("#"):
+            headings.append(line)
+    return headings
+
+
 # ---------------------------------------------------------------------------
 # README tests
 # ---------------------------------------------------------------------------
@@ -114,8 +127,8 @@ class TestGeminiReadmeHeadings:
             assert "why hooks" not in h.lower()
 
     def test_heading_count(self):
-        """Should have exactly 4 headings: title + Setup + Remote setup + Local setup + Default Settings."""
-        headings = [line for line in self.lines if line.startswith("#")]
+        """Should have exactly 5 headings: title + Setup + Remote setup + Local setup + Default Settings."""
+        headings = _extract_markdown_headings(self.text)
         assert len(headings) == 5, f"Expected 5 headings, got {len(headings)}: {headings}"
 
 
@@ -280,14 +293,10 @@ class TestGeminiReadmeMirrorsCopilot:
         self.gemini_text = README_PATH.read_text()
         self.copilot_text = COPILOT_README_PATH.read_text()
 
-    def _extract_headings(self, text: str) -> list[str]:
-        """Extract heading lines, normalized to remove harness-specific words."""
-        return [line for line in text.splitlines() if line.startswith("#")]
-
     def test_same_heading_levels(self):
         """Both READMEs should use the same heading level structure."""
-        gemini_headings = self._extract_headings(self.gemini_text)
-        copilot_headings = self._extract_headings(self.copilot_text)
+        gemini_headings = _extract_markdown_headings(self.gemini_text)
+        copilot_headings = _extract_markdown_headings(self.copilot_text)
         gemini_levels = [h.split(" ")[0] for h in gemini_headings]
         copilot_levels = [h.split(" ")[0] for h in copilot_headings]
         assert gemini_levels == copilot_levels, (
@@ -296,8 +305,8 @@ class TestGeminiReadmeMirrorsCopilot:
 
     def test_same_section_names_except_harness_specific(self):
         """Section names should match except for harness-specific terms."""
-        gemini_headings = self._extract_headings(self.gemini_text)
-        copilot_headings = self._extract_headings(self.copilot_text)
+        gemini_headings = _extract_markdown_headings(self.gemini_text)
+        copilot_headings = _extract_markdown_headings(self.copilot_text)
         # Compare everything except title and Default Settings (which have different values)
         # Setup, Remote setup, Local setup should be identical
         assert "## Setup" in [h for h in gemini_headings]

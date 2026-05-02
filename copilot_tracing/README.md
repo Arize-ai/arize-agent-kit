@@ -10,17 +10,21 @@ The installer prompts for your backend (Phoenix or Arize AX) and project name, w
 macOS / Linux:
 
 ```bash
+# Install
 curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- copilot
 
+# Uninstall
 curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- uninstall copilot
 ```
 
 Windows (PowerShell):
 
 ```powershell
+# Install
 iwr -useb https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.bat -OutFile $env:TEMP\install.bat
 & $env:TEMP\install.bat copilot
 
+# Uninstall
 iwr -useb https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.bat -OutFile $env:TEMP\install.bat
 & $env:TEMP\install.bat uninstall copilot
 ```
@@ -35,16 +39,20 @@ cd arize-agent-kit
 macOS / Linux:
 
 ```bash
+# Install
 ./install.sh copilot
 
+# Uninstall
 ./install.sh uninstall copilot
 ```
 
 Windows:
 
 ```powershell
+# Install
 install.bat copilot
 
+# Uninstall
 install.bat uninstall copilot
 ```
 

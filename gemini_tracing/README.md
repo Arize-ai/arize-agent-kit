@@ -10,17 +10,21 @@ The installer prompts for your backend (Phoenix or Arize AX) and project name, w
 macOS / Linux:
 
 ```bash
+# Install
 curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- gemini
 
+# Uninstall
 curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- uninstall gemini
 ```
 
 Windows (PowerShell):
 
 ```powershell
+# Install
 iwr -useb https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.bat -OutFile $env:TEMP\install.bat
 & $env:TEMP\install.bat gemini
 
+# Uninstall
 iwr -useb https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.bat -OutFile $env:TEMP\install.bat
 & $env:TEMP\install.bat uninstall gemini
 ```
@@ -35,16 +39,20 @@ cd arize-agent-kit
 macOS / Linux:
 
 ```bash
+# Install
 ./install.sh gemini
 
+# Uninstall
 ./install.sh uninstall gemini
 ```
 
 Windows:
 
 ```powershell
+# Install
 install.bat gemini
 
+# Uninstall
 install.bat uninstall gemini
 ```
 
