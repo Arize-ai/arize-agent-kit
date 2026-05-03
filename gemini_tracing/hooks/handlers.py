@@ -111,6 +111,56 @@ def _extract_tokens(input_json: dict) -> tuple[int, int]:
 # ---------------------------------------------------------------------------
 
 
+def _close_pending_turn(state, reason: str) -> None:
+    """Emit a CHAIN root span for any pending turn, then clear trace state.
+
+    Gemini does not always fire AfterAgent (cancellation, errors, slash commands),
+    which leaves child LLM/TOOL spans pointing at a parent_span_id that was
+    never sent. This fail-safe closes the dangling root so traces are connected
+    in Arize. Called from both BeforeAgent (before starting a new turn) and
+    SessionEnd. No-op if no pending trace state exists.
+    """
+    pending_trace_id = state.get("current_trace_id")
+    pending_span_id = state.get("current_trace_span_id")
+    if not pending_trace_id or not pending_span_id:
+        return
+
+    session_id = state.get("session_id") or ""
+    project_name = state.get("project_name") or ""
+    user_id = state.get("user_id") or ""
+    start_time = state.get("current_trace_start_time") or str(get_timestamp_ms())
+    prompt = state.get("current_trace_prompt") or ""
+
+    attrs = {
+        "session.id": session_id,
+        "openinference.span.kind": "CHAIN",
+        "project.name": project_name,
+        "input.value": redact_content(env.log_prompts, prompt),
+        "output.value": f"(closed by {reason} fail-safe)",
+    }
+    if user_id:
+        attrs["user.id"] = user_id
+
+    span = build_span(
+        "Turn",
+        "CHAIN",
+        pending_span_id,
+        pending_trace_id,
+        "",
+        start_time,
+        str(get_timestamp_ms()),
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
+    )
+    send_span(span)
+
+    state.delete("current_trace_id")
+    state.delete("current_trace_span_id")
+    state.delete("current_trace_start_time")
+    state.delete("current_trace_prompt")
+
+
 def _handle_session_start(input_json: dict) -> None:
     """Handle session start: initialize session."""
     debug_dump("gemini_session_start", input_json)
@@ -128,38 +178,7 @@ def _handle_session_end(input_json: dict) -> None:
     if session_id is None:
         return
 
-    # Fail-safe: close any pending turn as an LLM span
-    pending_trace_id = state.get("current_trace_id")
-    pending_span_id = state.get("current_trace_span_id")
-    if pending_trace_id and pending_span_id:
-        start_time = state.get("current_trace_start_time") or str(get_timestamp_ms())
-        prompt = state.get("current_trace_prompt") or ""
-        project_name = state.get("project_name") or ""
-        user_id = state.get("user_id") or ""
-
-        attrs = {
-            "session.id": session_id,
-            "openinference.span.kind": "LLM",
-            "project.name": project_name,
-            "input.value": redact_content(env.log_prompts, prompt),
-            "output.value": "(closed by SessionEnd fail-safe)",
-        }
-        if user_id:
-            attrs["user.id"] = user_id
-
-        span = build_span(
-            "LLM",
-            "LLM",
-            pending_span_id,
-            pending_trace_id,
-            "",
-            start_time,
-            str(get_timestamp_ms()),
-            attrs,
-            SERVICE_NAME,
-            SCOPE_NAME,
-        )
-        send_span(span)
+    _close_pending_turn(state, "SessionEnd")
 
     trace_count = state.get("trace_count") or "0"
     tool_count = state.get("tool_count") or "0"
@@ -188,6 +207,12 @@ def _handle_before_agent(input_json: dict) -> None:
     debug_dump("gemini_before_agent", input_json)
     state = resolve_session(input_json)
     ensure_session_initialized(state, input_json)
+
+    # If a previous turn is still pending (AfterAgent never fired -- cancel,
+    # crash, slash command), close it as a CHAIN root before starting the
+    # new turn. Otherwise child spans from the new turn would be created
+    # under the prior turn's IDs and never get a root span.
+    _close_pending_turn(state, "BeforeAgent")
 
     state.increment("trace_count")
     state.set("current_trace_id", generate_trace_id())
