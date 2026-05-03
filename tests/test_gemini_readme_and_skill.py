@@ -427,7 +427,7 @@ class TestGeminiSkillContent:
 
     def test_mentions_log_file_tailing(self):
         """Must teach tailing the log file."""
-        assert "/tmp/arize-gemini.log" in self.text
+        assert "~/.arize/harness/logs/gemini.log" in self.text
 
     def test_mentions_install_command(self):
         """Must teach reinstalling."""

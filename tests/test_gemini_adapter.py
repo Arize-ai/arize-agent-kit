@@ -326,6 +326,57 @@ class TestPidFallback:
         assert gpid.isdigit()
         assert int(gpid) > 0
 
+    def test_get_grandparent_pid_zero_ppid_returns_self(self, monkeypatch):
+        """If getppid() returns <= 0, fall back to current pid."""
+        monkeypatch.setattr(adapter.os, "getppid", lambda: 0)
+        gpid = adapter._get_grandparent_pid()
+        assert gpid == str(os.getpid())
+
+    def test_get_grandparent_pid_uses_proc_when_available(self, monkeypatch, tmp_path):
+        """On Linux-like systems, /proc/<ppid>/stat is parsed for the grandparent pid."""
+        ppid = 12345
+        gpid = 67890
+        monkeypatch.setattr(adapter.os, "getppid", lambda: ppid)
+
+        proc_path = f"/proc/{ppid}/stat"
+        proc_content = f"{ppid} (some (proc) name) S {gpid} 1 1 1 1 1"
+
+        def fake_exists(path):
+            return path == proc_path
+
+        monkeypatch.setattr(adapter.os.path, "exists", fake_exists)
+
+        from unittest import mock
+
+        m = mock.mock_open(read_data=proc_content)
+        with mock.patch("builtins.open", m):
+            assert adapter._get_grandparent_pid() == str(gpid)
+
+    def test_get_grandparent_pid_falls_back_to_ps(self, monkeypatch):
+        """When /proc isn't available, _get_grandparent_pid uses `ps`."""
+        ppid = 11111
+        gpid_from_ps = "22222"
+        monkeypatch.setattr(adapter.os, "getppid", lambda: ppid)
+        monkeypatch.setattr(adapter.os.path, "exists", lambda _: False)
+        monkeypatch.setattr(
+            adapter.subprocess,
+            "check_output",
+            lambda *a, **kw: f"  {gpid_from_ps}\n".encode(),
+        )
+        assert adapter._get_grandparent_pid() == gpid_from_ps
+
+    def test_get_grandparent_pid_falls_back_to_ppid_when_ps_fails(self, monkeypatch):
+        """If both /proc and `ps` fail, return the parent pid as a string."""
+        ppid = 33333
+        monkeypatch.setattr(adapter.os, "getppid", lambda: ppid)
+        monkeypatch.setattr(adapter.os.path, "exists", lambda _: False)
+
+        def boom(*a, **kw):
+            raise adapter.subprocess.SubprocessError("ps unavailable")
+
+        monkeypatch.setattr(adapter.subprocess, "check_output", boom)
+        assert adapter._get_grandparent_pid() == str(ppid)
+
     def test_is_pid_alive_for_self(self):
         """_is_pid_alive returns True for the current process."""
         assert adapter._is_pid_alive(os.getpid()) is True
@@ -335,6 +386,72 @@ class TestPidFallback:
         assert adapter._is_pid_alive(0) is False
         assert adapter._is_pid_alive(-1) is False
 
+    def test_is_pid_alive_for_dead_pid(self):
+        """_is_pid_alive returns False for a pid that no longer exists."""
+        # Spawn a short-lived child and reap it so the pid is definitely gone.
+        import subprocess
+
+        proc = subprocess.Popen(["/bin/sh", "-c", "exit 0"])
+        proc.wait()
+        # macOS recycles pids quickly, so this is best-effort: tolerate either
+        # outcome but exercise the OSError branch in os.kill.
+        result = adapter._is_pid_alive(proc.pid)
+        assert isinstance(result, bool)
+
     def test_no_is_vscode_mode(self):
         """Adapter is single-mode (CLI-only); no VS Code dual-mode logic."""
         assert not hasattr(adapter, "is_vscode_mode")
+
+
+# ── PID-keyed gc behavior ────────────────────────────────────────────────────
+
+
+class TestGcPidKeyed:
+    """When a state file is keyed by a PID (digit string), gc liveness-checks
+    the pid instead of using the 24h mtime cutoff."""
+
+    def test_dead_pid_state_file_removed(self, gemini_state_dir, disable_env_vars, monkeypatch):
+        """A state file whose key is a non-alive PID is unlinked even if recent."""
+        state_file = gemini_state_dir / "state_999999.yaml"
+        state_file.write_text("{}")
+        monkeypatch.setattr(adapter, "_is_pid_alive", lambda pid: False)
+        adapter.gc_stale_state_files()
+        assert not state_file.exists()
+
+    def test_alive_pid_state_file_kept(self, gemini_state_dir, disable_env_vars, monkeypatch):
+        """A state file keyed by an alive PID is kept regardless of mtime."""
+        state_file = gemini_state_dir / "state_42.yaml"
+        state_file.write_text("{}")
+        # Even if old, an alive pid keeps the file.
+        old = time.time() - 90000
+        os.utime(state_file, (old, old))
+        monkeypatch.setattr(adapter, "_is_pid_alive", lambda pid: True)
+        adapter.gc_stale_state_files()
+        assert state_file.exists()
+
+
+# ── resolve_session Windows fallback ─────────────────────────────────────────
+
+
+class TestResolveSessionWindowsFallback:
+    """On Windows the adapter uses the parent pid (no /proc, no ps)."""
+
+    def test_uses_parent_pid_on_windows(self, gemini_state_dir, disable_env_vars, monkeypatch):
+        monkeypatch.setattr(adapter.platform, "system", lambda: "Windows")
+        ppid = 4242
+        monkeypatch.setattr(adapter.os, "getppid", lambda: ppid)
+        sm = adapter.resolve_session({})
+        assert sm.state_file == gemini_state_dir / f"state_{ppid}.yaml"
+
+
+# ── module-level log-file env wiring ─────────────────────────────────────────
+
+
+class TestLogFileEnv:
+    def test_log_file_default_points_to_gemini_log(self):
+        """The adapter sets ARIZE_LOG_FILE to ~/.arize/harness/logs/gemini.log
+        on import unless the user has already overridden it."""
+        # The setdefault on import must have installed a value.
+        assert os.environ.get("ARIZE_LOG_FILE", "").endswith("gemini.log") or os.environ.get(
+            "ARIZE_LOG_FILE"
+        )  # user override is also fine

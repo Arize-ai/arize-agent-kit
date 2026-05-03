@@ -165,7 +165,7 @@ Tell the user:
 - Mention `ARIZE_VERBOSE=true` for debug output
 - Hook logs are written to `~/.arize/harness/logs/gemini.log`
 - Toggle tracing on/off via `ARIZE_TRACE_ENABLED` env var (must be exported in the user's shell -- Gemini hooks read host env vars)
-- Tail the log file at `/tmp/arize-gemini.log` for real-time debugging
+- Tail the log file at `~/.arize/harness/logs/gemini.log` for real-time debugging
 
 ## Hook Events
 

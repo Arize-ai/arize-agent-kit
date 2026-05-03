@@ -15,7 +15,11 @@ from unittest import mock
 import pytest
 
 from core.common import StateManager
+from gemini_tracing.hooks import handlers as handlers_mod
 from gemini_tracing.hooks.handlers import (
+    _extract_text,
+    _extract_tokens,
+    _flush_pending_model_call,
     _handle_after_agent,
     _handle_after_model,
     _handle_after_tool,
@@ -26,12 +30,14 @@ from gemini_tracing.hooks.handlers import (
     _handle_session_start,
     _print_response,
     _read_stdin,
+    _send_span_async,
     after_agent,
     after_model,
     after_tool,
     before_agent,
     before_model,
     before_tool,
+    main,
     session_end,
     session_start,
 )
@@ -330,11 +336,11 @@ class TestAfterAgent:
         state.set("current_trace_id", "a" * 32)
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_trace_prompt", "test")
-        
+
         # Test prompt_response
         _handle_after_agent({"prompt_response": "resp 1"})
         assert _get_span_attrs(captured_spans[0])["output.value"]["stringValue"] == "resp 1"
-        
+
         # Test llm_response with candidates
         state.set("current_trace_id", "a" * 32)
         state.set("current_trace_span_id", "b" * 16)
@@ -630,9 +636,7 @@ class TestAfterModel:
             _final_chunk(
                 {
                     "model": "gemini-2.5-pro",
-                    "llm_response": {
-                        "candidates": [{"content": {"parts": [{"text": "Hello"}, {"text": " world"}]}}]
-                    },
+                    "llm_response": {"candidates": [{"content": {"parts": [{"text": "Hello"}, {"text": " world"}]}}]},
                     "model_call_id": "mc-1",
                 }
             )
@@ -685,7 +689,9 @@ class TestAfterModel:
         state.set("model_prior_response", "partial response")
         state.set("model_prior_model", "gemini-2.5-pro")
 
-        _handle_before_model({"llm_request": {"model": "gemini-2.5-pro", "messages": [{"role": "user", "content": "x"}]}})
+        _handle_before_model(
+            {"llm_request": {"model": "gemini-2.5-pro", "messages": [{"role": "user", "content": "x"}]}}
+        )
         # Prior call gets flushed
         assert len(captured_spans) == 1
         attrs = _get_span_attrs(captured_spans[0])
@@ -1397,9 +1403,7 @@ class TestSessionStartIntegration:
         state_file = gemini_state_dir / "state_env-sid.yaml"
         assert state_file.exists()
 
-    def test_pid_fallback_when_both_missing(
-        self, tmp_harness_dir, gemini_state_dir, monkeypatch, captured_spans_real
-    ):
+    def test_pid_fallback_when_both_missing(self, tmp_harness_dir, gemini_state_dir, monkeypatch, captured_spans_real):
         """When no env var and no payload session_id, the resolve key falls back
         to the grandparent PID (a positive-integer string)."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
@@ -1414,3 +1418,239 @@ class TestSessionStartIntegration:
         key = state_files[0].stem.replace("state_", "", 1)
         assert key.isdigit()
         assert int(key) > 0
+
+
+# ---------------------------------------------------------------------------
+# Pure-function helper coverage
+# ---------------------------------------------------------------------------
+
+
+class TestExtractTextEdgeCases:
+    def test_returns_empty_for_none(self):
+        assert _extract_text(None) == ""
+
+    def test_returndisplay_used_when_no_llmcontent(self):
+        """returnDisplay is the UI fallback when llmContent is absent."""
+        assert _extract_text({"returnDisplay": "ui only"}) == "ui only"
+
+    def test_unknown_dict_returns_str_repr(self):
+        """Unknown shapes fall through to str(obj) (last-resort behavior)."""
+        out = _extract_text({"weird": "shape"})
+        assert "weird" in out
+
+    def test_list_joins_with_newline(self):
+        assert _extract_text(["a", "b", "c"]) == "a\nb\nc"
+
+
+class TestExtractTokensEdgeCases:
+    def test_non_numeric_tokens_default_to_zero(self):
+        """Non-int token values fall back to (0, 0) rather than raising."""
+        payload = {
+            "llm_response": {
+                "usageMetadata": {
+                    "promptTokenCount": "not-a-number",
+                    "candidatesTokenCount": [1, 2],
+                }
+            }
+        }
+        assert _extract_tokens(payload) == (0, 0)
+
+    def test_pulls_from_top_level_usage_metadata(self):
+        """Usage can also live at the top level of the payload."""
+        payload = {"usage_metadata": {"prompt_token_count": 7, "candidates_token_count": 3}}
+        assert _extract_tokens(payload) == (7, 3)
+
+
+# ---------------------------------------------------------------------------
+# _send_span_async fallback paths
+# ---------------------------------------------------------------------------
+
+
+class TestSendSpanAsync:
+    def test_disable_fork_env_uses_sync_send(self, monkeypatch):
+        """ARIZE_DISABLE_FORK=true short-circuits to synchronous send_span."""
+        monkeypatch.setenv("ARIZE_DISABLE_FORK", "true")
+        with mock.patch("gemini_tracing.hooks.handlers.send_span") as send_mock:
+            _send_span_async({"x": 1})
+        send_mock.assert_called_once_with({"x": 1})
+
+    def test_no_fork_attr_uses_sync_send(self, monkeypatch):
+        """If os.fork is absent (Windows-like), fall back to sync send."""
+        monkeypatch.setenv("ARIZE_DISABLE_FORK", "false")
+        # Simulate Windows by removing os.fork from the module's view.
+        import gemini_tracing.hooks.handlers as h
+
+        real_fork = getattr(h.os, "fork", None)
+        try:
+            if real_fork is not None:
+                monkeypatch.delattr(h.os, "fork", raising=False)
+            with mock.patch("gemini_tracing.hooks.handlers.send_span") as send_mock:
+                _send_span_async({"x": 2})
+            send_mock.assert_called_once_with({"x": 2})
+        finally:
+            # monkeypatch.delattr restores automatically at teardown
+            pass
+
+    def test_fork_oserror_uses_sync_send(self, monkeypatch):
+        """If os.fork() itself raises OSError, fall back to sync send."""
+        monkeypatch.setenv("ARIZE_DISABLE_FORK", "false")
+
+        def boom():
+            raise OSError("EAGAIN")
+
+        with (
+            mock.patch("gemini_tracing.hooks.handlers.os.fork", side_effect=boom),
+            mock.patch("gemini_tracing.hooks.handlers.send_span") as send_mock,
+        ):
+            _send_span_async({"x": 3})
+        send_mock.assert_called_once_with({"x": 3})
+
+
+# ---------------------------------------------------------------------------
+# _flush_pending_model_call edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestFlushPendingModelCall:
+    def test_no_current_model_call_id_is_noop(self, tmp_path):
+        """No-op when state has no current_model_call_id."""
+        sm = StateManager(state_dir=tmp_path, state_file=tmp_path / "s.yaml", lock_path=tmp_path / ".l")
+        sm.init_state()
+        with mock.patch("gemini_tracing.hooks.handlers._send_span_async") as send_mock:
+            _flush_pending_model_call(sm)
+        send_mock.assert_not_called()
+
+    def test_no_active_trace_drops_accumulators_silently(self, tmp_path):
+        """If a model call is pending but no trace is active, accumulators are
+        cleared without emitting a dangling LLM span."""
+        sm = StateManager(state_dir=tmp_path, state_file=tmp_path / "s.yaml", lock_path=tmp_path / ".l")
+        sm.init_state()
+        sm.set("current_model_call_id", "orphan")
+        sm.set("model_orphan_response", "partial")
+        with mock.patch("gemini_tracing.hooks.handlers._send_span_async") as send_mock:
+            _flush_pending_model_call(sm)
+        send_mock.assert_not_called()
+        assert sm.get("model_orphan_response") is None
+        assert sm.get("current_model_call_id") is None
+
+
+# ---------------------------------------------------------------------------
+# Edge cases in main handlers
+# ---------------------------------------------------------------------------
+
+
+class TestSessionEndEdgeCases:
+    def test_no_session_id_returns_silently(self, tmp_path, monkeypatch):
+        """SessionEnd with an uninitialized state returns without raising or
+        calling gc (covers the early-return guard)."""
+        sm = StateManager(state_dir=tmp_path, state_file=tmp_path / "s.yaml", lock_path=tmp_path / ".l")
+        sm.init_state()
+        with (
+            mock.patch("gemini_tracing.hooks.handlers.resolve_session", return_value=sm),
+            mock.patch("gemini_tracing.hooks.handlers.gc_stale_state_files") as gc_mock,
+        ):
+            _handle_session_end({})
+        gc_mock.assert_not_called()
+
+    def test_lock_file_unlinked_on_session_end(self, tmp_path):
+        """A regular file at lock_path is unlinked during session_end cleanup."""
+        sf = tmp_path / "state_x.yaml"
+        lp = tmp_path / ".lock_x"
+        # Write state directly so we don't acquire any lock that would race
+        # with the file-vs-dir we install at lock_path below.
+        sf.write_text("session_id: x\n")
+        lp.write_text("")  # fcntl-style file lock
+        sm = StateManager(state_dir=tmp_path, state_file=sf, lock_path=lp)
+        with (
+            mock.patch("gemini_tracing.hooks.handlers.resolve_session", return_value=sm),
+            mock.patch("gemini_tracing.hooks.handlers.log"),
+            mock.patch("gemini_tracing.hooks.handlers.gc_stale_state_files"),
+        ):
+            _handle_session_end({})
+        assert not lp.exists()
+
+    def test_lock_dir_rmdir_on_session_end(self, tmp_path):
+        """A directory at lock_path is rmdir'd during session_end cleanup."""
+        sf = tmp_path / "state_y.yaml"
+        lp = tmp_path / ".lock_y"
+        sf.write_text("session_id: y\n")
+        lp.mkdir()  # mkdir-fallback lock
+        sm = StateManager(state_dir=tmp_path, state_file=sf, lock_path=lp)
+        with (
+            mock.patch("gemini_tracing.hooks.handlers.resolve_session", return_value=sm),
+            mock.patch("gemini_tracing.hooks.handlers.log"),
+            mock.patch("gemini_tracing.hooks.handlers.gc_stale_state_files"),
+        ):
+            _handle_session_end({})
+        assert not lp.exists()
+
+
+class TestAfterAgentEdgeCases:
+    def test_no_trace_state_returns_without_sending(self, mock_resolve, state, captured_spans):
+        """AfterAgent without an active turn returns silently (covers the guard)."""
+        # Ensure no current_trace_id is set
+        assert state.get("current_trace_id") is None
+        _handle_after_agent({"prompt_response": "ok"})
+        assert captured_spans == []
+
+
+class TestAfterModelEdgeCases:
+    def test_orphan_chunk_creates_accumulator(self, mock_resolve, state, captured_spans):
+        """AfterModel with no preceding BeforeModel synthesizes an accumulator
+        so the chunk's content isn't lost."""
+        state.set("current_trace_id", "a" * 32)
+        state.set("current_trace_span_id", "b" * 16)
+        # No current_model_call_id set
+        _handle_after_model({"llm_response": {"text": "stray"}})
+        # Span isn't emitted yet (no tokens), but accumulator state exists
+        new_id = state.get("current_model_call_id")
+        assert new_id is not None
+        assert state.get(f"model_{new_id}_response") == "stray"
+
+
+class TestAfterToolEdgeCases:
+    def test_non_dict_tool_args_uses_str_description(self, mock_resolve, state, captured_spans):
+        """Non-dict tool_args are stringified into the tool description."""
+        state.set("current_trace_id", "a" * 32)
+        state.set("current_trace_span_id", "b" * 16)
+        _handle_after_tool(
+            {
+                "tool_name": "raw_string_tool",
+                "tool_input": "not-a-dict-arg",
+                "tool_response": "result",
+            }
+        )
+        attrs = _get_span_attrs(captured_spans[0])
+        assert attrs["tool.description"]["stringValue"] == "not-a-dict-arg"
+
+
+# ---------------------------------------------------------------------------
+# main() dispatcher
+# ---------------------------------------------------------------------------
+
+
+class TestMainDispatcher:
+    def test_no_args_prints_usage_and_exits(self, capsys, monkeypatch):
+        """main() with no handler argument prints usage and exits with code 1."""
+        monkeypatch.setattr(sys, "argv", ["arize-hook"])
+        with pytest.raises(SystemExit) as exc:
+            main()
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "usage" in err.lower()
+
+    def test_unknown_handler_exits_with_error(self, capsys, monkeypatch):
+        """main() rejects an unknown handler name with exit code 1."""
+        monkeypatch.setattr(sys, "argv", ["arize-hook", "not_a_real_handler"])
+        with pytest.raises(SystemExit) as exc:
+            main()
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "unknown handler" in err.lower()
+
+    def test_dispatches_to_named_handler(self, monkeypatch):
+        """main() routes argv[1] to the matching entry-point function."""
+        monkeypatch.setattr(sys, "argv", ["arize-hook", "session_start"])
+        with mock.patch.object(handlers_mod, "session_start") as ss_mock:
+            main()
+        ss_mock.assert_called_once()
