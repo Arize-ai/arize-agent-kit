@@ -52,10 +52,8 @@ def _print_response() -> None:
 def _get_robust(data: dict, *keys, default=None):
     """Try both snake_case and camelCase variants of keys."""
     for key in keys:
-        # direct match
         if key in data:
             return data[key]
-        # camelCase variant (e.g. tool_name -> toolName)
         if "_" in key:
             parts = key.split("_")
             camel = parts[0] + "".join(x.capitalize() for x in parts[1:])
@@ -73,13 +71,10 @@ def _extract_text(obj) -> str:
     if isinstance(obj, list):
         return "\n".join(_extract_text(item) for item in obj)
     if isinstance(obj, dict):
-        # Handle 'parts' array (Gemini style)
         if "parts" in obj:
             return _extract_text(obj["parts"])
-        # Handle 'text' field
         if "text" in obj:
             return _extract_text(obj["text"])
-        # Handle 'content' field
         if "content" in obj:
             return _extract_text(obj["content"])
     return str(obj)
@@ -87,13 +82,11 @@ def _extract_text(obj) -> str:
 
 def _extract_tokens(input_json: dict) -> tuple[int, int]:
     """Extract prompt and completion tokens from various usage schemas."""
-    # Try 'response' or 'modelResponse'
-    resp = _get_robust(input_json, "response", "model_response") or {}
-    # Try 'usage' or 'usageMetadata' (nested in response OR top-level)
-    usage = _get_robust(resp, "usage", "usage_metadata") or _get_robust(input_json, "usage", "usage_metadata") or {}
+    resp = _get_robust(input_json, "llm_response", "response", "model_response") or {}
+    usage = _get_robust(resp, "usage_metadata", "usage") or _get_robust(input_json, "usage_metadata", "usage") or {}
 
-    prompt = _get_robust(usage, "prompt_tokens", "prompt_token_count", default=0)
-    completion = _get_robust(usage, "candidates_tokens", "candidates_token_count", default=0)
+    prompt = _get_robust(usage, "prompt_token_count", "prompt_tokens", default=0)
+    completion = _get_robust(usage, "candidates_token_count", "candidates_tokens", "output_tokens", default=0)
 
     try:
         return int(prompt), int(completion)
@@ -189,14 +182,14 @@ def _handle_before_agent(input_json: dict) -> None:
     state.set("current_trace_span_id", generate_span_id())
     state.set("current_trace_start_time", str(get_timestamp_ms()))
 
-    # Extract prompt: modern schema uses 'messages' array
-    prompt_str = ""
-    messages = _get_robust(input_json, "messages", default=[])
-    if isinstance(messages, list) and messages:
-        # Last user message is typically the current prompt
-        last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
-        if last_user:
-            prompt_str = _extract_text(_get_robust(last_user, "content", default=""))
+    # Extract prompt: real CLI uses flat 'prompt'
+    prompt_str = _get_robust(input_json, "prompt")
+    if prompt_str is None:
+        messages = _get_robust(input_json, "messages", default=[])
+        if isinstance(messages, list) and messages:
+            last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
+            if last_user:
+                prompt_str = _extract_text(_get_robust(last_user, "content", default=""))
 
     if not isinstance(prompt_str, str):
         prompt_str = json.dumps(prompt_str) if prompt_str else ""
@@ -221,16 +214,18 @@ def _handle_after_agent(input_json: dict) -> None:
     project_name = state.get("project_name") or ""
     user_id = state.get("user_id") or ""
 
-    # Extract response
-    resp_obj = _get_robust(input_json, "response", "model_response")
-    response_str = _extract_text(resp_obj)
+    # Extract response: real CLI uses 'prompt_response'
+    response_str = _get_robust(input_json, "prompt_response")
+    if response_str is None:
+        resp_obj = _get_robust(input_json, "response", "model_response")
+        response_str = _extract_text(resp_obj)
 
     attrs = {
         "session.id": session_id,
         "openinference.span.kind": "CHAIN",
         "project.name": project_name,
         "input.value": prompt,
-        "output.value": redact_content(env.log_prompts, response_str),
+        "output.value": redact_content(env.log_prompts, response_str or ""),
     }
     if user_id:
         attrs["user.id"] = user_id
@@ -265,8 +260,8 @@ def _handle_before_model(input_json: dict) -> None:
     state.set(f"model_{model_call_id}_start", str(get_timestamp_ms()))
     state.set("current_model_call_id", model_call_id)
 
-    # Extract prompt from messages (standard schema)
-    messages = _get_robust(input_json, "messages", default=[])
+    req = _get_robust(input_json, "llm_request") or {}
+    messages = _get_robust(req, "messages") or _get_robust(input_json, "messages", default=[])
     if isinstance(messages, list) and messages:
         state.set(f"model_{model_call_id}_prompt", json.dumps(messages))
 
@@ -285,43 +280,37 @@ def _handle_after_model(input_json: dict) -> None:
     project_name = state.get("project_name") or ""
     user_id = state.get("user_id") or ""
 
-    # Resolve model call ID
     model_call_id = _get_robust(input_json, "model_call_id") or state.get("current_model_call_id") or ""
 
-    # Timing
     if model_call_id:
         start_time = state.get(f"model_{model_call_id}_start") or str(get_timestamp_ms())
     else:
         start_time = str(get_timestamp_ms())
     end_time = str(get_timestamp_ms())
 
-    # Clean up state
     if model_call_id:
         state.delete(f"model_{model_call_id}_start")
     state.delete("current_model_call_id")
 
-    # Model info
-    model_name = _get_robust(input_json, "model", "model_name", default="")
+    req = _get_robust(input_json, "llm_request") or {}
+    model_name = _get_robust(req, "model") or _get_robust(input_json, "model", "model_name", default="")
 
-    # Tokens
     input_tokens, output_tokens = _extract_tokens(input_json)
     total_tokens = input_tokens + output_tokens
 
-    # Prompt handling: use stashed messages from BeforeModel
     prompt_str = ""
     if model_call_id:
         prompt_str = state.get(f"model_{model_call_id}_prompt") or ""
         state.delete(f"model_{model_call_id}_prompt")
 
     if not prompt_str:
-        # Fallback to current turn prompt if stashing failed
         prompt_str = state.get("current_trace_prompt") or ""
 
-    # Response content
-    resp_obj = _get_robust(input_json, "response", "model_response")
-    response_str = _extract_text(resp_obj)
+    resp_obj = _get_robust(input_json, "llm_response", "response", "model_response")
+    response_str = _get_robust(resp_obj, "text") if isinstance(resp_obj, dict) else None
+    if response_str is None:
+        response_str = _extract_text(resp_obj)
 
-    # Span name
     span_name = f"LLM: {model_name}" if model_name else "LLM"
 
     attrs = {
@@ -333,7 +322,7 @@ def _handle_after_model(input_json: dict) -> None:
         "llm.token_count.completion": output_tokens,
         "llm.token_count.total": total_tokens,
         "input.value": redact_content(env.log_prompts, prompt_str),
-        "output.value": redact_content(env.log_prompts, response_str),
+        "output.value": redact_content(env.log_prompts, response_str or ""),
     }
     if user_id:
         attrs["user.id"] = user_id
@@ -381,12 +370,10 @@ def _handle_after_tool(input_json: dict) -> None:
     tool_name = _get_robust(input_json, "tool_name", default="unknown")
     tool_id = _get_robust(input_json, "tool_call_id") or tool_name
 
-    # Raw values
     tool_args_raw = _get_robust(input_json, "tool_args") or {}
     tool_input = json.dumps(tool_args_raw) if isinstance(tool_args_raw, (dict, list)) else str(tool_args_raw)
     tool_output = _extract_text(_get_robust(input_json, "tool_result", "result"))
 
-    # Tool-specific metadata enrichment
     tool_command = ""
     tool_file_path = ""
     tool_url = ""
@@ -419,12 +406,10 @@ def _handle_after_tool(input_json: dict) -> None:
     else:
         tool_description = tool_input[:200]
 
-    # Timing
     start_time = state.get(f"tool_{tool_id}_start") or str(get_timestamp_ms())
     end_time = str(get_timestamp_ms())
     state.delete(f"tool_{tool_id}_start")
 
-    # Redaction
     tool_input = redact_content(env.log_tool_content, tool_input)
     tool_output = redact_content(env.log_tool_content, tool_output)
     tool_description = redact_content(env.log_tool_details, tool_description)
@@ -437,7 +422,6 @@ def _handle_after_tool(input_json: dict) -> None:
     if tool_query:
         tool_query = redact_content(env.log_tool_details, tool_query)
 
-    # Build attributes
     attrs = {
         "session.id": session_id,
         "openinference.span.kind": "TOOL",
@@ -580,3 +564,33 @@ def after_tool():
         error(f"gemini after_tool hook failed: {e}")
     finally:
         _print_response()
+
+
+def main() -> None:
+    """Manual execution dispatcher."""
+    if len(sys.argv) < 2:
+        print(f"usage: {sys.argv[0]} <handler_name>", file=sys.stderr)
+        sys.exit(1)
+
+    handler_name = sys.argv[1]
+    handlers = {
+        "session_start": session_start,
+        "session_end": session_end,
+        "before_agent": before_agent,
+        "after_agent": after_agent,
+        "before_model": before_model,
+        "after_model": after_model,
+        "before_tool": before_tool,
+        "after_tool": after_tool,
+    }
+
+    handler = handlers.get(handler_name)
+    if not handler:
+        print(f"unknown handler: {handler_name}", file=sys.stderr)
+        sys.exit(1)
+
+    handler()
+
+
+if __name__ == "__main__":
+    main()
