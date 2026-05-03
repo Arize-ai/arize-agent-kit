@@ -240,14 +240,12 @@ class TestBeforeAgent:
         assert state.get("trace_count") == "1"
         assert state.get("current_trace_prompt") == "explain this code"
 
-    def test_redacts_prompt_at_save_time(self, mock_resolve, state, monkeypatch):
-        """Prompt is redacted at save time when log_prompts is False."""
+    def test_does_not_redact_at_save_time(self, mock_resolve, state, monkeypatch):
+        """Prompt is NOT redacted at save time even when log_prompts is False."""
         monkeypatch.setenv("ARIZE_LOG_PROMPTS", "false")
         _handle_before_agent({"messages": [{"role": "user", "content": "secret prompt"}]})
         saved = state.get("current_trace_prompt")
-        assert saved is not None
-        assert "redacted" in saved
-        assert "secret prompt" not in saved
+        assert saved == "secret prompt"
 
     def test_saves_prompt_when_allowed(self, mock_resolve, state, monkeypatch):
         """Prompt is saved as-is when log_prompts is True."""
@@ -259,6 +257,11 @@ class TestBeforeAgent:
         """Handles missing prompt gracefully."""
         _handle_before_agent({})
         assert state.get("current_trace_prompt") == ""
+
+    def test_robust_prompt_extraction(self, mock_resolve, state):
+        """Extracts prompt from flat 'prompt' field using _extract_text."""
+        _handle_before_agent({"prompt": {"parts": [{"text": "robust prompt"}]}})
+        assert state.get("current_trace_prompt") == "robust prompt"
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +284,22 @@ class TestAfterAgent:
         assert attrs["project.name"]["stringValue"] == "test-gemini-project"
         assert attrs["input.value"]["stringValue"] == "explain this"
         assert attrs["output.value"]["stringValue"] == "Here is the explanation."
+
+    def test_robust_response_extraction(self, mock_resolve, state, captured_spans):
+        """Extracts response from various fields using _get_robust and _extract_text."""
+        state.set("current_trace_id", "a" * 32)
+        state.set("current_trace_span_id", "b" * 16)
+        state.set("current_trace_prompt", "test")
+        
+        # Test prompt_response
+        _handle_after_agent({"prompt_response": "resp 1"})
+        assert _get_span_attrs(captured_spans[0])["output.value"]["stringValue"] == "resp 1"
+        
+        # Test llm_response with candidates
+        state.set("current_trace_id", "a" * 32)
+        state.set("current_trace_span_id", "b" * 16)
+        _handle_after_agent({"llm_response": {"candidates": [{"content": {"parts": [{"text": "resp 2"}]}}]}})
+        assert _get_span_attrs(captured_spans[1])["output.value"]["stringValue"] == "resp 2"
 
     def test_redacts_response(self, mock_resolve, state, captured_spans, monkeypatch):
         """Response is redacted when log_prompts is False."""
@@ -498,6 +517,26 @@ class TestAfterModel:
         assert attrs["llm.token_count.prompt"]["intValue"] == 0
         assert attrs["llm.token_count.completion"]["intValue"] == 0
         assert attrs["llm.token_count.total"]["intValue"] == 0
+
+    def test_extracts_text_from_candidates(self, mock_resolve, state, captured_spans):
+        """Extracts text from nested candidates structure."""
+        state.set("current_trace_id", "a" * 32)
+        state.set("current_trace_span_id", "b" * 16)
+        payload = {
+            "model": "gemini-2.5-pro",
+            "response": {
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [{"text": "Hello"}, {"text": " world"}]
+                        }
+                    }
+                ]
+            }
+        }
+        _handle_after_model(payload)
+        attrs = _get_span_attrs(captured_spans[0])
+        assert attrs["output.value"]["stringValue"] == "Hello\n world"
 
     def test_handles_structured_prompt(self, mock_resolve, state, captured_spans, monkeypatch):
         """JSON-encodes structured prompt before redaction."""

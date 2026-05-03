@@ -71,6 +71,8 @@ def _extract_text(obj) -> str:
     if isinstance(obj, list):
         return "\n".join(_extract_text(item) for item in obj)
     if isinstance(obj, dict):
+        if "candidates" in obj:
+            return _extract_text(obj["candidates"])
         if "parts" in obj:
             return _extract_text(obj["parts"])
         if "text" in obj:
@@ -129,7 +131,7 @@ def _handle_session_end(input_json: dict) -> None:
             "session.id": session_id,
             "openinference.span.kind": "LLM",
             "project.name": project_name,
-            "input.value": prompt,
+            "input.value": redact_content(env.log_prompts, prompt),
             "output.value": "(closed by SessionEnd fail-safe)",
         }
         if user_id:
@@ -183,9 +185,12 @@ def _handle_before_agent(input_json: dict) -> None:
     state.set("current_trace_start_time", str(get_timestamp_ms()))
 
     # Extract prompt: real CLI uses flat 'prompt'
-    prompt_str = _get_robust(input_json, "prompt")
-    if prompt_str is None:
+    prompt_obj = _get_robust(input_json, "prompt")
+    if prompt_obj is not None:
+        prompt_str = _extract_text(prompt_obj)
+    else:
         messages = _get_robust(input_json, "messages", default=[])
+        prompt_str = ""
         if isinstance(messages, list) and messages:
             last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
             if last_user:
@@ -194,7 +199,8 @@ def _handle_before_agent(input_json: dict) -> None:
     if not isinstance(prompt_str, str):
         prompt_str = json.dumps(prompt_str) if prompt_str else ""
 
-    state.set("current_trace_prompt", redact_content(env.log_prompts, prompt_str))
+    # Store RAW prompt in state; redact only at span build time.
+    state.set("current_trace_prompt", prompt_str)
 
 
 def _handle_after_agent(input_json: dict) -> None:
@@ -214,17 +220,15 @@ def _handle_after_agent(input_json: dict) -> None:
     project_name = state.get("project_name") or ""
     user_id = state.get("user_id") or ""
 
-    # Extract response: real CLI uses 'prompt_response'
-    response_str = _get_robust(input_json, "prompt_response")
-    if response_str is None:
-        resp_obj = _get_robust(input_json, "response", "model_response")
-        response_str = _extract_text(resp_obj)
+    # Extract response: try prompt_response (CLI specific) then standard keys
+    response_obj = _get_robust(input_json, "prompt_response", "llm_response", "response", "model_response")
+    response_str = _extract_text(response_obj)
 
     attrs = {
         "session.id": session_id,
         "openinference.span.kind": "CHAIN",
         "project.name": project_name,
-        "input.value": prompt,
+        "input.value": redact_content(env.log_prompts, prompt),
         "output.value": redact_content(env.log_prompts, response_str or ""),
     }
     if user_id:
