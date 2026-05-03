@@ -583,3 +583,200 @@ class TestGeminiSkillMirrorsCopilotStructure:
         assert gemini_normalized == copilot_normalized, (
             f"H2 headings differ after normalization.\n" f"Gemini: {gemini_h2}\nCopilot: {copilot_h2}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Path-refactor verification tests
+# ---------------------------------------------------------------------------
+
+
+class TestGeminiReadmeNoOldPackagePaths:
+    """Verify the README has no leftover gemini_tracing references (old package path)."""
+
+    @pytest.fixture(autouse=True)
+    def _load(self):
+        self.text = README_PATH.read_text()
+
+    def test_no_gemini_tracing_underscore(self):
+        """Old package name 'gemini_tracing' must not appear anywhere."""
+        assert "gemini_tracing" not in self.text
+
+    def test_no_gemini_tracing_dot_import(self):
+        """Old dotted import 'gemini_tracing.' must not appear."""
+        assert "gemini_tracing." not in self.text
+
+    def test_no_old_package_directory_reference(self):
+        """No path like 'gemini_tracing/' should remain."""
+        assert "gemini_tracing/" not in self.text
+
+
+class TestGeminiSkillNoOldPackagePaths:
+    """Verify the SKILL.md has no leftover gemini_tracing references."""
+
+    @pytest.fixture(autouse=True)
+    def _load(self):
+        self.text = SKILL_PATH.read_text()
+
+    def test_no_gemini_tracing_underscore(self):
+        assert "gemini_tracing" not in self.text
+
+    def test_no_gemini_tracing_dot_import(self):
+        assert "gemini_tracing." not in self.text
+
+    def test_no_old_package_directory_reference(self):
+        assert "gemini_tracing/" not in self.text
+
+
+class TestGeminiFilesAtNewLocation:
+    """Verify files exist at their new tracing/gemini/ location."""
+
+    def test_readme_at_tracing_gemini(self):
+        assert (REPO_ROOT / "tracing" / "gemini" / "README.md").exists()
+
+    def test_skill_at_tracing_gemini(self):
+        assert (REPO_ROOT / "tracing" / "gemini" / "skills" / "manage-gemini-tracing" / "SKILL.md").exists()
+
+    def test_init_py_at_tracing_gemini(self):
+        assert (REPO_ROOT / "tracing" / "gemini" / "__init__.py").exists()
+
+    def test_constants_at_tracing_gemini(self):
+        assert (REPO_ROOT / "tracing" / "gemini" / "constants.py").exists()
+
+    def test_hooks_init_at_tracing_gemini(self):
+        assert (REPO_ROOT / "tracing" / "gemini" / "hooks" / "__init__.py").exists()
+
+    def test_adapter_at_tracing_gemini(self):
+        assert (REPO_ROOT / "tracing" / "gemini" / "hooks" / "adapter.py").exists()
+
+    def test_handlers_at_tracing_gemini(self):
+        assert (REPO_ROOT / "tracing" / "gemini" / "hooks" / "handlers.py").exists()
+
+    def test_install_at_tracing_gemini(self):
+        assert (REPO_ROOT / "tracing" / "gemini" / "install.py").exists()
+
+    def test_tracing_init_exists(self):
+        assert (REPO_ROOT / "tracing" / "__init__.py").exists()
+
+    def test_old_gemini_tracing_dir_does_not_exist(self):
+        """The old top-level gemini_tracing/ directory must not exist."""
+        assert not (REPO_ROOT / "gemini_tracing").exists()
+
+
+class TestGeminiSkillFolderNamePreserved:
+    """Skill folder must keep its original name 'manage-gemini-tracing'."""
+
+    def test_skill_folder_name(self):
+        skill_dir = REPO_ROOT / "tracing" / "gemini" / "skills" / "manage-gemini-tracing"
+        assert skill_dir.is_dir()
+
+    def test_skill_frontmatter_name_unchanged(self):
+        text = SKILL_PATH.read_text()
+        lines = text.splitlines()
+        closing = next((i for i in range(1, len(lines)) if lines[i] == "---"), len(lines))
+        frontmatter = "\n".join(lines[1:closing])
+        assert "name: manage-gemini-tracing" in frontmatter
+
+
+class TestGeminiReadmePreservedContent:
+    """Verify documentation content was preserved (not rewritten) during path refactor."""
+
+    @pytest.fixture(autouse=True)
+    def _load(self):
+        self.text = README_PATH.read_text()
+
+    def test_log_file_path_unchanged(self):
+        """Log file path must stay as gemini.log, not be rewritten."""
+        assert "`~/.arize/harness/logs/gemini.log`" in self.text
+
+    def test_state_dir_unchanged(self):
+        assert "`~/.arize/harness/state/gemini/`" in self.text
+
+    def test_settings_json_path_unchanged(self):
+        assert "`~/.gemini/settings.json`" in self.text
+
+    def test_harness_key_unchanged(self):
+        assert "| Harness key | `gemini` |" in self.text
+
+    def test_project_name_unchanged(self):
+        assert "| Project name | `gemini` |" in self.text
+
+
+class TestGeminiSkillPreservedContent:
+    """Verify skill content was preserved during path refactor."""
+
+    @pytest.fixture(autouse=True)
+    def _load(self):
+        self.text = SKILL_PATH.read_text()
+
+    def test_dry_run_env_var(self):
+        assert "ARIZE_DRY_RUN" in self.text
+
+    def test_verbose_env_var(self):
+        assert "ARIZE_VERBOSE" in self.text
+
+    def test_user_id_env_var(self):
+        assert "ARIZE_USER_ID" in self.text
+
+    def test_phoenix_setup_section(self):
+        assert "## Set Up Phoenix" in self.text
+
+    def test_arize_ax_setup_section(self):
+        assert "## Set Up Arize AX" in self.text
+
+    def test_configure_settings_section(self):
+        assert "## Configure Settings" in self.text
+
+    def test_hook_events_section(self):
+        assert "## Hook Events" in self.text
+
+    def test_troubleshoot_section(self):
+        assert "## Troubleshoot" in self.text
+
+    def test_all_eight_hook_events_in_table(self):
+        events = [
+            "SessionStart", "SessionEnd",
+            "BeforeAgent", "AfterAgent",
+            "BeforeModel", "AfterModel",
+            "BeforeTool", "AfterTool",
+        ]
+        for event in events:
+            assert f"`{event}`" in self.text, f"Missing event '{event}' in hook events table"
+
+    def test_hook_cli_entry_point_referenced(self):
+        assert "arize-hook-gemini" in self.text
+
+    def test_project_name_default_gemini(self):
+        assert 'defaults to `"gemini"`' in self.text or "project_name: gemini" in self.text
+
+
+class TestNoOtherHarnessOldPaths:
+    """Verify no old *_tracing paths leaked into the gemini docs."""
+
+    @pytest.fixture(autouse=True)
+    def _load(self):
+        self.readme = README_PATH.read_text()
+        self.skill = SKILL_PATH.read_text()
+
+    def test_no_claude_code_tracing_in_readme(self):
+        assert "claude_code_tracing" not in self.readme
+
+    def test_no_codex_tracing_in_readme(self):
+        assert "codex_tracing" not in self.readme
+
+    def test_no_copilot_tracing_in_readme(self):
+        assert "copilot_tracing" not in self.readme
+
+    def test_no_cursor_tracing_in_readme(self):
+        assert "cursor_tracing" not in self.readme
+
+    def test_no_claude_code_tracing_in_skill(self):
+        assert "claude_code_tracing" not in self.skill
+
+    def test_no_codex_tracing_in_skill(self):
+        assert "codex_tracing" not in self.skill
+
+    def test_no_copilot_tracing_in_skill(self):
+        assert "copilot_tracing" not in self.skill
+
+    def test_no_cursor_tracing_in_skill(self):
+        assert "cursor_tracing" not in self.skill
