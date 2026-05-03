@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Tests for codex_tracing.hooks.adapter — session resolution, init, GC, requirements."""
+"""Tests for tracing.codex.hooks.adapter — session resolution, init, GC, requirements."""
 import os
 import time
 
 import pytest
 import yaml
 
-from codex_tracing.hooks import adapter
+from tracing.codex.hooks import adapter
 from core.common import StateManager
 
 # ── Autouse fixture to prevent real sleeps ───────────────────────────────────

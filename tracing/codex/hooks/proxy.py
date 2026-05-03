@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Codex proxy: ensures buffer service is running, then execs the real codex binary.
 
-Replaces codex-tracing/scripts/codex_proxy.sh. Registered as the
+Replaces tracing/codex/scripts/codex_proxy.sh. Registered as the
 ``arize-codex-proxy`` CLI entry point so the installer can symlink or alias
 ``codex`` → ``arize-codex-proxy``.
 
@@ -128,7 +128,7 @@ def main() -> None:
 
         # Fast path: if buffer service is already healthy, skip heavy imports
         if not _quick_health_check():
-            from codex_tracing.codex_buffer_ctl import buffer_ensure  # noqa: E402
+            from tracing.codex.codex_buffer_ctl import buffer_ensure  # noqa: E402
 
             buffer_ensure()
     except Exception:
@@ -151,7 +151,7 @@ def main() -> None:
             # building (~34 modules). Interactive codex doesn't need it, so we
             # defer the cost to exec-mode only. Same fast-path pattern as line 96.
             try:
-                from codex_tracing.hooks.handlers import drain_idle
+                from tracing.codex.hooks.handlers import drain_idle
 
                 drain_idle()
             except Exception as e:

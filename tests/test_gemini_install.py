@@ -28,28 +28,28 @@ class TestGeminiEntryPoints:
         self.text = PYPROJECT.read_text()
 
     def test_session_start_entry_point(self):
-        assert 'arize-hook-gemini-session-start = "gemini_tracing.hooks.handlers:session_start"' in self.text
+        assert 'arize-hook-gemini-session-start = "tracing.gemini.hooks.handlers:session_start"' in self.text
 
     def test_session_end_entry_point(self):
-        assert 'arize-hook-gemini-session-end = "gemini_tracing.hooks.handlers:session_end"' in self.text
+        assert 'arize-hook-gemini-session-end = "tracing.gemini.hooks.handlers:session_end"' in self.text
 
     def test_before_agent_entry_point(self):
-        assert 'arize-hook-gemini-before-agent = "gemini_tracing.hooks.handlers:before_agent"' in self.text
+        assert 'arize-hook-gemini-before-agent = "tracing.gemini.hooks.handlers:before_agent"' in self.text
 
     def test_after_agent_entry_point(self):
-        assert 'arize-hook-gemini-after-agent = "gemini_tracing.hooks.handlers:after_agent"' in self.text
+        assert 'arize-hook-gemini-after-agent = "tracing.gemini.hooks.handlers:after_agent"' in self.text
 
     def test_before_model_entry_point(self):
-        assert 'arize-hook-gemini-before-model = "gemini_tracing.hooks.handlers:before_model"' in self.text
+        assert 'arize-hook-gemini-before-model = "tracing.gemini.hooks.handlers:before_model"' in self.text
 
     def test_after_model_entry_point(self):
-        assert 'arize-hook-gemini-after-model = "gemini_tracing.hooks.handlers:after_model"' in self.text
+        assert 'arize-hook-gemini-after-model = "tracing.gemini.hooks.handlers:after_model"' in self.text
 
     def test_before_tool_entry_point(self):
-        assert 'arize-hook-gemini-before-tool = "gemini_tracing.hooks.handlers:before_tool"' in self.text
+        assert 'arize-hook-gemini-before-tool = "tracing.gemini.hooks.handlers:before_tool"' in self.text
 
     def test_after_tool_entry_point(self):
-        assert 'arize-hook-gemini-after-tool = "gemini_tracing.hooks.handlers:after_tool"' in self.text
+        assert 'arize-hook-gemini-after-tool = "tracing.gemini.hooks.handlers:after_tool"' in self.text
 
     def test_setup_entry_point(self):
         assert 'arize-setup-gemini = "core.setup.gemini:main"' in self.text
@@ -61,7 +61,7 @@ class TestGeminiEntryPoints:
 
     def test_entry_points_importable(self):
         """All referenced handler functions should be importable."""
-        from gemini_tracing.hooks.handlers import (
+        from tracing.gemini.hooks.handlers import (
             after_agent,
             after_model,
             after_tool,

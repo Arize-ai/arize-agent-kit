@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Claude Code hook handlers. One exported function per hook event.
 
-Replaces 9 bash scripts in claude-code-tracing/hooks/. Each function is a CLI
+Replaces 9 bash scripts in tracing/claude_code/hooks/. Each function is a CLI
 entry point registered in pyproject.toml [project.scripts].
 """
 import json
 import sys
 from pathlib import Path
 
-from claude_code_tracing.hooks.adapter import (
+from tracing.claude_code.hooks.adapter import (
     SCOPE_NAME,
     SERVICE_NAME,
     check_requirements,

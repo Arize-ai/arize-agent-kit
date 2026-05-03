@@ -6,7 +6,7 @@ Writes config.yaml to ~/.arize/harness/config.yaml and installs hooks
 into .github/hooks/ (project-local).
 
 The ``arize-setup-copilot`` entry point calls ``main()`` here, which runs the
-legacy interactive wizard.  The new ``copilot_tracing/install.py`` module
+legacy interactive wizard.  The new ``tracing/copilot/install.py`` module
 provides the decomposed ``install()`` / ``uninstall()`` API used by the
 shell router.  ``install()`` and ``uninstall()`` below delegate to it.
 """
@@ -15,16 +15,16 @@ from __future__ import annotations
 
 import sys
 
-from copilot_tracing import install as _install_mod
+from tracing.copilot import install as _install_mod
 
 
 def install() -> None:
-    """Delegate to copilot_tracing/install.py install()."""
+    """Delegate to tracing/copilot/install.py install()."""
     _install_mod.install()
 
 
 def uninstall() -> None:
-    """Delegate to copilot_tracing/install.py uninstall()."""
+    """Delegate to tracing/copilot/install.py uninstall()."""
     _install_mod.uninstall()
 
 
@@ -38,7 +38,7 @@ def main() -> None:
 
 
 def _run() -> None:
-    """Delegate to the install module in copilot_tracing/.
+    """Delegate to the install module in tracing/copilot/.
 
     This replaces the old interactive flow so that ``arize-setup-copilot``
     and the installer router share a single code path.

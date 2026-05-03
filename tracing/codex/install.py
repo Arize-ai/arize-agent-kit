@@ -18,9 +18,9 @@ import stat
 import sys
 from pathlib import Path
 
-from codex_tracing.codex_buffer_ctl import buffer_start, buffer_status, buffer_stop
-from codex_tracing.constants import OTEL_ENDPOINT  # noqa: F401 — re-exported for backwards compat
-from codex_tracing.constants import (
+from tracing.codex.codex_buffer_ctl import buffer_start, buffer_status, buffer_stop
+from tracing.codex.constants import OTEL_ENDPOINT  # noqa: F401 — re-exported for backwards compat
+from tracing.codex.constants import (
     BUFFER_PORT,
     CODEX_CONFIG_DIR,
     CODEX_CONFIG_FILE,

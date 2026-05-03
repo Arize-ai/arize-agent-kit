@@ -6,7 +6,7 @@ tests the Python install()/uninstall() functions against a fake home.
 
 The embedded Python JSON-generation functional tests were also removed — the
 logic they tested (VS Code + CLI hooks JSON merging) now lives in
-copilot_tracing/install.py and is exercised by test_install_copilot.py.
+tracing.copilot/install.py and is exercised by test_install_copilot.py.
 """
 
 from pathlib import Path
@@ -30,28 +30,28 @@ class TestCopilotEntryPoints:
         self.text = PYPROJECT.read_text()
 
     def test_session_start_entry_point(self):
-        assert 'arize-hook-copilot-session-start = "copilot_tracing.hooks.handlers:session_start"' in self.text
+        assert 'arize-hook-copilot-session-start = "tracing.copilot.hooks.handlers:session_start"' in self.text
 
     def test_user_prompt_entry_point(self):
-        assert 'arize-hook-copilot-user-prompt = "copilot_tracing.hooks.handlers:user_prompt_submitted"' in self.text
+        assert 'arize-hook-copilot-user-prompt = "tracing.copilot.hooks.handlers:user_prompt_submitted"' in self.text
 
     def test_pre_tool_entry_point(self):
-        assert 'arize-hook-copilot-pre-tool = "copilot_tracing.hooks.handlers:pre_tool_use"' in self.text
+        assert 'arize-hook-copilot-pre-tool = "tracing.copilot.hooks.handlers:pre_tool_use"' in self.text
 
     def test_post_tool_entry_point(self):
-        assert 'arize-hook-copilot-post-tool = "copilot_tracing.hooks.handlers:post_tool_use"' in self.text
+        assert 'arize-hook-copilot-post-tool = "tracing.copilot.hooks.handlers:post_tool_use"' in self.text
 
     def test_stop_entry_point(self):
-        assert 'arize-hook-copilot-stop = "copilot_tracing.hooks.handlers:stop"' in self.text
+        assert 'arize-hook-copilot-stop = "tracing.copilot.hooks.handlers:stop"' in self.text
 
     def test_subagent_stop_entry_point(self):
-        assert 'arize-hook-copilot-subagent-stop = "copilot_tracing.hooks.handlers:subagent_stop"' in self.text
+        assert 'arize-hook-copilot-subagent-stop = "tracing.copilot.hooks.handlers:subagent_stop"' in self.text
 
     def test_error_entry_point(self):
-        assert 'arize-hook-copilot-error = "copilot_tracing.hooks.handlers:error_occurred"' in self.text
+        assert 'arize-hook-copilot-error = "tracing.copilot.hooks.handlers:error_occurred"' in self.text
 
     def test_session_end_entry_point(self):
-        assert 'arize-hook-copilot-session-end = "copilot_tracing.hooks.handlers:session_end"' in self.text
+        assert 'arize-hook-copilot-session-end = "tracing.copilot.hooks.handlers:session_end"' in self.text
 
     def test_setup_entry_point(self):
         assert 'arize-setup-copilot = "core.setup.copilot:main"' in self.text
@@ -63,7 +63,7 @@ class TestCopilotEntryPoints:
 
     def test_entry_points_importable(self):
         """All referenced handler functions should be importable."""
-        from copilot_tracing.hooks.handlers import (
+        from tracing.copilot.hooks.handlers import (
             error_occurred,
             post_tool_use,
             pre_tool_use,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sys
 
-from claude_code_tracing.constants import (
+from tracing.claude_code.constants import (
     ARIZE_ENV_KEYS,
     DISPLAY_NAME,
     HARNESS_BIN,

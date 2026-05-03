@@ -25,10 +25,10 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 HARNESS_PACKAGES = [
-    "claude_code_tracing",
-    "codex_tracing",
-    "copilot_tracing",
-    "cursor_tracing",
+    "tracing.claude_code",
+    "tracing.codex",
+    "tracing.copilot",
+    "tracing.cursor",
 ]
 
 
@@ -42,7 +42,7 @@ class TestDirectoryStructure:
 
     @pytest.mark.parametrize("pkg", HARNESS_PACKAGES)
     def test_underscore_dir_exists(self, pkg):
-        assert (REPO_ROOT / pkg).is_dir(), f"{pkg}/ must exist"
+        assert (REPO_ROOT / pkg.replace(".", "/")).is_dir(), f"{pkg}/ must exist"
 
     @pytest.mark.parametrize(
         "old_name",
@@ -54,16 +54,16 @@ class TestDirectoryStructure:
 
     @pytest.mark.parametrize("pkg", HARNESS_PACKAGES)
     def test_init_py_exists(self, pkg):
-        init = REPO_ROOT / pkg / "__init__.py"
+        init = REPO_ROOT / pkg.replace(".", "/") / "__init__.py"
         assert init.is_file(), f"{pkg}/__init__.py must exist"
 
     @pytest.mark.parametrize("pkg", HARNESS_PACKAGES)
     def test_constants_py_exists(self, pkg):
-        assert (REPO_ROOT / pkg / "constants.py").is_file()
+        assert (REPO_ROOT / pkg.replace(".", "/") / "constants.py").is_file()
 
     @pytest.mark.parametrize("pkg", HARNESS_PACKAGES)
     def test_install_py_exists(self, pkg):
-        assert (REPO_ROOT / pkg / "install.py").is_file()
+        assert (REPO_ROOT / pkg.replace(".", "/") / "install.py").is_file()
 
 
 # ---------------------------------------------------------------------------
@@ -90,24 +90,24 @@ class TestPackageImportability:
         assert hasattr(mod, "install")
 
     def test_claude_constants_values(self):
-        from claude_code_tracing.constants import DISPLAY_NAME, HARNESS_NAME
+        from tracing.claude_code.constants import DISPLAY_NAME, HARNESS_NAME
 
         assert HARNESS_NAME == "claude-code"
         assert DISPLAY_NAME == "Claude Code"
 
     def test_codex_constants_values(self):
-        from codex_tracing.constants import DISPLAY_NAME, HARNESS_NAME
+        from tracing.codex.constants import DISPLAY_NAME, HARNESS_NAME
 
         assert HARNESS_NAME == "codex"
         assert DISPLAY_NAME == "Codex CLI"
 
     def test_copilot_constants_values(self):
-        from copilot_tracing.constants import HARNESS_NAME
+        from tracing.copilot.constants import HARNESS_NAME
 
         assert HARNESS_NAME == "copilot"
 
     def test_cursor_constants_values(self):
-        from cursor_tracing.constants import DISPLAY_NAME, HARNESS_NAME
+        from tracing.cursor.constants import DISPLAY_NAME, HARNESS_NAME
 
         assert HARNESS_NAME == "cursor"
         assert DISPLAY_NAME == "Cursor"
@@ -122,10 +122,10 @@ class TestImportlibShimsRemoved:
     """No install.py or core/setup/*.py uses importlib.util.spec_from_file_location."""
 
     FILES_TO_CHECK = [
-        "claude_code_tracing/install.py",
-        "codex_tracing/install.py",
-        "copilot_tracing/install.py",
-        "cursor_tracing/install.py",
+        "tracing/claude_code/install.py",
+        "tracing/codex/install.py",
+        "tracing/copilot/install.py",
+        "tracing/cursor/install.py",
         "core/setup/claude.py",
         "core/setup/codex.py",
         "core/setup/copilot.py",
@@ -148,7 +148,7 @@ class TestImportlibShimsRemoved:
         assert "exec_module" not in text, f"{relpath} still uses exec_module"
 
     def test_claude_install_no_sys_path_insert(self):
-        text = (REPO_ROOT / "claude_code_tracing" / "install.py").read_text()
+        text = (REPO_ROOT / "tracing" / "claude_code" / "install.py").read_text()
         assert "sys.path.insert" not in text
 
     def test_claude_setup_no_sys_path_insert(self):
@@ -165,28 +165,28 @@ class TestAbsoluteImports:
     """Install modules use absolute imports from their package, not relative or shim."""
 
     def test_claude_install_imports_from_package(self):
-        text = (REPO_ROOT / "claude_code_tracing" / "install.py").read_text()
-        assert "from claude_code_tracing.constants import" in text
+        text = (REPO_ROOT / "tracing" / "claude_code" / "install.py").read_text()
+        assert "from tracing.claude_code.constants import" in text
         assert (
-            "from claude_code_tracing import constants" not in text
-            or "from claude_code_tracing.constants import" in text
+            "from tracing.claude_code import constants" not in text
+            or "from tracing.claude_code.constants import" in text
         )
 
     def test_codex_install_imports_from_package(self):
-        text = (REPO_ROOT / "codex_tracing" / "install.py").read_text()
-        assert "from codex_tracing.constants import" in text
+        text = (REPO_ROOT / "tracing" / "codex" / "install.py").read_text()
+        assert "from tracing.codex.constants import" in text
 
     def test_copilot_install_imports_from_package(self):
-        text = (REPO_ROOT / "copilot_tracing" / "install.py").read_text()
-        assert "from copilot_tracing.constants import" in text
+        text = (REPO_ROOT / "tracing" / "copilot" / "install.py").read_text()
+        assert "from tracing.copilot.constants import" in text
 
     def test_cursor_install_imports_from_package(self):
-        text = (REPO_ROOT / "cursor_tracing" / "install.py").read_text()
-        assert "from cursor_tracing.constants import" in text
+        text = (REPO_ROOT / "tracing" / "cursor" / "install.py").read_text()
+        assert "from tracing.cursor.constants import" in text
 
     def test_codex_install_no_noqa_e402(self):
         """E402 noqa markers should be gone now that importlib block is removed."""
-        text = (REPO_ROOT / "codex_tracing" / "install.py").read_text()
+        text = (REPO_ROOT / "tracing" / "codex" / "install.py").read_text()
         assert "noqa: E402" not in text
 
 
@@ -200,23 +200,23 @@ class TestSetupDelegation:
 
     def test_codex_setup_imports_directly(self):
         text = (REPO_ROOT / "core" / "setup" / "codex.py").read_text()
-        assert "from codex_tracing import install as _install_mod" in text
+        assert "from tracing.codex import install as _install_mod" in text
         assert "_load_codex_install" not in text
         assert "_get_codex_mod" not in text
 
     def test_copilot_setup_imports_directly(self):
         text = (REPO_ROOT / "core" / "setup" / "copilot.py").read_text()
-        assert "from copilot_tracing import install as _install_mod" in text
+        assert "from tracing.copilot import install as _install_mod" in text
         assert "_load_installer" not in text
         assert "_get_copilot_mod" not in text
 
     def test_cursor_setup_imports_directly(self):
         text = (REPO_ROOT / "core" / "setup" / "cursor.py").read_text()
-        assert "from cursor_tracing import install as _install_mod" in text
+        assert "from tracing.cursor import install as _install_mod" in text
 
     def test_claude_setup_imports_directly(self):
         text = (REPO_ROOT / "core" / "setup" / "claude.py").read_text()
-        assert "from claude_code_tracing import install as _install_mod" in text
+        assert "from tracing.claude_code import install as _install_mod" in text
 
     def test_codex_setup_install_delegates(self):
         import core.setup.codex as setup_codex
@@ -281,24 +281,22 @@ class TestPyprojectToml:
         return (REPO_ROOT / "pyproject.toml").read_text()
 
     def test_packages_find_includes_all(self, pyproject_text):
-        for pkg in HARNESS_PACKAGES:
-            assert (
-                f"{pkg}*" in pyproject_text or f'"{pkg}*"' in pyproject_text
-            ), f"pyproject.toml packages.find must include {pkg}*"
+        assert (
+            '"tracing*"' in pyproject_text or "tracing*" in pyproject_text
+        ), "pyproject.toml packages.find must include tracing*"
 
     def test_packages_find_includes_core(self, pyproject_text):
         assert "core*" in pyproject_text
 
     def test_isort_known_first_party(self, pyproject_text):
-        for pkg in HARNESS_PACKAGES:
-            assert pkg in pyproject_text, f"isort known_first_party should include {pkg}"
+        assert '"tracing"' in pyproject_text, "isort known_first_party should include tracing"
 
     def test_entry_points_updated(self, pyproject_text):
         """Entry points reference <harness>_tracing.hooks.* after wave 3."""
-        assert "claude_code_tracing.hooks.handlers:session_start" in pyproject_text
-        assert "codex_tracing.hooks.handlers:notify" in pyproject_text
-        assert "copilot_tracing.hooks.handlers:session_start" in pyproject_text
-        assert "cursor_tracing.hooks.handlers:main" in pyproject_text
+        assert "tracing.claude_code.hooks.handlers:session_start" in pyproject_text
+        assert "tracing.codex.hooks.handlers:notify" in pyproject_text
+        assert "tracing.copilot.hooks.handlers:session_start" in pyproject_text
+        assert "tracing.cursor.hooks.handlers:main" in pyproject_text
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +313,8 @@ class TestPreCommitConfig:
 
     @pytest.mark.parametrize("pkg", HARNESS_PACKAGES)
     def test_mypy_hook_references_underscore(self, precommit_text, pkg):
-        assert f"^{pkg}/" in precommit_text, f".pre-commit-config.yaml mypy hook must reference ^{pkg}/"
+        pkg_path = pkg.replace(".", "/")
+        assert f"^{pkg_path}/" in precommit_text, f".pre-commit-config.yaml mypy hook must reference ^{pkg_path}/"
 
     @pytest.mark.parametrize(
         "old_name",
@@ -344,10 +343,10 @@ class TestShellRouterScripts:
     @pytest.mark.parametrize(
         "harness,expected",
         [
-            ("claude", "claude_code_tracing"),
-            ("codex", "codex_tracing"),
-            ("copilot", "copilot_tracing"),
-            ("cursor", "cursor_tracing"),
+            ("claude", "tracing/claude_code"),
+            ("codex", "tracing/codex"),
+            ("copilot", "tracing/copilot"),
+            ("cursor", "tracing/cursor"),
         ],
     )
     def test_install_sh_mapping(self, install_sh_text, harness, expected):
@@ -356,10 +355,10 @@ class TestShellRouterScripts:
     @pytest.mark.parametrize(
         "harness,expected",
         [
-            ("claude", "claude_code_tracing"),
-            ("codex", "codex_tracing"),
-            ("copilot", "copilot_tracing"),
-            ("cursor", "cursor_tracing"),
+            ("claude", "tracing\\claude_code"),
+            ("codex", "tracing\\codex"),
+            ("copilot", "tracing\\copilot"),
+            ("cursor", "tracing\\cursor"),
         ],
     )
     def test_install_bat_mapping(self, install_bat_text, harness, expected):
@@ -398,16 +397,16 @@ class TestHarnessDirBackwardsCompat:
     def test_prefers_underscore_primary(self, fake_install):
         from core.setup import harness_dir
 
-        (fake_install / "codex_tracing").mkdir()
-        assert harness_dir("codex") == fake_install / "codex_tracing"
+        (fake_install / "tracing" / "codex").mkdir(parents=True)
+        assert harness_dir("codex") == fake_install / "tracing" / "codex"
 
     def test_prefers_underscore_over_hyphen(self, fake_install):
         from core.setup import harness_dir
 
-        (fake_install / "codex_tracing").mkdir()
+        (fake_install / "tracing" / "codex").mkdir(parents=True)
         (fake_install / "codex-tracing").mkdir()
         # Should prefer underscore
-        assert harness_dir("codex") == fake_install / "codex_tracing"
+        assert harness_dir("codex") == fake_install / "tracing" / "codex"
 
     def test_falls_back_to_hyphen_primary(self, fake_install):
         from core.setup import harness_dir
@@ -425,30 +424,30 @@ class TestHarnessDirBackwardsCompat:
     def test_underscore_legacy_before_hyphen_primary(self, fake_install):
         from core.setup import harness_dir
 
-        (fake_install / "plugins" / "codex_tracing").mkdir(parents=True)
+        (fake_install / "plugins" / "tracing" / "codex").mkdir(parents=True)
         (fake_install / "codex-tracing").mkdir()
         # underscore legacy should be preferred over hyphen primary
-        assert harness_dir("codex") == fake_install / "plugins" / "codex_tracing"
+        assert harness_dir("codex") == fake_install / "plugins" / "tracing" / "codex"
 
     def test_default_uses_underscore(self, fake_install):
         from core.setup import harness_dir
 
         # Nothing exists — default to underscore primary
         result = harness_dir("codex")
-        assert result == fake_install / "codex_tracing"
-        assert "_tracing" in result.name
+        assert result == fake_install / "tracing" / "codex"
+        assert "tracing" in result.parts
 
     def test_claude_code_harness_maps_correctly(self, fake_install):
         from core.setup import harness_dir
 
-        (fake_install / "claude_code_tracing").mkdir()
-        assert harness_dir("claude-code") == fake_install / "claude_code_tracing"
+        (fake_install / "tracing" / "claude_code").mkdir(parents=True)
+        assert harness_dir("claude-code") == fake_install / "tracing" / "claude_code"
 
     def test_claude_code_default_uses_underscore(self, fake_install):
         from core.setup import harness_dir
 
         result = harness_dir("claude-code")
-        assert result == fake_install / "claude_code_tracing"
+        assert result == fake_install / "tracing" / "claude_code"
 
 
 # ---------------------------------------------------------------------------
@@ -482,10 +481,10 @@ class TestNoStaleHyphenatedReferences:
                     ), f"{relpath} contains string literal with old dir name '{old}': {node.value!r}"
 
     INSTALL_FILES = [
-        "claude_code_tracing/install.py",
-        "codex_tracing/install.py",
-        "copilot_tracing/install.py",
-        "cursor_tracing/install.py",
+        "tracing/claude_code/install.py",
+        "tracing/codex/install.py",
+        "tracing/copilot/install.py",
+        "tracing/cursor/install.py",
     ]
 
     @pytest.mark.parametrize("relpath", INSTALL_FILES)
@@ -507,12 +506,14 @@ class TestInstallFilesSyntax:
 
     @pytest.mark.parametrize("pkg", HARNESS_PACKAGES)
     def test_install_py_parses(self, pkg):
-        source = (REPO_ROOT / pkg / "install.py").read_text()
-        tree = ast.parse(source, filename=f"{pkg}/install.py")
+        pkg_path = pkg.replace(".", "/")
+        source = (REPO_ROOT / pkg_path / "install.py").read_text()
+        tree = ast.parse(source, filename=f"{pkg_path}/install.py")
         assert tree is not None
 
     @pytest.mark.parametrize("pkg", HARNESS_PACKAGES)
     def test_constants_py_parses(self, pkg):
-        source = (REPO_ROOT / pkg / "constants.py").read_text()
-        tree = ast.parse(source, filename=f"{pkg}/constants.py")
+        pkg_path = pkg.replace(".", "/")
+        source = (REPO_ROOT / pkg_path / "constants.py").read_text()
+        tree = ast.parse(source, filename=f"{pkg_path}/constants.py")
         assert tree is not None

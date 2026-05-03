@@ -1,4 +1,4 @@
-"""Tests for the /health endpoint identity fields in codex_tracing.codex_buffer."""
+"""Tests for the /health endpoint identity fields in tracing.codex.codex_buffer."""
 
 import json
 import os
@@ -9,8 +9,8 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
-import codex_tracing.codex_buffer as buffer_mod
-from codex_tracing.codex_buffer import CodexBufferHandler
+import tracing.codex.codex_buffer as buffer_mod
+from tracing.codex.codex_buffer import CodexBufferHandler
 
 
 @pytest.fixture()

@@ -1,4 +1,4 @@
-"""Tests for gemini_tracing/README.md and gemini_tracing/skills/manage-gemini-tracing/SKILL.md.
+"""Tests for tracing/gemini/README.md and tracing/gemini/skills/manage-gemini-tracing/SKILL.md.
 
 Verifies structure, headings, content, and frontmatter match the specification.
 These tests will FAIL until the documentation files are created.
@@ -11,10 +11,10 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).parent.parent
-README_PATH = REPO_ROOT / "gemini_tracing" / "README.md"
-SKILL_PATH = REPO_ROOT / "gemini_tracing" / "skills" / "manage-gemini-tracing" / "SKILL.md"
-COPILOT_README_PATH = REPO_ROOT / "copilot_tracing" / "README.md"
-COPILOT_SKILL_PATH = REPO_ROOT / "copilot_tracing" / "skills" / "manage-copilot-tracing" / "SKILL.md"
+README_PATH = REPO_ROOT / "tracing" / "gemini" / "README.md"
+SKILL_PATH = REPO_ROOT / "tracing" / "gemini" / "skills" / "manage-gemini-tracing" / "SKILL.md"
+COPILOT_README_PATH = REPO_ROOT / "tracing" / "copilot" / "README.md"
+COPILOT_SKILL_PATH = REPO_ROOT / "tracing" / "copilot" / "skills" / "manage-copilot-tracing" / "SKILL.md"
 
 
 def _extract_markdown_headings(text: str) -> list[str]:
@@ -339,7 +339,7 @@ class TestGeminiSkillExists:
         assert SKILL_PATH.exists() and SKILL_PATH.stat().st_size > 0
 
     def test_skill_directory_structure(self):
-        skills_dir = REPO_ROOT / "gemini_tracing" / "skills" / "manage-gemini-tracing"
+        skills_dir = REPO_ROOT / "tracing" / "gemini" / "skills" / "manage-gemini-tracing"
         assert skills_dir.is_dir(), f"Expected directory at {skills_dir}"
 
 

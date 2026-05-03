@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for cursor_tracing.hooks.handlers — the Cursor hook dispatcher and 15 event handlers."""
+"""Tests for tracing.cursor.hooks.handlers — the Cursor hook dispatcher and 15 event handlers."""
 
 import io
 import json
@@ -8,8 +8,8 @@ from unittest import mock
 
 import pytest
 
-from cursor_tracing.hooks import adapter
-from cursor_tracing.hooks.handlers import (
+from tracing.cursor.hooks import adapter
+from tracing.cursor.hooks.handlers import (
     _dispatch,
     _event_name,
     _is_cursor_ide_hook_payload,
@@ -45,7 +45,7 @@ def _patch_cursor_state(tmp_path, monkeypatch):
 def captured_spans():
     """Mock send_span and collect all payloads sent."""
     sent = []
-    with mock.patch("cursor_tracing.hooks.handlers.send_span", side_effect=lambda s: sent.append(s)):
+    with mock.patch("tracing.cursor.hooks.handlers.send_span", side_effect=lambda s: sent.append(s)):
         yield sent
 
 
@@ -157,8 +157,8 @@ class TestDispatch:
         """Known event routes to correct handler function."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
-            mock.patch("cursor_tracing.hooks.handlers._handle_before_submit_prompt") as h,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers._handle_before_submit_prompt") as h,
         ):
             _dispatch(
                 "beforeSubmitPrompt",
@@ -172,8 +172,8 @@ class TestDispatch:
     def test_routes_after_agent_response(self, monkeypatch):
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
-            mock.patch("cursor_tracing.hooks.handlers._handle_after_agent_response") as h,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers._handle_after_agent_response") as h,
         ):
             _dispatch("afterAgentResponse", {"conversation_id": "c1", "generation_id": "g1"})
             h.assert_called_once()
@@ -181,8 +181,8 @@ class TestDispatch:
     def test_routes_stop(self, monkeypatch):
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
-            mock.patch("cursor_tracing.hooks.handlers._handle_stop") as h,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers._handle_stop") as h,
         ):
             _dispatch("stop", {"conversation_id": "c1", "generation_id": "g1"})
             h.assert_called_once()
@@ -191,8 +191,8 @@ class TestDispatch:
         """Unknown event logs warning, no crash."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
-            mock.patch("cursor_tracing.hooks.handlers.log") as log_mock,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers.log") as log_mock,
         ):
             _dispatch("unknownEvent", {"conversation_id": "c1", "generation_id": "g1"})
             log_mock.assert_called_once()
@@ -201,7 +201,7 @@ class TestDispatch:
     def test_tracing_disabled_returns_early(self, monkeypatch):
         """Tracing disabled -> returns without dispatching."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "false")
-        with mock.patch("cursor_tracing.hooks.handlers._handle_before_submit_prompt") as h:
+        with mock.patch("tracing.cursor.hooks.handlers._handle_before_submit_prompt") as h:
             _dispatch("beforeSubmitPrompt", {"conversation_id": "c1", "generation_id": "g1"})
             h.assert_not_called()
 
@@ -209,8 +209,8 @@ class TestDispatch:
         """send_span failure doesn't crash — IDE defers root to afterAgentResponse (hook_event_name)."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.send_span", return_value=False) as send_mock,
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers.send_span", return_value=False) as send_mock,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
         ):
             _dispatch(
                 "beforeSubmitPrompt",
@@ -244,9 +244,9 @@ class TestHandleBeforeSubmitPrompt:
         """CLI-style payload (hookEventName only): root CHAIN at submit; LLM at afterAgentResponse."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
-            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="aabb" * 4),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_save") as save_mock,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("tracing.cursor.hooks.handlers.span_id_16", return_value="aabb" * 4),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_save") as save_mock,
         ):
             _dispatch(
                 "beforeSubmitPrompt",
@@ -267,7 +267,7 @@ class TestHandleBeforeSubmitPrompt:
         assert root_attrs0["input.value"]["stringValue"] == "fix the bug"
         assert "output.value" not in root_attrs0
 
-        with mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=9000):
+        with mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=9000):
             _dispatch(
                 "afterAgentResponse",
                 {
@@ -292,8 +292,8 @@ class TestHandleBeforeSubmitPrompt:
         """IDE payload (hook_event_name): original deferred CHAIN with full duration and output on root."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
-            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="aabb" * 4),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("tracing.cursor.hooks.handlers.span_id_16", return_value="aabb" * 4),
         ):
             _dispatch(
                 "beforeSubmitPrompt",
@@ -308,7 +308,7 @@ class TestHandleBeforeSubmitPrompt:
 
         assert len(captured_spans) == 0
 
-        with mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=9000):
+        with mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=9000):
             _dispatch(
                 "afterAgentResponse",
                 {
@@ -341,9 +341,9 @@ class TestHandleAfterAgentResponse:
         """Creates LLM span with response and gets parent from gen_root_span_get."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=2000),
-            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="ccdd" * 4),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="parent123") as get_mock,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("tracing.cursor.hooks.handlers.span_id_16", return_value="ccdd" * 4),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value="parent123") as get_mock,
         ):
             _dispatch(
                 "afterAgentResponse",
@@ -377,10 +377,10 @@ class TestHandleAfterShellExecution:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         popped = {"command": "ls -la", "cwd": "/tmp", "start_ms": "1000", "trace_id": "t1", "conversation_id": "c1"}
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=2000),
-            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="eeff" * 4),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="parent1"),
-            mock.patch("cursor_tracing.hooks.handlers.state_pop", return_value=popped),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("tracing.cursor.hooks.handlers.span_id_16", return_value="eeff" * 4),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value="parent1"),
+            mock.patch("tracing.cursor.hooks.handlers.state_pop", return_value=popped),
         ):
             _dispatch(
                 "afterShellExecution",
@@ -406,9 +406,9 @@ class TestHandleAfterShellExecution:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         popped = {"command": "old_cmd", "start_ms": "1000"}
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=2000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
-            mock.patch("cursor_tracing.hooks.handlers.state_pop", return_value=popped),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.state_pop", return_value=popped),
         ):
             _dispatch(
                 "afterShellExecution",
@@ -430,9 +430,9 @@ class TestHandleAfterShellExecution:
         """Without popped state, start_ms defaults to now_ms."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
-            mock.patch("cursor_tracing.hooks.handlers.state_pop", return_value=None),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=3000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.state_pop", return_value=None),
         ):
             _dispatch(
                 "afterShellExecution",
@@ -452,9 +452,9 @@ class TestHandleAfterShellExecution:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         fixture = cursor_after_shell_input
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
-            mock.patch("cursor_tracing.hooks.handlers.state_pop", return_value=None),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.state_pop", return_value=None),
         ):
             _dispatch(fixture["hook_event_name"], fixture)
 
@@ -478,9 +478,9 @@ class TestHandleStop:
         """Creates CHAIN span and calls state_cleanup_generation."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="root1"),
-            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation") as cleanup,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value="root1"),
+            mock.patch("tracing.cursor.hooks.handlers.state_cleanup_generation") as cleanup,
         ):
             _dispatch(
                 "stop",
@@ -505,9 +505,9 @@ class TestHandleStop:
         """Without gen_id, state_cleanup_generation is not called."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
-            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation") as cleanup,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.state_cleanup_generation") as cleanup,
         ):
             _dispatch("stop", {"conversation_id": "c1"})
 
@@ -518,9 +518,9 @@ class TestHandleStop:
         """Status and loop_count omitted when empty."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
-            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation"),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.state_cleanup_generation"),
         ):
             _dispatch("stop", {"conversation_id": "c1", "generation_id": "g1"})
 
@@ -540,8 +540,8 @@ class TestHandleBeforeShellExecution:
         """Pushes command, cwd, start_ms, trace_id, conversation_id to state."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
-            mock.patch("cursor_tracing.hooks.handlers.state_push") as push_mock,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers.state_push") as push_mock,
         ):
             _dispatch(
                 "beforeShellExecution",
@@ -564,8 +564,8 @@ class TestHandleBeforeShellExecution:
         """Without gen_id, returns without pushing state."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
-            mock.patch("cursor_tracing.hooks.handlers.state_push") as push_mock,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers.state_push") as push_mock,
         ):
             _dispatch(
                 "beforeShellExecution",
@@ -589,9 +589,9 @@ class TestHandleAfterAgentThought:
         """Creates CHAIN span with thought as output.value."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=2000),
-            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="abcd" * 4),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="parent1") as get_mock,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("tracing.cursor.hooks.handlers.span_id_16", return_value="abcd" * 4),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value="parent1") as get_mock,
         ):
             _dispatch(
                 "afterAgentThought",
@@ -624,8 +624,8 @@ class TestHandleBeforeMcpExecution:
         """Pushes tool_name, tool_input, url, command, start_ms to state."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1500),
-            mock.patch("cursor_tracing.hooks.handlers.state_push") as push_mock,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1500),
+            mock.patch("tracing.cursor.hooks.handlers.state_push") as push_mock,
         ):
             _dispatch(
                 "beforeMCPExecution",
@@ -649,8 +649,8 @@ class TestHandleBeforeMcpExecution:
         """Without gen_id, returns without pushing state."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
-            mock.patch("cursor_tracing.hooks.handlers.state_push") as push_mock,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers.state_push") as push_mock,
         ):
             _dispatch(
                 "beforeMCPExecution",
@@ -683,10 +683,10 @@ class TestHandleAfterMcpExecution:
             "conversation_id": "c1",
         }
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=2000),
-            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="ffaa" * 4),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="parent1"),
-            mock.patch("cursor_tracing.hooks.handlers.state_pop", return_value=popped),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("tracing.cursor.hooks.handlers.span_id_16", return_value="ffaa" * 4),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value="parent1"),
+            mock.patch("tracing.cursor.hooks.handlers.state_pop", return_value=popped),
         ):
             _dispatch(
                 "afterMCPExecution",
@@ -711,10 +711,10 @@ class TestHandleAfterMcpExecution:
         """Without popped state, span still created from input_json fields."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
-            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="bbcc" * 4),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
-            mock.patch("cursor_tracing.hooks.handlers.state_pop", return_value=None),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=3000),
+            mock.patch("tracing.cursor.hooks.handlers.span_id_16", return_value="bbcc" * 4),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.state_pop", return_value=None),
         ):
             _dispatch(
                 "afterMCPExecution",
@@ -744,9 +744,9 @@ class TestHandleBeforeReadFile:
         """Creates TOOL span with file path as input."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=2000),
-            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="1122" * 4),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="parent1"),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("tracing.cursor.hooks.handlers.span_id_16", return_value="1122" * 4),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value="parent1"),
         ):
             _dispatch(
                 "beforeReadFile",
@@ -778,9 +778,9 @@ class TestHandleAfterFileEdit:
         """Creates TOOL span with file path and diff."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=2000),
-            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="3344" * 4),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="parent1"),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("tracing.cursor.hooks.handlers.span_id_16", return_value="3344" * 4),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value="parent1"),
         ):
             _dispatch(
                 "afterFileEdit",
@@ -805,9 +805,9 @@ class TestHandleAfterFileEdit:
         """Without diff, input.value is just the file path."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=2000),
-            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="3344" * 4),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("tracing.cursor.hooks.handlers.span_id_16", return_value="3344" * 4),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
         ):
             _dispatch(
                 "afterFileEdit",
@@ -836,9 +836,9 @@ class TestHandleBeforeTabFileRead:
         """Creates TOOL span with file path as input for tab read."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=2000),
-            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="5566" * 4),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="parent1"),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("tracing.cursor.hooks.handlers.span_id_16", return_value="5566" * 4),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value="parent1"),
         ):
             _dispatch(
                 "beforeTabFileRead",
@@ -870,9 +870,9 @@ class TestHandleAfterTabFileEdit:
         """Creates TOOL span with file path and edits for tab edit."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=2000),
-            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="7788" * 4),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="parent1"),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("tracing.cursor.hooks.handlers.span_id_16", return_value="7788" * 4),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value="parent1"),
         ):
             _dispatch(
                 "afterTabFileEdit",
@@ -897,9 +897,9 @@ class TestHandleAfterTabFileEdit:
         """Without edits, input.value is just the file path."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=2000),
-            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="7788" * 4),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("tracing.cursor.hooks.handlers.span_id_16", return_value="7788" * 4),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
         ):
             _dispatch(
                 "afterTabFileEdit",
@@ -940,8 +940,8 @@ class TestMain:
         with (
             mock.patch("sys.stdin", io.StringIO(json.dumps(input_data))),
             mock.patch.object(sys, "__stdout__", stdout_buf),
-            mock.patch("cursor_tracing.hooks.handlers.check_requirements", return_value=True),
-            mock.patch("cursor_tracing.hooks.handlers._dispatch") as dispatch_mock,
+            mock.patch("tracing.cursor.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.cursor.hooks.handlers._dispatch") as dispatch_mock,
         ):
             main()
 
@@ -959,7 +959,7 @@ class TestMain:
         with (
             mock.patch("sys.stdin", io.StringIO("not valid json")),
             mock.patch.object(sys, "__stdout__", stdout_buf),
-            mock.patch("cursor_tracing.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.cursor.hooks.handlers.check_requirements", return_value=True),
         ):
             main()
 
@@ -982,8 +982,8 @@ class TestMain:
         with (
             mock.patch("sys.stdin", io.StringIO(json.dumps(input_data))),
             mock.patch.object(sys, "__stdout__", stdout_buf),
-            mock.patch("cursor_tracing.hooks.handlers.check_requirements", return_value=True),
-            mock.patch("cursor_tracing.hooks.handlers._dispatch", side_effect=RuntimeError("boom")),
+            mock.patch("tracing.cursor.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.cursor.hooks.handlers._dispatch", side_effect=RuntimeError("boom")),
         ):
             main()
 
@@ -1000,7 +1000,7 @@ class TestMain:
         with (
             mock.patch("sys.stdin", io.StringIO('{"hook_event_name":"beforeSubmitPrompt"}')),
             mock.patch.object(sys, "__stdout__", stdout_buf),
-            mock.patch("cursor_tracing.hooks.handlers.check_requirements", return_value=False),
+            mock.patch("tracing.cursor.hooks.handlers.check_requirements", return_value=False),
         ):
             main()
 
@@ -1018,8 +1018,8 @@ class TestMain:
         with (
             mock.patch("sys.stdin", io.StringIO("")),
             mock.patch.object(sys, "__stdout__", stdout_buf),
-            mock.patch("cursor_tracing.hooks.handlers.check_requirements", return_value=True),
-            mock.patch("cursor_tracing.hooks.handlers._dispatch") as dispatch_mock,
+            mock.patch("tracing.cursor.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.cursor.hooks.handlers._dispatch") as dispatch_mock,
         ):
             main()
 
@@ -1039,8 +1039,8 @@ class TestMain:
         with (
             mock.patch("sys.stdin", io.StringIO('{"hook_event_name":"stop"}')),
             mock.patch.object(sys, "__stdout__", stdout_buf),
-            mock.patch("cursor_tracing.hooks.handlers.check_requirements", return_value=True),
-            mock.patch("cursor_tracing.hooks.handlers._dispatch"),
+            mock.patch("tracing.cursor.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.cursor.hooks.handlers._dispatch"),
         ):
             main()
 
@@ -1087,14 +1087,14 @@ class TestTraceIdFromEvent:
     def test_prefers_gen_id(self):
         result = _trace_id_from_event("gen-1", "conv-1")
         assert result  # non-empty
-        from cursor_tracing.hooks.adapter import trace_id_from_generation
+        from tracing.cursor.hooks.adapter import trace_id_from_generation
 
         assert result == trace_id_from_generation("gen-1")
 
     def test_falls_back_to_conversation_id(self):
         result = _trace_id_from_event("", "conv-1")
         assert result
-        from cursor_tracing.hooks.adapter import trace_id_from_generation
+        from tracing.cursor.hooks.adapter import trace_id_from_generation
 
         assert result == trace_id_from_generation("conv-1")
 
@@ -1112,8 +1112,8 @@ class TestDispatchNewEvents:
     def test_dispatch_routes_session_start(self, monkeypatch):
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
-            mock.patch("cursor_tracing.hooks.handlers._handle_session_start") as h,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers._handle_session_start") as h,
         ):
             _dispatch(
                 "sessionStart",
@@ -1127,8 +1127,8 @@ class TestDispatchNewEvents:
     def test_dispatch_routes_session_end(self, monkeypatch):
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
-            mock.patch("cursor_tracing.hooks.handlers._handle_session_end") as h,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers._handle_session_end") as h,
         ):
             _dispatch(
                 "sessionEnd",
@@ -1142,8 +1142,8 @@ class TestDispatchNewEvents:
     def test_dispatch_routes_post_tool_use(self, monkeypatch):
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
-            mock.patch("cursor_tracing.hooks.handlers._handle_post_tool_use") as h,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers._handle_post_tool_use") as h,
         ):
             _dispatch(
                 "postToolUse",
@@ -1178,8 +1178,8 @@ class TestMainCamelCase:
         with (
             mock.patch("sys.stdin", io.StringIO(json.dumps(input_data))),
             mock.patch.object(sys, "__stdout__", stdout_buf),
-            mock.patch("cursor_tracing.hooks.handlers.check_requirements", return_value=True),
-            mock.patch("cursor_tracing.hooks.handlers._dispatch") as dispatch_mock,
+            mock.patch("tracing.cursor.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.cursor.hooks.handlers._dispatch") as dispatch_mock,
         ):
             main()
 
@@ -1197,9 +1197,9 @@ class TestHandleSessionStart:
         """sessionStart produces a CHAIN span with session.id and cwd."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
-            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="ss11" * 4),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_save") as save_mock,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("tracing.cursor.hooks.handlers.span_id_16", return_value="ss11" * 4),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_save") as save_mock,
         ):
             _dispatch(
                 "sessionStart",
@@ -1225,8 +1225,8 @@ class TestHandleSessionStart:
         """Without gen_id, gen_root_span_save is not called."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_save") as save_mock,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_save") as save_mock,
         ):
             _dispatch(
                 "sessionStart",
@@ -1242,7 +1242,7 @@ class TestHandleSessionStart:
     def test_session_start_optional_fields_omitted(self, captured_spans, monkeypatch):
         """Optional fields like cwd and user_email are omitted when absent."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
-        with (mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),):
+        with (mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=5000),):
             _dispatch(
                 "sessionStart",
                 {
@@ -1266,9 +1266,9 @@ class TestHandlePostToolUse:
         """postToolUse produces a TOOL span with tool.name, input.value, output.value."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
-            mock.patch("cursor_tracing.hooks.handlers.span_id_16", return_value="pt11" * 4),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="parent-pt"),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=3000),
+            mock.patch("tracing.cursor.hooks.handlers.span_id_16", return_value="pt11" * 4),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value="parent-pt"),
         ):
             _dispatch(
                 "postToolUse",
@@ -1296,8 +1296,8 @@ class TestHandlePostToolUse:
         """Non-deduped shell-like tool uses 'command' field as input.value fallback."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=3000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
         ):
             _dispatch(
                 "postToolUse",
@@ -1322,8 +1322,8 @@ class TestHandlePostToolUse:
         """Missing optional fields are omitted from attributes."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=3000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
         ):
             _dispatch(
                 "postToolUse",
@@ -1342,8 +1342,8 @@ class TestHandlePostToolUse:
         """postToolUse with tool_name='shell' is skipped (covered by dedicated handler)."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=3000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
         ):
             _dispatch(
                 "postToolUse",
@@ -1365,8 +1365,8 @@ class TestHandlePostToolUse:
         """postToolUse short-circuits for each known dedicated tool name (case-insensitive)."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=3000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
         ):
             _dispatch(
                 "postToolUse",
@@ -1383,8 +1383,8 @@ class TestHandlePostToolUse:
         """postToolUse emits a span for tools not in the dedup set."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=3000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=3000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
         ):
             _dispatch(
                 "postToolUse",
@@ -1415,9 +1415,9 @@ class TestHandleStopTokenCounts:
         """Stop payload with token fields produces llm.token_count.* attributes."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="root1"),
-            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation"),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value="root1"),
+            mock.patch("tracing.cursor.hooks.handlers.state_cleanup_generation"),
         ):
             _dispatch(
                 "stop",
@@ -1447,9 +1447,9 @@ class TestHandleStopTokenCounts:
         """Stop payload without token fields produces no llm.token_count.* attributes."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
-            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation"),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.state_cleanup_generation"),
         ):
             _dispatch(
                 "stop",
@@ -1472,9 +1472,9 @@ class TestHandleStopTokenCounts:
         """String token values are coerced; '--' and None are omitted."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=5000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
-            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation"),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.state_cleanup_generation"),
         ):
             _dispatch(
                 "stop",
@@ -1508,9 +1508,9 @@ class TestHandleSessionEnd:
         """sessionEnd produces a CHAIN span with duration, status, and reason."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=9000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="root-se"),
-            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation"),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=9000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value="root-se"),
+            mock.patch("tracing.cursor.hooks.handlers.state_cleanup_generation"),
         ):
             _dispatch(
                 "sessionEnd",
@@ -1538,9 +1538,9 @@ class TestHandleSessionEnd:
         """sessionEnd calls state_cleanup_generation with the gen_id."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=9000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
-            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation") as cleanup,
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=9000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.state_cleanup_generation") as cleanup,
         ):
             _dispatch(
                 "sessionEnd",
@@ -1556,9 +1556,9 @@ class TestHandleSessionEnd:
         """sessionEnd with only conversation_id emits a span without optional attrs."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=9000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
-            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation"),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=9000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.state_cleanup_generation"),
         ):
             _dispatch(
                 "sessionEnd",
@@ -1667,11 +1667,11 @@ class TestConversationIdAttribute:
         """Every span-producing handler includes cursor.conversation.id."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_save"),
-            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation"),
-            mock.patch("cursor_tracing.hooks.handlers.state_pop", return_value=None),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_save"),
+            mock.patch("tracing.cursor.hooks.handlers.state_cleanup_generation"),
+            mock.patch("tracing.cursor.hooks.handlers.state_pop", return_value=None),
         ):
             _dispatch(event, self._EVENT_PAYLOADS[event])
 
@@ -1687,9 +1687,9 @@ class TestConversationIdAttribute:
         """When conversation_id is empty, cursor.conversation.id is not set."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value=""),
-            mock.patch("cursor_tracing.hooks.handlers.state_cleanup_generation"),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.state_cleanup_generation"),
         ):
             _dispatch(
                 "stop",
@@ -1714,8 +1714,8 @@ class TestIdeSafety:
         """IDE dispatches before/afterShellExecution without postToolUse — exactly 1 span from after."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=1000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="root-ide"),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=1000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value="root-ide"),
         ):
             _dispatch(
                 "beforeShellExecution",
@@ -1732,8 +1732,8 @@ class TestIdeSafety:
         assert len(captured_spans) == 0
 
         with (
-            mock.patch("cursor_tracing.hooks.handlers.get_timestamp_ms", return_value=2000),
-            mock.patch("cursor_tracing.hooks.handlers.gen_root_span_get", return_value="root-ide"),
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=2000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value="root-ide"),
         ):
             _dispatch(
                 "afterShellExecution",

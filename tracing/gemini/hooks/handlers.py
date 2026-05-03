@@ -22,7 +22,7 @@ from core.common import (
     redact_content,
     send_span,
 )
-from gemini_tracing.hooks.adapter import (
+from tracing.gemini.hooks.adapter import (
     SCOPE_NAME,
     SERVICE_NAME,
     check_requirements,

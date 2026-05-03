@@ -1,4 +1,4 @@
-"""Tests for gemini_tracing/install.py: install and uninstall of Gemini hooks."""
+"""Tests for tracing.gemini/install.py: install and uninstall of Gemini hooks."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import json
 import pytest
 import yaml
 
-import gemini_tracing.constants as _gc
-import gemini_tracing.install as _install
+import tracing.gemini.constants as _gc
+import tracing.gemini.install as _install
 
 install = _install.install
 uninstall = _install.uninstall
@@ -66,7 +66,7 @@ def _mock_prompts(monkeypatch, backend=None):
 
 @pytest.fixture
 def cwd_tmp(tmp_path, monkeypatch):
-    """Set cwd to tmp_path and patch core.setup + gemini_tracing.constants paths for isolation."""
+    """Set cwd to tmp_path and patch core.setup + tracing.gemini.constants paths for isolation."""
     monkeypatch.chdir(tmp_path)
 
     import core.setup as setup_mod
@@ -650,27 +650,27 @@ class TestMainDispatch:
     """main() dispatches install/uninstall based on argv."""
 
     def test_bad_args_exits_1(self, monkeypatch):
-        monkeypatch.setattr("sys.argv", ["gemini_tracing.install", "bogus"])
+        monkeypatch.setattr("sys.argv", ["tracing.gemini.install", "bogus"])
         with pytest.raises(SystemExit) as exc_info:
             _install.main()
         assert exc_info.value.code == 1
 
     def test_no_args_exits_1(self, monkeypatch):
-        monkeypatch.setattr("sys.argv", ["gemini_tracing.install"])
+        monkeypatch.setattr("sys.argv", ["tracing.gemini.install"])
         with pytest.raises(SystemExit) as exc_info:
             _install.main()
         assert exc_info.value.code == 1
 
     def test_install_arg_calls_install(self, cwd_tmp, monkeypatch):
         _mock_prompts(monkeypatch)
-        monkeypatch.setattr("sys.argv", ["gemini_tracing.install", "install"])
+        monkeypatch.setattr("sys.argv", ["tracing.gemini.install", "install"])
         called = []
         monkeypatch.setattr(_install, "install", lambda: called.append("install"))
         _install.main()
         assert called == ["install"]
 
     def test_uninstall_arg_calls_uninstall(self, cwd_tmp, monkeypatch):
-        monkeypatch.setattr("sys.argv", ["gemini_tracing.install", "uninstall"])
+        monkeypatch.setattr("sys.argv", ["tracing.gemini.install", "uninstall"])
         called = []
         monkeypatch.setattr(_install, "uninstall", lambda: called.append("uninstall"))
         _install.main()
@@ -842,7 +842,7 @@ class TestHandlersImportable:
     """All 8 handler functions should be importable and callable."""
 
     def test_all_handlers_importable(self):
-        from gemini_tracing.hooks.handlers import (
+        from tracing.gemini.hooks.handlers import (
             after_agent,
             after_model,
             after_tool,
@@ -872,7 +872,7 @@ class TestHandlersImportable:
 
 
 class TestSetupGeminiModule:
-    """core/setup/gemini.py delegates to gemini_tracing/install.py."""
+    """core/setup/gemini.py delegates to tracing.gemini/install.py."""
 
     def test_setup_module_importable(self):
         from core.setup.gemini import install, main, uninstall
@@ -882,7 +882,7 @@ class TestSetupGeminiModule:
         assert callable(main)
 
     def test_setup_install_delegates(self, cwd_tmp, monkeypatch):
-        """core.setup.gemini.install() should call gemini_tracing.install.install()."""
+        """core.setup.gemini.install() should call tracing.gemini.install.install()."""
         import core.setup.gemini as setup_gemini
 
         called = []
@@ -891,7 +891,7 @@ class TestSetupGeminiModule:
         assert called == ["install"]
 
     def test_setup_uninstall_delegates(self, cwd_tmp, monkeypatch):
-        """core.setup.gemini.uninstall() should call gemini_tracing.install.uninstall()."""
+        """core.setup.gemini.uninstall() should call tracing.gemini.install.uninstall()."""
         import core.setup.gemini as setup_gemini
 
         called = []
@@ -900,7 +900,7 @@ class TestSetupGeminiModule:
         assert called == ["uninstall"]
 
     def test_setup_main_delegates_to_install(self, cwd_tmp, monkeypatch):
-        """core.setup.gemini.main() should call gemini_tracing.install.install()."""
+        """core.setup.gemini.main() should call tracing.gemini.install.install()."""
         import core.setup.gemini as setup_gemini
 
         called = []

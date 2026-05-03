@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for claude_code_tracing.hooks.adapter — session resolution, init, GC, requirements."""
+"""Tests for tracing.claude_code.hooks.adapter — session resolution, init, GC, requirements."""
 import os
 import subprocess
 from pathlib import Path
@@ -8,8 +8,8 @@ from unittest.mock import mock_open, patch
 import pytest
 import yaml
 
-from claude_code_tracing.hooks import adapter
-from claude_code_tracing.hooks.adapter import resolve_transcript_path
+from tracing.claude_code.hooks import adapter
+from tracing.claude_code.hooks.adapter import resolve_transcript_path
 from core.common import StateManager
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

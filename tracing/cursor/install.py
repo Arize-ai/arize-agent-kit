@@ -23,7 +23,7 @@ from core.setup import (
     venv_bin,
     write_logging_config,
 )
-from cursor_tracing.constants import (
+from tracing.cursor.constants import (
     DISPLAY_NAME,
     HARNESS_BIN,
     HARNESS_HOME,

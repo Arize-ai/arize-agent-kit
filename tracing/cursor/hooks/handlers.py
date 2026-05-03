@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cursor hook handler: single entry point dispatching all 15 Cursor hook events.
 
-Replaces cursor-tracing/hooks/hook-handler.sh (475 lines).
+Replaces tracing/cursor/hooks/hook-handler.sh (475 lines).
 
 Input contract: JSON on stdin, all 15 events (IDE + CLI) routed here.
 stdout: MUST print permissive JSON response, even on error.
@@ -11,7 +11,7 @@ import json
 import sys
 
 from core.common import build_span, env, error, get_timestamp_ms, log, redact_content, send_span
-from cursor_tracing.hooks.adapter import (
+from tracing.cursor.hooks.adapter import (
     SCOPE_NAME,
     SERVICE_NAME,
     check_requirements,
