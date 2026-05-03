@@ -2,11 +2,14 @@
 """Gemini adapter — single-mode (CLI-only) session resolution, initialization, and GC.
 
 Gemini CLI provides GEMINI_SESSION_ID as an env var on every hook invocation,
-so no PID-based session key derivation or dual-mode detection is needed.
+but falls back to PID-based session keys (grandparent PID) to ensure
+consistent state across all hooks in a single CLI run.
 """
 from __future__ import annotations
 
 import os
+import platform
+import subprocess
 import time
 
 from core.common import StateManager, env, generate_trace_id, get_timestamp_ms, log
@@ -17,6 +20,72 @@ _HARNESS = HARNESSES["gemini"]
 SERVICE_NAME = _HARNESS["service_name"]  # "gemini"
 SCOPE_NAME = _HARNESS["scope_name"]  # "arize-gemini-plugin"
 STATE_DIR = STATE_BASE_DIR / _HARNESS["state_subdir"]  # ~/.arize/harness/state/gemini
+
+
+def _get_grandparent_pid() -> str:
+    """Get the grandparent PID for session key derivation.
+
+    Gemini CLI spawns: gemini(grandparent) -> node(parent) -> hook(this process).
+    On Unix: try reading /proc or using ps command.
+    Falls back to parent PID if grandparent can't be determined.
+    """
+    ppid = os.getppid()
+    if ppid <= 0:
+        return str(os.getpid())
+
+    # Try /proc (Linux)
+    try:
+        stat_path = f"{ppid}/stat"
+        if os.path.exists(f"/proc/{stat_path}"):
+            with open(f"/proc/{stat_path}") as f:
+                raw = f.read()
+            close_paren = raw.rfind(")")
+            rest = raw[close_paren + 2 :].split()
+            gpid = rest[1]
+            if gpid.isdigit() and int(gpid) > 0:
+                return gpid
+    except (OSError, IndexError, ValueError):
+        pass
+
+    # Try ps command (macOS / other Unix)
+    try:
+        result = subprocess.check_output(
+            ["ps", "-o", "ppid=", "-p", str(ppid)],
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
+        gpid = result.decode().strip()
+        if gpid.isdigit() and int(gpid) > 0:
+            return gpid
+    except (subprocess.SubprocessError, OSError, ValueError):
+        pass
+
+    return str(ppid)
+
+
+def _is_pid_alive(pid: int) -> bool:
+    """Check if a process with the given PID is still running."""
+    if pid <= 0:
+        return False
+    if platform.system() == "Windows":
+        try:
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if handle:
+                kernel32.CloseHandle(handle)
+                return True
+            return False
+        except Exception:
+            return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
 
 
 def check_requirements() -> bool:
@@ -30,16 +99,16 @@ def check_requirements() -> bool:
 def resolve_session(input_json: dict) -> StateManager:
     """Build a StateManager keyed off GEMINI_SESSION_ID env (preferred),
     else input_json sessionId (standard) or session_id (legacy),
-    else a generated trace ID.
-    State file: STATE_DIR / f'state_{key}.yaml'.
-    Lock path: STATE_DIR / f'.lock_{key}'.
-    Calls sm.init_state() before returning.
+    else grandparent PID (to keep state consistent across hooks).
     """
     key = os.environ.get("GEMINI_SESSION_ID", "")
     if not key:
         key = input_json.get("sessionId") or input_json.get("session_id", "")
     if not key:
-        key = generate_trace_id()
+        if platform.system() == "Windows":
+            key = str(os.getppid())
+        else:
+            key = _get_grandparent_pid()
 
     state_file = STATE_DIR / f"state_{key}.yaml"
     lock_path = STATE_DIR / f".lock_{key}"
@@ -54,17 +123,13 @@ def resolve_session(input_json: dict) -> StateManager:
 
 
 def ensure_session_initialized(state: StateManager, input_json: dict) -> None:
-    """Idempotent. If state already has 'session_id', no-op.
-    Otherwise set: session_id (= the resolved key), session_start_time,
-    project_name (= env.project_name or basename of projectDir/cwd or os.getcwd()),
-    trace_count = '0', tool_count = '0', user_id (= env.user_id or '').
-    """
+    """Idempotent session initialization."""
     existing = state.get("session_id")
     if existing is not None:
         return
 
-    # session_id: derive from state file name
-    session_id = state.state_file.stem.replace("state_", "", 1) if state.state_file else generate_trace_id()
+    # Use generated trace ID for the Arize session ID, not the PID.
+    session_id = generate_trace_id()
 
     # project_name
     project_name = env.project_name
@@ -85,30 +150,40 @@ def ensure_session_initialized(state: StateManager, input_json: dict) -> None:
 
 
 def gc_stale_state_files() -> None:
-    """Best-effort cleanup. Remove state files (and their lock files) where
-    the .yaml file's mtime is older than 24h.
+    """Remove state files (and their lock files) for processes that are no
+    longer alive, or files older than 24h for non-PID keys.
     """
     if not STATE_DIR.is_dir():
         return
     cutoff = time.time() - 86400
     for f in STATE_DIR.glob("state_*.yaml"):
         try:
-            if f.stat().st_mtime < cutoff:
-                key = f.stem.replace("state_", "", 1)
+            key = f.stem.replace("state_", "", 1)
+            should_remove = False
+            if key.isdigit():
+                if not _is_pid_alive(int(key)):
+                    should_remove = True
+            elif f.stat().st_mtime < cutoff:
+                should_remove = True
+
+            if not should_remove:
+                continue
+
+            try:
+                f.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+            lock_path = STATE_DIR / f".lock_{key}"
+            if lock_path.is_dir():
                 try:
-                    f.unlink(missing_ok=True)
+                    lock_path.rmdir()
                 except OSError:
                     pass
-                lock_path = STATE_DIR / f".lock_{key}"
-                if lock_path.is_dir():
-                    try:
-                        lock_path.rmdir()
-                    except OSError:
-                        pass
-                elif lock_path.is_file():
-                    try:
-                        lock_path.unlink(missing_ok=True)
-                    except OSError:
-                        pass
+            elif lock_path.is_file():
+                try:
+                    lock_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
         except OSError:
             pass

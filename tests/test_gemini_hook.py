@@ -538,6 +538,24 @@ class TestAfterModel:
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["output.value"]["stringValue"] == "Hello\n world"
 
+    def test_real_gemini_payload_empty_text_with_candidates(self, mock_resolve, state, captured_spans):
+        """Real Gemini llm_response has text='' but content in candidates — must not short-circuit."""
+        state.set("current_trace_id", "a" * 32)
+        state.set("current_trace_span_id", "b" * 16)
+        payload = {
+            "model": "gemini-3-flash-preview",
+            "llm_response": {
+                "candidates": [
+                    {"content": {"parts": ["Actual response content"], "role": "model"}}
+                ],
+                "text": "",
+                "usageMetadata": {},
+            },
+        }
+        _handle_after_model(payload)
+        attrs = _get_span_attrs(captured_spans[0])
+        assert attrs["output.value"]["stringValue"] == "Actual response content"
+
     def test_handles_structured_prompt(self, mock_resolve, state, captured_spans, monkeypatch):
         """JSON-encodes structured prompt before redaction."""
         monkeypatch.setenv("ARIZE_LOG_PROMPTS", "true")
@@ -617,6 +635,23 @@ class TestAfterTool:
         assert attrs["tool.name"]["stringValue"] == "read_file"
         assert attrs["tool.file_path"]["stringValue"] == "/foo/bar.py"
         assert attrs["output.value"]["stringValue"] == "file content"
+
+    def test_real_gemini_tool_response_extracts_llmcontent(self, mock_resolve, state, captured_spans):
+        """Real Gemini tool_response is {llmContent: ..., returnDisplay: ...} — must extract llmContent."""
+        state.set("current_trace_id", "a" * 32)
+        state.set("current_trace_span_id", "b" * 16)
+        _handle_after_tool(
+            {
+                "tool_name": "list_directory",
+                "tool_input": {"dir_path": "."},
+                "tool_response": {
+                    "llmContent": "Directory listing for /tmp:\n  [DIR] foo\n  bar.txt\n",
+                    "returnDisplay": {"files": ["foo", "bar.txt"], "summary": "2 items"},
+                },
+            }
+        )
+        attrs = _get_span_attrs(captured_spans[0])
+        assert attrs["output.value"]["stringValue"] == "Directory listing for /tmp:\n  [DIR] foo\n  bar.txt\n"
 
     def test_no_trace_context_skips(self, mock_resolve, state, captured_spans):
         """Skips when no current_trace_id (no active turn)."""
@@ -1212,14 +1247,20 @@ class TestSessionStartIntegration:
 
         _handle_session_start({"session_id": "sess-123", "cwd": "/tmp/proj"})
 
+        # State file is keyed by the payload session_id (resolve_session key).
         state_file = gemini_state_dir / "state_sess-123.yaml"
         assert state_file.exists()
 
         import yaml
 
         data = yaml.safe_load(state_file.read_text())
-        assert data["session_id"] == "sess-123"
+        # ensure_session_initialized stores a freshly generated 32-hex trace ID
+        # as the session.id span attribute — not the resolve key.
+        assert "session_id" in data
+        assert len(data["session_id"]) == 32
+        int(data["session_id"], 16)  # valid hex
         assert data["trace_count"] == "0"
+        assert data["project_name"] == "proj"
 
     def test_session_id_from_env_when_payload_missing(
         self, tmp_harness_dir, gemini_state_dir, monkeypatch, captured_spans_real
@@ -1235,10 +1276,11 @@ class TestSessionStartIntegration:
         state_file = gemini_state_dir / "state_env-sid.yaml"
         assert state_file.exists()
 
-    def test_session_id_generated_when_both_missing(
+    def test_pid_fallback_when_both_missing(
         self, tmp_harness_dir, gemini_state_dir, monkeypatch, captured_spans_real
     ):
-        """When no env var and no payload session_id, a 32-hex key is generated."""
+        """When no env var and no payload session_id, the resolve key falls back
+        to the grandparent PID (a positive-integer string)."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.delenv("GEMINI_SESSION_ID", raising=False)
         monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
@@ -1249,5 +1291,5 @@ class TestSessionStartIntegration:
         state_files = list(gemini_state_dir.glob("state_*.yaml"))
         assert len(state_files) == 1
         key = state_files[0].stem.replace("state_", "", 1)
-        assert len(key) == 32
-        int(key, 16)  # should not raise -- valid hex
+        assert key.isdigit()
+        assert int(key) > 0

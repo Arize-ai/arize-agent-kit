@@ -63,7 +63,13 @@ def _get_robust(data: dict, *keys, default=None):
 
 
 def _extract_text(obj) -> str:
-    """Extract string content from various nested structures (parts, content, etc.)."""
+    """Extract string content from various nested structures.
+
+    Recognized keys (in priority order):
+      candidates / parts / text / content — Gemini API response shape
+      llmContent — Gemini CLI tool_response canonical content
+      returnDisplay — Gemini CLI tool_response UI fallback
+    """
     if obj is None:
         return ""
     if isinstance(obj, str):
@@ -79,6 +85,10 @@ def _extract_text(obj) -> str:
             return _extract_text(obj["text"])
         if "content" in obj:
             return _extract_text(obj["content"])
+        if "llmContent" in obj:
+            return _extract_text(obj["llmContent"])
+        if "returnDisplay" in obj:
+            return _extract_text(obj["returnDisplay"])
     return str(obj)
 
 
@@ -311,8 +321,13 @@ def _handle_after_model(input_json: dict) -> None:
         prompt_str = state.get("current_trace_prompt") or ""
 
     resp_obj = _get_robust(input_json, "llm_response", "response", "model_response")
-    response_str = _get_robust(resp_obj, "text") if isinstance(resp_obj, dict) else None
-    if response_str is None:
+    # Gemini often emits llm_response.text="" while the real content sits under
+    # candidates[].content.parts. Only trust top-level "text" when it is non-empty;
+    # otherwise fall through to nested extraction.
+    response_str = ""
+    if isinstance(resp_obj, dict):
+        response_str = _get_robust(resp_obj, "text") or ""
+    if not response_str:
         response_str = _extract_text(resp_obj)
 
     span_name = f"LLM: {model_name}" if model_name else "LLM"
@@ -374,9 +389,9 @@ def _handle_after_tool(input_json: dict) -> None:
     tool_name = _get_robust(input_json, "tool_name", default="unknown")
     tool_id = _get_robust(input_json, "tool_call_id") or tool_name
 
-    tool_args_raw = _get_robust(input_json, "tool_args") or {}
+    tool_args_raw = _get_robust(input_json, "tool_input", "tool_args", "args") or {}
     tool_input = json.dumps(tool_args_raw) if isinstance(tool_args_raw, (dict, list)) else str(tool_args_raw)
-    tool_output = _extract_text(_get_robust(input_json, "tool_result", "result"))
+    tool_output = _extract_text(_get_robust(input_json, "tool_response", "tool_result", "result"))
 
     tool_command = ""
     tool_file_path = ""

@@ -92,14 +92,18 @@ class TestResolveSession:
         sm = adapter.resolve_session({"session_id": "payload-sess-99"})
         assert sm.state_file == gemini_state_dir / "state_payload-sess-99.yaml"
 
-    def test_generates_id_when_no_session_id(self, gemini_state_dir, disable_env_vars):
-        """Generates a trace ID when neither env var nor payload has session_id."""
+    def test_falls_back_to_grandparent_pid_when_no_session_id(self, gemini_state_dir, disable_env_vars):
+        """Falls back to grandparent PID when neither env var nor payload has session_id.
+
+        On Unix the adapter resolves to the grandparent PID; if that lookup fails
+        it returns the parent PID. Either way the key must be a positive integer
+        string so subsequent gc passes can liveness-check it.
+        """
         sm = adapter.resolve_session({})
-        # The state file should exist and its key should be a 32-hex-char generated ID
         assert sm.state_file.exists()
         key = sm.state_file.stem.replace("state_", "", 1)
-        assert len(key) == 32
-        int(key, 16)  # should not raise
+        assert key.isdigit()
+        assert int(key) > 0
 
     def test_init_state_called(self, gemini_state_dir, disable_env_vars, monkeypatch):
         """Returned StateManager has init_state() called (file exists with {})."""
@@ -309,20 +313,28 @@ class TestGcStaleStateFiles:
         adapter.gc_stale_state_files()  # should not raise
 
 
-# ── No PID-based logic tests ─────────────────────────────────────────────────
+# ── PID-based fallback tests ─────────────────────────────────────────────────
 
 
-class TestNoPidLogic:
-    """Verify the adapter does NOT have copilot-specific PID functions."""
+class TestPidFallback:
+    """The adapter uses grandparent-PID fallback for session keys when no
+    GEMINI_SESSION_ID env var and no payload session_id are available."""
 
-    def test_no_get_grandparent_pid(self):
-        """Adapter should not define _get_grandparent_pid."""
-        assert not hasattr(adapter, "_get_grandparent_pid")
+    def test_get_grandparent_pid_returns_digit_string(self):
+        """_get_grandparent_pid returns a positive-integer string."""
+        gpid = adapter._get_grandparent_pid()
+        assert gpid.isdigit()
+        assert int(gpid) > 0
 
-    def test_no_is_pid_alive(self):
-        """Adapter should not define _is_pid_alive."""
-        assert not hasattr(adapter, "_is_pid_alive")
+    def test_is_pid_alive_for_self(self):
+        """_is_pid_alive returns True for the current process."""
+        assert adapter._is_pid_alive(os.getpid()) is True
+
+    def test_is_pid_alive_for_invalid_pid(self):
+        """_is_pid_alive returns False for non-positive pids."""
+        assert adapter._is_pid_alive(0) is False
+        assert adapter._is_pid_alive(-1) is False
 
     def test_no_is_vscode_mode(self):
-        """Adapter should not define is_vscode_mode."""
+        """Adapter is single-mode (CLI-only); no VS Code dual-mode logic."""
         assert not hasattr(adapter, "is_vscode_mode")
