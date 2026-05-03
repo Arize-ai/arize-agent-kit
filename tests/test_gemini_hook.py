@@ -88,9 +88,13 @@ def mock_ensure():
 
 @pytest.fixture
 def captured_spans():
-    """Mock send_span and collect all payloads sent."""
+    """Mock _send_span_async and collect all payloads emitted by handlers.
+
+    Patching _send_span_async (rather than send_span) lets tests run
+    synchronously without forking, regardless of the ARIZE_DISABLE_FORK env.
+    """
     sent = []
-    with mock.patch("gemini_tracing.hooks.handlers.send_span", side_effect=lambda s: sent.append(s)):
+    with mock.patch("gemini_tracing.hooks.handlers._send_span_async", side_effect=lambda s: sent.append(s)):
         yield sent
 
 
@@ -430,20 +434,35 @@ class TestBeforeModel:
 # ---------------------------------------------------------------------------
 
 
+def _final_chunk(extra: dict = None, p: int = 10, c: int = 5) -> dict:
+    """Build an AfterModel payload that includes usage tokens, marking it as
+    the final streaming chunk so _handle_after_model flushes immediately."""
+    payload = {"usageMetadata": {"promptTokenCount": p, "candidatesTokenCount": c}}
+    if extra:
+        payload.update(extra)
+    return payload
+
+
 class TestAfterModel:
+    """AfterModel accumulates streaming chunks; a span is emitted only when the
+    final chunk arrives (token counts present) or on explicit flush."""
+
     def test_builds_llm_span(self, mock_resolve, state, captured_spans):
-        """after_model builds an LLM span as child of current turn."""
+        """A final chunk (with tokens) emits a single LLM span using the
+        accumulated prompt and response."""
         state.set("current_trace_id", "a" * 32)
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_model_call_id", "mc-1")
         state.set("model_mc-1_start", "1000")
         state.set("model_mc-1_prompt", json.dumps([{"role": "user", "content": "what is 2+2?"}]))
-        inp = {
-            "model": "gemini-2.5-pro",
-            "response": {"content": "4", "usage": {"prompt_tokens": 10, "candidates_tokens": 5}},
-            "model_call_id": "mc-1",
-        }
-        _handle_after_model(inp)
+        _handle_after_model(
+            {
+                "model": "gemini-2.5-pro",
+                "llm_response": {"candidates": [{"content": {"parts": ["4"]}}]},
+                "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5},
+                "model_call_id": "mc-1",
+            }
+        )
         assert len(captured_spans) == 1
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["openinference.span.kind"]["stringValue"] == "LLM"
@@ -454,13 +473,51 @@ class TestAfterModel:
         assert attrs["input.value"]["stringValue"] == json.dumps([{"role": "user", "content": "what is 2+2?"}])
         assert attrs["output.value"]["stringValue"] == "4"
 
+    def test_streaming_chunks_coalesce_into_one_span(self, mock_resolve, state, captured_spans):
+        """Multiple AfterModel events for one call concatenate into a single span."""
+        state.set("current_trace_id", "a" * 32)
+        state.set("current_trace_span_id", "b" * 16)
+        state.set("current_model_call_id", "mc-1")
+        state.set("model_mc-1_start", "1000")
+
+        # Chunks 1-3: text only, no tokens — accumulate, don't emit
+        _handle_after_model({"model": "gemini-3-flash", "llm_response": {"text": "Hello"}, "model_call_id": "mc-1"})
+        _handle_after_model({"llm_response": {"text": " "}, "model_call_id": "mc-1"})
+        _handle_after_model({"llm_response": {"text": "world"}, "model_call_id": "mc-1"})
+        assert captured_spans == []
+
+        # Chunk 4: final chunk with tokens — flushes the accumulated span
+        _handle_after_model(
+            {
+                "llm_response": {"text": ""},
+                "usageMetadata": {"promptTokenCount": 100, "candidatesTokenCount": 3},
+                "model_call_id": "mc-1",
+            }
+        )
+        assert len(captured_spans) == 1
+        attrs = _get_span_attrs(captured_spans[0])
+        assert attrs["output.value"]["stringValue"] == "Hello world"
+        assert attrs["llm.model_name"]["stringValue"] == "gemini-3-flash"
+        assert attrs["llm.token_count.completion"]["intValue"] == 3
+
+    def test_non_final_chunk_does_not_emit(self, mock_resolve, state, captured_spans):
+        """AfterModel with no tokens accumulates into state without emitting."""
+        state.set("current_trace_id", "a" * 32)
+        state.set("current_trace_span_id", "b" * 16)
+        state.set("current_model_call_id", "mc-1")
+        state.set("model_mc-1_start", "1000")
+        _handle_after_model({"model": "gemini-2.5-pro", "model_call_id": "mc-1"})
+        assert captured_spans == []
+        # current_model_call_id is preserved so the next chunk continues the same span
+        assert state.get("current_model_call_id") == "mc-1"
+
     def test_span_name_includes_model(self, mock_resolve, state, captured_spans):
         """Span name is 'LLM: {model_name}' when model is provided."""
         state.set("current_trace_id", "a" * 32)
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_model_call_id", "mc-1")
         state.set("model_mc-1_start", "1000")
-        _handle_after_model({"model": "gemini-2.5-pro", "model_call_id": "mc-1"})
+        _handle_after_model(_final_chunk({"model": "gemini-2.5-pro", "model_call_id": "mc-1"}))
         span = _get_span(captured_spans[0])
         assert span["name"] == "LLM: gemini-2.5-pro"
 
@@ -470,7 +527,7 @@ class TestAfterModel:
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_model_call_id", "mc-1")
         state.set("model_mc-1_start", "1000")
-        _handle_after_model({"model_call_id": "mc-1"})
+        _handle_after_model(_final_chunk({"model_call_id": "mc-1"}))
         span = _get_span(captured_spans[0])
         assert span["name"] == "LLM"
 
@@ -480,7 +537,7 @@ class TestAfterModel:
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_model_call_id", "mc-1")
         state.set("model_mc-1_start", "1000")
-        _handle_after_model({"model": "gemini-2.5-pro", "model_call_id": "mc-1"})
+        _handle_after_model(_final_chunk({"model": "gemini-2.5-pro", "model_call_id": "mc-1"}))
         span = _get_span(captured_spans[0])
         assert span["traceId"] == "a" * 32
         assert span["parentSpanId"] == "b" * 16
@@ -489,7 +546,7 @@ class TestAfterModel:
         """Returns without sending when no current_trace_id in state."""
         state.set("current_model_call_id", "mc-1")
         state.set("model_mc-1_start", "1000")
-        _handle_after_model({"model": "gemini-2.5-pro", "model_call_id": "mc-1"})
+        _handle_after_model(_final_chunk({"model": "gemini-2.5-pro", "model_call_id": "mc-1"}))
         assert len(captured_spans) == 0
 
     def test_redacts_prompt_and_response(self, mock_resolve, state, captured_spans, monkeypatch):
@@ -501,76 +558,85 @@ class TestAfterModel:
         state.set("model_mc-1_start", "1000")
         state.set("model_mc-1_prompt", "secret prompt")
         _handle_after_model(
-            {
-                "model": "gemini-2.5-pro",
-                "response": {"content": "secret response"},
-                "model_call_id": "mc-1",
-            }
+            _final_chunk(
+                {
+                    "model": "gemini-2.5-pro",
+                    "llm_response": {"candidates": [{"content": {"parts": ["secret response"]}}]},
+                    "model_call_id": "mc-1",
+                }
+            )
         )
         attrs = _get_span_attrs(captured_spans[0])
         assert "redacted" in attrs["input.value"]["stringValue"]
         assert "redacted" in attrs["output.value"]["stringValue"]
 
     def test_cleans_up_model_state(self, mock_resolve, state, captured_spans):
-        """Cleans up model call start time and current_model_call_id from state."""
+        """Cleans up model accumulator keys and current_model_call_id after flush."""
         state.set("current_trace_id", "a" * 32)
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_model_call_id", "mc-1")
         state.set("model_mc-1_start", "1000")
-        _handle_after_model({"model": "gemini-2.5-pro", "model_call_id": "mc-1"})
+        _handle_after_model(_final_chunk({"model": "gemini-2.5-pro", "model_call_id": "mc-1"}))
         assert state.get("model_mc-1_start") is None
+        assert state.get("model_mc-1_response") is None
+        assert state.get("model_mc-1_model") is None
+        assert state.get("model_mc-1_prompt") is None
         assert state.get("current_model_call_id") is None
 
-    def test_uses_payload_model_call_id(self, mock_resolve, state, captured_spans):
-        """Uses model_call_id from payload if present."""
-        state.set("current_trace_id", "a" * 32)
-        state.set("current_trace_span_id", "b" * 16)
-        state.set("current_model_call_id", "old-mc")
-        state.set("model_payload-mc_start", "1000")
-        _handle_after_model({"model": "gemini-2.5-pro", "model_call_id": "payload-mc"})
-        assert len(captured_spans) == 1
-        # should have cleaned up payload-mc key
-        assert state.get("model_payload-mc_start") is None
-
-    def test_falls_back_to_current_model_call_id(self, mock_resolve, state, captured_spans):
-        """Falls back to current_model_call_id when payload has no model_call_id."""
+    def test_uses_current_model_call_id_from_state(self, mock_resolve, state, captured_spans):
+        """Real Gemini AfterModel payloads don't carry model_call_id, so the
+        accumulator key is always read from state.current_model_call_id. A
+        final chunk flushes the span using that id."""
         state.set("current_trace_id", "a" * 32)
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_model_call_id", "fallback-mc")
         state.set("model_fallback-mc_start", "1000")
-        _handle_after_model({"model": "gemini-2.5-pro"})
+        _handle_after_model(_final_chunk({"model": "gemini-2.5-pro"}))
         assert len(captured_spans) == 1
         assert state.get("model_fallback-mc_start") is None
+        assert state.get("current_model_call_id") is None
 
-    def test_token_counts_default_to_zero(self, mock_resolve, state, captured_spans):
-        """Token counts default to 0 when not provided."""
+    def test_after_agent_flushes_pending_call_with_zero_tokens(self, mock_resolve, state, captured_spans):
+        """A model call that never received a final chunk is flushed by AfterAgent
+        with whatever it accumulated -- including zero token counts."""
+        from gemini_tracing.hooks.handlers import _handle_after_agent
+
+        state.set("current_trace_id", "a" * 32)
+        state.set("current_trace_span_id", "b" * 16)
+        state.set("current_trace_start_time", "1000")
+        state.set("current_trace_prompt", "test")
+        state.set("current_model_call_id", "mc-1")
+        state.set("model_mc-1_start", "1000")
+        state.set("model_mc-1_model", "gemini-2.5-pro")
+        # No final chunk arrives
+        _handle_after_model({"model": "gemini-2.5-pro", "model_call_id": "mc-1"})
+        assert captured_spans == []
+
+        _handle_after_agent({"prompt_response": "ok"})
+        # Two spans: the flushed LLM span and the CHAIN root
+        assert len(captured_spans) == 2
+        llm_attrs = _get_span_attrs(captured_spans[0])
+        assert llm_attrs["openinference.span.kind"]["stringValue"] == "LLM"
+        assert llm_attrs["llm.token_count.prompt"]["intValue"] == 0
+        assert llm_attrs["llm.token_count.completion"]["intValue"] == 0
+
+    def test_accumulates_text_from_candidates(self, mock_resolve, state, captured_spans):
+        """Extracts text from nested candidates structure across chunks."""
         state.set("current_trace_id", "a" * 32)
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_model_call_id", "mc-1")
         state.set("model_mc-1_start", "1000")
-        _handle_after_model({"model": "gemini-2.5-pro", "model_call_id": "mc-1"})
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["llm.token_count.prompt"]["intValue"] == 0
-        assert attrs["llm.token_count.completion"]["intValue"] == 0
-        assert attrs["llm.token_count.total"]["intValue"] == 0
-
-    def test_extracts_text_from_candidates(self, mock_resolve, state, captured_spans):
-        """Extracts text from nested candidates structure."""
-        state.set("current_trace_id", "a" * 32)
-        state.set("current_trace_span_id", "b" * 16)
-        payload = {
-            "model": "gemini-2.5-pro",
-            "response": {
-                "candidates": [
-                    {
-                        "content": {
-                            "parts": [{"text": "Hello"}, {"text": " world"}]
-                        }
-                    }
-                ]
-            }
-        }
-        _handle_after_model(payload)
+        _handle_after_model(
+            _final_chunk(
+                {
+                    "model": "gemini-2.5-pro",
+                    "llm_response": {
+                        "candidates": [{"content": {"parts": [{"text": "Hello"}, {"text": " world"}]}}]
+                    },
+                    "model_call_id": "mc-1",
+                }
+            )
+        )
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["output.value"]["stringValue"] == "Hello\n world"
 
@@ -578,17 +644,19 @@ class TestAfterModel:
         """Real Gemini llm_response has text='' but content in candidates — must not short-circuit."""
         state.set("current_trace_id", "a" * 32)
         state.set("current_trace_span_id", "b" * 16)
-        payload = {
-            "model": "gemini-3-flash-preview",
-            "llm_response": {
-                "candidates": [
-                    {"content": {"parts": ["Actual response content"], "role": "model"}}
-                ],
-                "text": "",
-                "usageMetadata": {},
-            },
-        }
-        _handle_after_model(payload)
+        state.set("current_model_call_id", "mc-1")
+        state.set("model_mc-1_start", "1000")
+        _handle_after_model(
+            {
+                "model": "gemini-3-flash-preview",
+                "llm_response": {
+                    "candidates": [{"content": {"parts": ["Actual response content"], "role": "model"}}],
+                    "text": "",
+                    "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1},
+                },
+                "model_call_id": "mc-1",
+            }
+        )
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["output.value"]["stringValue"] == "Actual response content"
 
@@ -601,14 +669,31 @@ class TestAfterModel:
         state.set("model_mc-1_start", "1000")
         structured = [{"role": "user", "content": "hello"}]
         state.set("model_mc-1_prompt", json.dumps(structured))
-        _handle_after_model(
-            {
-                "model": "gemini-2.5-pro",
-                "model_call_id": "mc-1",
-            }
-        )
+        _handle_after_model(_final_chunk({"model": "gemini-2.5-pro", "model_call_id": "mc-1"}))
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["input.value"]["stringValue"] == json.dumps(structured)
+
+    def test_next_before_model_flushes_prior_call(self, mock_resolve, state, captured_spans):
+        """If a prior model call never received its final chunk, the next BeforeModel
+        flushes it as its own LLM span before opening the new accumulator."""
+        from gemini_tracing.hooks.handlers import _handle_before_model
+
+        state.set("current_trace_id", "a" * 32)
+        state.set("current_trace_span_id", "b" * 16)
+        state.set("current_model_call_id", "prior")
+        state.set("model_prior_start", "1000")
+        state.set("model_prior_response", "partial response")
+        state.set("model_prior_model", "gemini-2.5-pro")
+
+        _handle_before_model({"llm_request": {"model": "gemini-2.5-pro", "messages": [{"role": "user", "content": "x"}]}})
+        # Prior call gets flushed
+        assert len(captured_spans) == 1
+        attrs = _get_span_attrs(captured_spans[0])
+        assert attrs["output.value"]["stringValue"] == "partial response"
+        # Prior accumulator is cleared; new model_call_id is set
+        assert state.get("model_prior_response") is None
+        new_id = state.get("current_model_call_id")
+        assert new_id is not None and new_id != "prior"
 
     def test_includes_user_id(self, mock_resolve, state, captured_spans):
         """user.id is included when non-empty."""
@@ -616,7 +701,7 @@ class TestAfterModel:
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_model_call_id", "mc-1")
         state.set("model_mc-1_start", "1000")
-        _handle_after_model({"model": "gemini-2.5-pro", "model_call_id": "mc-1"})
+        _handle_after_model(_final_chunk({"model": "gemini-2.5-pro", "model_call_id": "mc-1"}))
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["user.id"]["stringValue"] == "test-user"
 
@@ -1230,7 +1315,7 @@ class TestProjectNameOnAllSpans:
         state.set("current_trace_span_id", "b" * 16)
         state.set("current_model_call_id", "mc-1")
         state.set("model_mc-1_start", "1000")
-        _handle_after_model({"model": "gemini-2.5-pro", "model_call_id": "mc-1"})
+        _handle_after_model(_final_chunk({"model": "gemini-2.5-pro", "model_call_id": "mc-1"}))
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["project.name"]["stringValue"] == "test-gemini-project"
 
@@ -1269,9 +1354,9 @@ class TestSessionStartIntegration:
 
     @pytest.fixture
     def captured_spans_real(self):
-        """Mock send_span and collect all payloads sent."""
+        """Mock _send_span_async and collect all payloads emitted by handlers."""
         sent = []
-        with mock.patch("gemini_tracing.hooks.handlers.send_span", side_effect=lambda s: sent.append(s)):
+        with mock.patch("gemini_tracing.hooks.handlers._send_span_async", side_effect=lambda s: sent.append(s)):
             yield sent
 
     def test_session_start_initializes_state(self, tmp_harness_dir, gemini_state_dir, monkeypatch, captured_spans_real):

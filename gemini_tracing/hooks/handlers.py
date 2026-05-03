@@ -7,6 +7,7 @@ in a try/except, and prints {} to stdout in finally.
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 from core.common import (
@@ -111,6 +112,152 @@ def _extract_tokens(input_json: dict) -> tuple[int, int]:
 # ---------------------------------------------------------------------------
 
 
+def _send_span_async(span_dict: dict) -> None:
+    """Send a span without blocking the hook process.
+
+    Gemini invokes hooks synchronously and waits for the subprocess to exit
+    before resuming its own response stream. The slowest part of a hook is
+    the OTLP POST in send_span (up to ~10s). Double-fork detaches a
+    grandchild that's reparented to init/launchd; the parent returns
+    immediately so the hook exits in milliseconds.
+
+    Falls back to synchronous send when fork() is unavailable (Windows) or
+    when ARIZE_DISABLE_FORK=true (used by tests so spans are visible to
+    captured_spans fixtures in the parent process).
+    """
+    if os.environ.get("ARIZE_DISABLE_FORK", "").lower() == "true":
+        send_span(span_dict)
+        return
+    if not hasattr(os, "fork"):
+        send_span(span_dict)
+        return
+
+    try:
+        pid = os.fork()
+    except OSError:
+        send_span(span_dict)
+        return
+
+    if pid > 0:
+        # Parent: reap the immediate child quickly (it forks-and-exits).
+        try:
+            os.waitpid(pid, 0)
+        except OSError:
+            pass
+        return
+
+    # First child: fork again and exit so the grandchild has no parent.
+    try:
+        if os.fork() > 0:
+            os._exit(0)
+    except OSError:
+        os._exit(0)
+
+    # Grandchild: redirect stdio so we can't pollute Gemini's pipes,
+    # then perform the actual network send.
+    try:
+        devnull = os.open(os.devnull, os.O_RDWR)
+        for fd in (0, 1, 2):
+            try:
+                os.dup2(devnull, fd)
+            except OSError:
+                pass
+        os.close(devnull)
+    except OSError:
+        pass
+    try:
+        send_span(span_dict)
+    except Exception:
+        pass
+    os._exit(0)
+
+
+# ---------------------------------------------------------------------------
+# Model-call accumulation: Gemini fires AfterModel once per streaming chunk.
+# We coalesce all chunks for a single BeforeModel into one LLM span so Arize
+# shows one row per model call instead of N near-empty rows.
+# ---------------------------------------------------------------------------
+
+
+_MODEL_STATE_KEYS = ("start", "prompt", "response", "model", "p_tokens", "c_tokens")
+
+
+def _clear_model_state(state, model_call_id: str) -> None:
+    """Remove all per-call accumulator keys plus the current_model_call_id pointer."""
+    for suffix in _MODEL_STATE_KEYS:
+        state.delete(f"model_{model_call_id}_{suffix}")
+    if state.get("current_model_call_id") == model_call_id:
+        state.delete("current_model_call_id")
+
+
+def _flush_pending_model_call(state) -> None:
+    """Emit one LLM span for the accumulated model call, then clear its state.
+
+    No-op if no model call is pending or the trace is no longer active.
+    Called when a final-chunk arrives, when a new BeforeModel begins, when
+    AfterAgent fires, and when a turn is force-closed by the fail-safe.
+    """
+    model_call_id = state.get("current_model_call_id")
+    if not model_call_id:
+        return
+
+    trace_id = state.get("current_trace_id")
+    if not trace_id:
+        # No active turn; drop accumulators silently rather than emit a
+        # dangling LLM span.
+        _clear_model_state(state, model_call_id)
+        return
+
+    parent_span_id = state.get("current_trace_span_id") or ""
+    session_id = state.get("session_id") or ""
+    project_name = state.get("project_name") or ""
+    user_id = state.get("user_id") or ""
+
+    start_time = state.get(f"model_{model_call_id}_start") or str(get_timestamp_ms())
+    end_time = str(get_timestamp_ms())
+    model_name = state.get(f"model_{model_call_id}_model") or ""
+    prompt_str = state.get(f"model_{model_call_id}_prompt") or state.get("current_trace_prompt") or ""
+    response_str = state.get(f"model_{model_call_id}_response") or ""
+    try:
+        p_tokens = int(state.get(f"model_{model_call_id}_p_tokens") or "0")
+    except ValueError:
+        p_tokens = 0
+    try:
+        c_tokens = int(state.get(f"model_{model_call_id}_c_tokens") or "0")
+    except ValueError:
+        c_tokens = 0
+
+    span_name = f"LLM: {model_name}" if model_name else "LLM"
+    attrs = {
+        "session.id": session_id,
+        "project.name": project_name,
+        "openinference.span.kind": "LLM",
+        "llm.model_name": model_name,
+        "llm.token_count.prompt": p_tokens,
+        "llm.token_count.completion": c_tokens,
+        "llm.token_count.total": p_tokens + c_tokens,
+        "input.value": redact_content(env.log_prompts, prompt_str),
+        "output.value": redact_content(env.log_prompts, response_str),
+    }
+    if user_id:
+        attrs["user.id"] = user_id
+
+    span = build_span(
+        span_name,
+        "LLM",
+        generate_span_id(),
+        trace_id,
+        parent_span_id,
+        start_time,
+        end_time,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
+    )
+    _send_span_async(span)
+    _clear_model_state(state, model_call_id)
+
+
 def _close_pending_turn(state, reason: str) -> None:
     """Emit a CHAIN root span for any pending turn, then clear trace state.
 
@@ -123,7 +270,13 @@ def _close_pending_turn(state, reason: str) -> None:
     pending_trace_id = state.get("current_trace_id")
     pending_span_id = state.get("current_trace_span_id")
     if not pending_trace_id or not pending_span_id:
+        # No turn in flight; still flush a stranded model call if any.
+        _flush_pending_model_call(state)
         return
+
+    # Close any in-flight model call as a child LLM span first, so its
+    # parent_span_id remains valid before we tear down the turn.
+    _flush_pending_model_call(state)
 
     session_id = state.get("session_id") or ""
     project_name = state.get("project_name") or ""
@@ -153,7 +306,7 @@ def _close_pending_turn(state, reason: str) -> None:
         SERVICE_NAME,
         SCOPE_NAME,
     )
-    send_span(span)
+    _send_span_async(span)
 
     state.delete("current_trace_id")
     state.delete("current_trace_span_id")
@@ -243,6 +396,10 @@ def _handle_after_agent(input_json: dict) -> None:
     debug_dump("gemini_after_agent", input_json)
     state = resolve_session(input_json)
 
+    # Flush any model call still buffering streaming chunks before we close
+    # the turn -- otherwise its accumulated text would be discarded.
+    _flush_pending_model_call(state)
+
     trace_id = state.get("current_trace_id")
     span_id = state.get("current_trace_span_id")
     start_time = state.get("current_trace_start_time")
@@ -281,7 +438,7 @@ def _handle_after_agent(input_json: dict) -> None:
         SERVICE_NAME,
         SCOPE_NAME,
     )
-    send_span(span)
+    _send_span_async(span)
 
     # Clear trace state
     state.delete("current_trace_id")
@@ -291,9 +448,17 @@ def _handle_after_agent(input_json: dict) -> None:
 
 
 def _handle_before_model(input_json: dict) -> None:
-    """Handle before_model: stash model call start time and prompt."""
+    """Handle before_model: open a new model-call accumulator.
+
+    Gemini does not pass model_call_id on AfterModel events, so we key
+    accumulation off a generated id stashed in current_model_call_id.
+    If a previous model call is still in flight (no final chunk arrived),
+    flush it as its own span before opening the new one.
+    """
     debug_dump("gemini_before_model", input_json)
     state = resolve_session(input_json)
+
+    _flush_pending_model_call(state)
 
     model_call_id = _get_robust(input_json, "model_call_id") or generate_span_id()
     state.set(f"model_{model_call_id}_start", str(get_timestamp_ms()))
@@ -304,9 +469,24 @@ def _handle_before_model(input_json: dict) -> None:
     if isinstance(messages, list) and messages:
         state.set(f"model_{model_call_id}_prompt", json.dumps(messages))
 
+    model_name = _get_robust(req, "model") or _get_robust(input_json, "model", "model_name", default="")
+    if model_name:
+        state.set(f"model_{model_call_id}_model", model_name)
+
 
 def _handle_after_model(input_json: dict) -> None:
-    """Handle after_model: build an LLM span as child of current turn."""
+    """Handle after_model: accumulate one streaming chunk for the current call.
+
+    Gemini fires AfterModel once per chunk: early chunks carry text, the final
+    chunk carries usage tokens. Instead of emitting a span per chunk (the old
+    behavior produced 4-30+ near-empty LLM rows per turn in Arize), we
+    accumulate text + tokens + model_name in state and only emit a single
+    LLM span when the final chunk arrives -- detected by non-zero token
+    counts. Non-final chunks just append text and return.
+
+    Flush also fires from BeforeModel (next call), AfterAgent, and the
+    pending-turn fail-safe so nothing is left dangling.
+    """
     debug_dump("gemini_after_model", input_json)
     state = resolve_session(input_json)
 
@@ -314,76 +494,46 @@ def _handle_after_model(input_json: dict) -> None:
     if not trace_id:
         return
 
-    parent_span_id = state.get("current_trace_span_id") or ""
-    session_id = state.get("session_id") or ""
-    project_name = state.get("project_name") or ""
-    user_id = state.get("user_id") or ""
-
     model_call_id = _get_robust(input_json, "model_call_id") or state.get("current_model_call_id") or ""
+    if not model_call_id:
+        # AfterModel without a preceding BeforeModel -- start an accumulator
+        # on the fly so the chunk's content isn't lost.
+        model_call_id = generate_span_id()
+        state.set(f"model_{model_call_id}_start", str(get_timestamp_ms()))
+        state.set("current_model_call_id", model_call_id)
 
-    if model_call_id:
-        start_time = state.get(f"model_{model_call_id}_start") or str(get_timestamp_ms())
-    else:
-        start_time = str(get_timestamp_ms())
-    end_time = str(get_timestamp_ms())
-
-    if model_call_id:
-        state.delete(f"model_{model_call_id}_start")
-    state.delete("current_model_call_id")
-
+    # Capture model name from this chunk if not already set.
     req = _get_robust(input_json, "llm_request") or {}
-    model_name = _get_robust(req, "model") or _get_robust(input_json, "model", "model_name", default="")
+    chunk_model = _get_robust(req, "model") or _get_robust(input_json, "model", "model_name", default="")
+    if chunk_model and not state.get(f"model_{model_call_id}_model"):
+        state.set(f"model_{model_call_id}_model", chunk_model)
 
-    input_tokens, output_tokens = _extract_tokens(input_json)
-    total_tokens = input_tokens + output_tokens
+    # Capture prompt from first chunk that includes messages. Subsequent
+    # streaming chunks carry near-empty messages (just the partial response
+    # so far) so we keep the first non-empty prompt we see.
+    if not state.get(f"model_{model_call_id}_prompt"):
+        messages = _get_robust(req, "messages") or _get_robust(input_json, "messages", default=[])
+        if isinstance(messages, list) and messages:
+            state.set(f"model_{model_call_id}_prompt", json.dumps(messages))
 
-    prompt_str = ""
-    if model_call_id:
-        prompt_str = state.get(f"model_{model_call_id}_prompt") or ""
-        state.delete(f"model_{model_call_id}_prompt")
-
-    if not prompt_str:
-        prompt_str = state.get("current_trace_prompt") or ""
-
+    # Append this chunk's text to the response accumulator.
     resp_obj = _get_robust(input_json, "llm_response", "response", "model_response")
-    # Gemini often emits llm_response.text="" while the real content sits under
-    # candidates[].content.parts. Only trust top-level "text" when it is non-empty;
-    # otherwise fall through to nested extraction.
-    response_str = ""
+    chunk_text = ""
     if isinstance(resp_obj, dict):
-        response_str = _get_robust(resp_obj, "text") or ""
-    if not response_str:
-        response_str = _extract_text(resp_obj)
+        chunk_text = _get_robust(resp_obj, "text") or ""
+    if not chunk_text:
+        chunk_text = _extract_text(resp_obj)
+    if chunk_text and chunk_text != "null":
+        prior = state.get(f"model_{model_call_id}_response") or ""
+        state.set(f"model_{model_call_id}_response", prior + chunk_text)
 
-    span_name = f"LLM: {model_name}" if model_name else "LLM"
-
-    attrs = {
-        "session.id": session_id,
-        "project.name": project_name,
-        "openinference.span.kind": "LLM",
-        "llm.model_name": model_name,
-        "llm.token_count.prompt": input_tokens,
-        "llm.token_count.completion": output_tokens,
-        "llm.token_count.total": total_tokens,
-        "input.value": redact_content(env.log_prompts, prompt_str),
-        "output.value": redact_content(env.log_prompts, response_str or ""),
-    }
-    if user_id:
-        attrs["user.id"] = user_id
-
-    span = build_span(
-        span_name,
-        "LLM",
-        generate_span_id(),
-        trace_id,
-        parent_span_id,
-        start_time,
-        end_time,
-        attrs,
-        SERVICE_NAME,
-        SCOPE_NAME,
-    )
-    send_span(span)
+    # Token counts usually arrive only on the final chunk. When we see them,
+    # store and flush as a single span for the whole call.
+    p_tokens, c_tokens = _extract_tokens(input_json)
+    if p_tokens or c_tokens:
+        state.set(f"model_{model_call_id}_p_tokens", str(p_tokens))
+        state.set(f"model_{model_call_id}_c_tokens", str(c_tokens))
+        _flush_pending_model_call(state)
 
 
 def _handle_before_tool(input_json: dict) -> None:
@@ -498,7 +648,7 @@ def _handle_after_tool(input_json: dict) -> None:
         SERVICE_NAME,
         SCOPE_NAME,
     )
-    send_span(span)
+    _send_span_async(span)
 
 
 # ---------------------------------------------------------------------------
