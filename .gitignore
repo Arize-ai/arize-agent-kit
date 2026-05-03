@@ -46,3 +46,4 @@ state/
 config.yaml
 logs/
 run/
+.arize-tmp-traces/

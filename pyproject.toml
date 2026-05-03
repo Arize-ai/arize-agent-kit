@@ -46,6 +46,15 @@ arize-hook-copilot-stop = "copilot_tracing.hooks.handlers:stop"
 arize-hook-copilot-error = "copilot_tracing.hooks.handlers:error_occurred"
 arize-hook-copilot-session-end = "copilot_tracing.hooks.handlers:session_end"
 arize-hook-copilot-subagent-stop = "copilot_tracing.hooks.handlers:subagent_stop"
+# Gemini hooks
+arize-hook-gemini-session-start = "gemini_tracing.hooks.handlers:session_start"
+arize-hook-gemini-session-end = "gemini_tracing.hooks.handlers:session_end"
+arize-hook-gemini-before-agent = "gemini_tracing.hooks.handlers:before_agent"
+arize-hook-gemini-after-agent = "gemini_tracing.hooks.handlers:after_agent"
+arize-hook-gemini-before-model = "gemini_tracing.hooks.handlers:before_model"
+arize-hook-gemini-after-model = "gemini_tracing.hooks.handlers:after_model"
+arize-hook-gemini-before-tool = "gemini_tracing.hooks.handlers:before_tool"
+arize-hook-gemini-after-tool = "gemini_tracing.hooks.handlers:after_tool"
 # Cursor hook
 arize-hook-cursor = "cursor_tracing.hooks.handlers:main"
 # Setup wizards
@@ -53,14 +62,15 @@ arize-setup-claude = "core.setup.claude:main"
 arize-setup-codex = "core.setup.codex:main"
 arize-setup-copilot = "core.setup.copilot:main"
 arize-setup-cursor = "core.setup.cursor:main"
+arize-setup-gemini = "core.setup.gemini:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=core --cov=claude_code_tracing --cov=codex_tracing --cov=copilot_tracing --cov=cursor_tracing --cov-report=term-missing --cov-report=xml"
+addopts = "--cov=core --cov=claude_code_tracing --cov=codex_tracing --cov=copilot_tracing --cov=cursor_tracing --cov=gemini_tracing --cov-report=term-missing --cov-report=xml"
 markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 
 [tool.coverage.run]
-source = ["core", "claude_code_tracing", "codex_tracing", "copilot_tracing", "cursor_tracing"]
+source = ["core", "claude_code_tracing", "codex_tracing", "copilot_tracing", "cursor_tracing", "gemini_tracing"]
 omit = [
     "codex_tracing/codex_buffer.py",
 ]
@@ -85,7 +95,7 @@ target-version = ["py39"]
 [tool.isort]
 profile = "black"
 line_length = 120
-known_first_party = ["core", "claude_code_tracing", "codex_tracing", "copilot_tracing", "cursor_tracing", "tests"]
+known_first_party = ["core", "claude_code_tracing", "codex_tracing", "copilot_tracing", "cursor_tracing", "gemini_tracing", "tests"]
 
 [tool.mypy]
 python_version = "3.9"
@@ -102,4 +112,4 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["core*", "claude_code_tracing*", "codex_tracing*", "copilot_tracing*", "cursor_tracing*"]
+include = ["core*", "claude_code_tracing*", "codex_tracing*", "copilot_tracing*", "cursor_tracing*", "gemini_tracing*"]

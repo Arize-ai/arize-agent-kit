@@ -188,6 +188,7 @@ harness_dir() {
         codex)   echo "codex_tracing" ;;
         copilot) echo "copilot_tracing" ;;
         cursor)  echo "cursor_tracing" ;;
+        gemini)  echo "gemini_tracing" ;;
         *)       return 1 ;;
     esac
 }
@@ -223,6 +224,7 @@ Commands:
   codex       Install and configure tracing for OpenAI Codex CLI
   copilot     Install and configure tracing for GitHub Copilot (VS Code + CLI)
   cursor      Install and configure tracing for Cursor IDE
+  gemini      Install and configure tracing for Gemini CLI
   update      Update the installed arize-agent-kit and re-register all harnesses
   uninstall <harness>   Tear down one harness
   uninstall             Full wipe: venv + repo + shared config
@@ -253,7 +255,7 @@ main() {
     done
 
     case "$cmd" in
-        claude|codex|copilot|cursor)
+        claude|codex|copilot|cursor|gemini)
             install_harness "$cmd" "$with_skills"
             ;;
         uninstall)
