@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Copilot tracing harness installer.
 
-Handles install and uninstall for GitHub Copilot tracing hooks.
-Copilot is dual-mode: VS Code uses per-event JSON files, CLI uses a
-single hooks.json with version: 1.
+Handles install and uninstall for GitHub Copilot tracing hooks. Writes a
+single .github/hooks/hooks.json in the format VS Code Copilot Chat expects:
+    {"hooks": {"<EventName>": [{"type": "command", "command": "<cmd>"}]}}
 
 Usage (called by the shell router):
     python tracing/copilot/install.py install   [--project NAME]
@@ -32,7 +32,7 @@ from core.setup import (
     write_config,
     write_logging_config,
 )
-from tracing.copilot.constants import CLI_EVENTS, CLI_HOOKS_FILE, HARNESS_NAME, HOOKS_DIR, VSCODE_EVENTS
+from tracing.copilot.constants import HARNESS_NAME, HOOK_EVENTS, HOOKS_DIR, HOOKS_FILE
 
 # ---------------------------------------------------------------------------
 # JSON helpers
@@ -56,120 +56,55 @@ def _write_json(path: Path, data: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# VS Code per-event files
+# Hook file (.github/hooks/hooks.json)
 # ---------------------------------------------------------------------------
+#
+# VS Code Copilot Chat schema:
+#   {"hooks": {"<EventName>": [{"type": "command", "command": "<cmd>"}]}}
+# Docs: https://code.visualstudio.com/docs/copilot/customization/hooks
 
 
-def _install_vscode_hooks(hooks_dir: Path) -> None:
-    """Write one JSON file per VS Code event into *hooks_dir*.
-
-    Each file has the shape:
-        {"hooks": [{"event": "<Event>", "command": "<venv_bin>"}]}
-
-    If the file already exists and contains our entry, it is skipped;
-    otherwise our hook is merged into the existing ``hooks`` array.
-    """
-    for event, (filename, entry_point) in VSCODE_EVENTS.items():
-        filepath = hooks_dir / filename
-        cmd = str(venv_bin(entry_point))
-
-        if dry_run():
-            info(f"would write VS Code hook {filepath} ({event})")
-            continue
-
-        data = _read_json(filepath)
-        hooks_list: list = data.setdefault("hooks", [])
-
-        # Deduplicate: skip if our command is already present
-        already = any(h.get("command") == cmd for h in hooks_list)
-        if already:
-            continue
-
-        hooks_list.append({"event": event, "command": cmd})
-        _write_json(filepath, data)
-
-
-def _uninstall_vscode_hooks(hooks_dir: Path) -> None:
-    """Remove our entries from each VS Code per-event file.
-
-    If a file's hooks array becomes empty after removal, the file is deleted.
-    """
-    for _event, (filename, entry_point) in VSCODE_EVENTS.items():
-        filepath = hooks_dir / filename
-        if not filepath.is_file():
-            continue
-
-        cmd = str(venv_bin(entry_point))
-
-        if dry_run():
-            info(f"would remove VS Code hook from {filepath}")
-            continue
-
-        data = _read_json(filepath)
-        hooks_list = data.get("hooks", [])
-        filtered = [h for h in hooks_list if h.get("command") != cmd]
-
-        if not filtered:
-            filepath.unlink()
-        else:
-            data["hooks"] = filtered
-            _write_json(filepath, data)
-
-
-# ---------------------------------------------------------------------------
-# CLI hooks.json
-# ---------------------------------------------------------------------------
-
-
-def _install_cli_hooks(hooks_dir: Path) -> None:
-    """Write/merge CLI events into hooks_dir/hooks.json.
-
-    The file shape is:
-        {"version": 1, "hooks": {"<camelEvent>": [{"bash": "<cmd>"}], ...}}
-    """
-    filepath = hooks_dir / CLI_HOOKS_FILE.name
+def _install_hooks(hooks_dir: Path) -> None:
+    """Merge our hook entries into hooks_dir/hooks.json."""
+    filepath = hooks_dir / HOOKS_FILE.name
 
     if dry_run():
-        info(f"would write CLI hooks to {filepath}")
+        info(f"would write hooks to {filepath}")
         return
 
     data = _read_json(filepath)
-    data.setdefault("version", 1)
     hooks_map: dict = data.setdefault("hooks", {})
 
-    for event, entry_point in CLI_EVENTS.items():
+    for event, entry_point in HOOK_EVENTS.items():
         cmd = str(venv_bin(entry_point))
         event_list: list = hooks_map.setdefault(event, [])
 
-        already = any(h.get("bash") == cmd for h in event_list)
+        already = any(h.get("command") == cmd and h.get("type") == "command" for h in event_list)
         if already:
             continue
 
-        event_list.append({"bash": cmd})
+        event_list.append({"type": "command", "command": cmd})
 
     _write_json(filepath, data)
 
 
-def _uninstall_cli_hooks(hooks_dir: Path) -> None:
-    """Remove our entries from hooks.json.
-
-    Empty event lists are pruned.  If hooks becomes empty the file is removed.
-    """
-    filepath = hooks_dir / CLI_HOOKS_FILE.name
+def _uninstall_hooks(hooks_dir: Path) -> None:
+    """Remove our hook entries from hooks.json. Removes the file if empty."""
+    filepath = hooks_dir / HOOKS_FILE.name
     if not filepath.is_file():
         return
 
     if dry_run():
-        info(f"would remove CLI hooks from {filepath}")
+        info(f"would remove hooks from {filepath}")
         return
 
     data = _read_json(filepath)
     hooks_map = data.get("hooks", {})
 
-    for event, entry_point in CLI_EVENTS.items():
+    for event, entry_point in HOOK_EVENTS.items():
         cmd = str(venv_bin(entry_point))
         event_list = hooks_map.get(event, [])
-        filtered = [h for h in event_list if h.get("bash") != cmd]
+        filtered = [h for h in event_list if h.get("command") != cmd]
         if filtered:
             hooks_map[event] = filtered
         else:
@@ -221,8 +156,7 @@ def install() -> None:
     if not dry_run():
         hooks_dir.mkdir(parents=True, exist_ok=True)
 
-    _install_vscode_hooks(hooks_dir)
-    _install_cli_hooks(hooks_dir)
+    _install_hooks(hooks_dir)
 
     info("Copilot tracing installed")
 
@@ -231,8 +165,7 @@ def uninstall() -> None:
     """Remove Copilot tracing hooks and deregister from config.yaml."""
     hooks_dir = Path.cwd() / HOOKS_DIR
 
-    _uninstall_vscode_hooks(hooks_dir)
-    _uninstall_cli_hooks(hooks_dir)
+    _uninstall_hooks(hooks_dir)
 
     remove_harness_entry(HARNESS_NAME)
     unlink_skills(HARNESS_NAME)

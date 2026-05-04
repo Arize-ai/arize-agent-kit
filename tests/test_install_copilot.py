@@ -131,58 +131,37 @@ class TestInstallFreshWritesFlatHarnessEntry:
         # No collector for copilot
         assert "collector" not in entry
 
-    def test_vscode_files_created(self, hooks_dir, monkeypatch):
-        _mock_prompts(monkeypatch)
-        install()
-        expected_files = [
-            "session-start.json",
-            "user-prompt.json",
-            "pre-tool.json",
-            "post-tool.json",
-            "stop.json",
-            "subagent-stop.json",
-        ]
-        for fname in expected_files:
-            assert (hooks_dir / fname).is_file(), f"Missing {fname}"
-
-    def test_vscode_file_structure(self, hooks_dir, monkeypatch):
-        _mock_prompts(monkeypatch)
-        install()
-        data = json.loads((hooks_dir / "session-start.json").read_text())
-        assert "hooks" in data
-        assert len(data["hooks"]) == 1
-        hook = data["hooks"][0]
-        assert hook["event"] == "SessionStart"
-        assert "arize-hook-copilot-session-start" in hook["command"]
-
-    def test_cli_hooks_json_created(self, hooks_dir, monkeypatch):
+    def test_hooks_json_created(self, hooks_dir, monkeypatch):
         _mock_prompts(monkeypatch)
         install()
         assert (hooks_dir / "hooks.json").is_file()
 
-    def test_cli_hooks_json_structure(self, hooks_dir, monkeypatch):
+    def test_hooks_json_structure(self, hooks_dir, monkeypatch):
+        """hooks.json must follow the VS Code Copilot Chat schema:
+        {"hooks": {"<EventName>": [{"type": "command", "command": "<cmd>"}]}}
+        """
         _mock_prompts(monkeypatch)
         install()
         data = json.loads((hooks_dir / "hooks.json").read_text())
-        assert data["version"] == 1
         assert set(data["hooks"].keys()) == {
-            "sessionStart",
-            "userPromptSubmitted",
-            "preToolUse",
-            "postToolUse",
-            "errorOccurred",
-            "sessionEnd",
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "Stop",
+            "SubagentStop",
         }
         for event, entries in data["hooks"].items():
             assert len(entries) == 1
-            assert "bash" in entries[0]
-            assert "arize-hook-copilot-" in entries[0]["bash"]
+            assert entries[0]["type"] == "command"
+            assert "arize-hook-copilot-" in entries[0]["command"]
 
-    def test_total_file_count(self, hooks_dir, monkeypatch):
+    def test_only_hooks_json_written(self, hooks_dir, monkeypatch):
         _mock_prompts(monkeypatch)
         install()
         json_files = list(hooks_dir.glob("*.json"))
-        assert len(json_files) == 7  # 6 VS Code + 1 hooks.json
+        assert len(json_files) == 1
+        assert json_files[0].name == "hooks.json"
 
 
 class TestInstallSecondHarnessOffersCopyFrom:
@@ -288,20 +267,13 @@ class TestInstallExistingCopilotEntryOnlyUpdatesProjectName:
 class TestIdempotent:
     """Re-install is idempotent — no duplicate entries."""
 
-    def test_vscode_no_duplicates(self, hooks_dir, monkeypatch):
-        _mock_prompts(monkeypatch)
-        install()
-        install()
-        data = json.loads((hooks_dir / "session-start.json").read_text())
-        assert len(data["hooks"]) == 1
-
-    def test_cli_no_duplicates(self, hooks_dir, monkeypatch):
+    def test_no_duplicate_entries(self, hooks_dir, monkeypatch):
         _mock_prompts(monkeypatch)
         install()
         install()
         data = json.loads((hooks_dir / "hooks.json").read_text())
         for event, entries in data["hooks"].items():
-            assert len(entries) == 1, f"Duplicate entries for CLI event {event}"
+            assert len(entries) == 1, f"Duplicate entries for event {event}"
 
 
 # ---------------------------------------------------------------------------
@@ -322,13 +294,12 @@ class TestUninstallRemovesHarnessEntry:
             harnesses = config.get("harnesses", {})
             assert "copilot" not in harnesses
 
-    def test_all_hook_files_removed(self, hooks_dir, monkeypatch):
+    def test_hooks_json_removed(self, hooks_dir, monkeypatch):
         _mock_prompts(monkeypatch)
         install()
-        assert len(list(hooks_dir.glob("*.json"))) == 7
+        assert (hooks_dir / "hooks.json").is_file()
         uninstall()
-        json_files = list(hooks_dir.glob("*.json"))
-        assert len(json_files) == 0
+        assert not (hooks_dir / "hooks.json").exists()
 
     def test_uninstall_is_idempotent(self, cwd_tmp, monkeypatch):
         """Running uninstall twice succeeds without error."""
@@ -347,44 +318,24 @@ class TestUninstallRemovesHarnessEntry:
 class TestUninstallPreservesUserHooks:
     """Uninstall on a pre-populated hooks.json preserves unrelated user hooks."""
 
-    def test_preserves_user_cli_hooks(self, hooks_dir, monkeypatch):
+    def test_preserves_user_hooks(self, hooks_dir, monkeypatch):
         _mock_prompts(monkeypatch)
         install()
 
-        # Add a user hook to hooks.json
+        # Add user-defined entries: a brand-new event, plus an extra command
+        # alongside ours under SessionStart.
         hf = hooks_dir / "hooks.json"
         data = json.loads(hf.read_text())
-        data["hooks"]["customEvent"] = [{"bash": "/usr/local/bin/my-hook"}]
-        data["hooks"]["sessionStart"].append({"bash": "/usr/local/bin/user-session"})
+        data["hooks"]["CustomEvent"] = [{"type": "command", "command": "/usr/local/bin/my-hook"}]
+        data["hooks"]["SessionStart"].append({"type": "command", "command": "/usr/local/bin/user-session"})
         hf.write_text(json.dumps(data, indent=2) + "\n")
 
         uninstall()
 
-        # hooks.json should still exist with user entries
         assert hf.is_file()
         remaining = json.loads(hf.read_text())
-        assert "customEvent" in remaining["hooks"]
-        assert remaining["hooks"]["customEvent"][0]["bash"] == "/usr/local/bin/my-hook"
-        assert len(remaining["hooks"]["sessionStart"]) == 1
-        assert remaining["hooks"]["sessionStart"][0]["bash"] == "/usr/local/bin/user-session"
-
-    def test_preserves_user_vscode_hooks(self, hooks_dir, monkeypatch):
-        _mock_prompts(monkeypatch)
-        install()
-
-        # Add a user hook to a VS Code file
-        sf = hooks_dir / "session-start.json"
-        data = json.loads(sf.read_text())
-        data["hooks"].append({"event": "SessionStart", "command": "/usr/local/bin/user-hook"})
-        sf.write_text(json.dumps(data, indent=2) + "\n")
-
-        uninstall()
-
-        # File should still exist with the user hook
-        assert sf.is_file()
-        remaining = json.loads(sf.read_text())
-        assert len(remaining["hooks"]) == 1
-        assert remaining["hooks"][0]["command"] == "/usr/local/bin/user-hook"
+        assert remaining["hooks"]["CustomEvent"] == [{"type": "command", "command": "/usr/local/bin/my-hook"}]
+        assert remaining["hooks"]["SessionStart"] == [{"type": "command", "command": "/usr/local/bin/user-session"}]
 
 
 # ---------------------------------------------------------------------------

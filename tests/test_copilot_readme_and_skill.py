@@ -95,7 +95,7 @@ class TestCopilotReadmeDescription:
     def test_description_text(self):
         expected = (
             "Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing "
-            "for GitHub Copilot in VS Code and the Copilot CLI. Spans are exported to "
+            "for GitHub Copilot in VS Code. Spans are exported to "
             "[Arize AX](https://arize.com) or "
             "[Phoenix](https://github.com/Arize-ai/phoenix)."
         )
@@ -171,7 +171,7 @@ class TestCopilotReadmeSetupSection:
         expected = (
             "The installer prompts for your backend (Phoenix or Arize AX) and project name, "
             "writes credentials to `~/.arize/harness/config.yaml`, and registers "
-            "VS Code (`.github/hooks/*.json`) and Copilot CLI (`.github/hooks/hooks.json`) hooks."
+            "Copilot Chat hooks at `.github/hooks/hooks.json`."
         )
         assert expected in self.text
 
@@ -271,7 +271,7 @@ class TestCopilotReadmeDefaultSettings:
     def test_arize_endpoint(self):
         assert "`otlp.arize.com:443`" in self.text
 
-    def test_vscode_hook_events(self):
+    def test_hook_events(self):
         events = [
             "SessionStart",
             "UserPromptSubmit",
@@ -281,19 +281,7 @@ class TestCopilotReadmeDefaultSettings:
             "SubagentStop",
         ]
         for event in events:
-            assert event in self.text, f"Missing VS Code event '{event}' in Default Settings"
-
-    def test_cli_hook_events(self):
-        events = [
-            "sessionStart",
-            "userPromptSubmitted",
-            "preToolUse",
-            "postToolUse",
-            "errorOccurred",
-            "sessionEnd",
-        ]
-        for event in events:
-            assert event in self.text, f"Missing CLI event '{event}' in Default Settings"
+            assert event in self.text, f"Missing event '{event}' in Default Settings"
 
     def test_state_directory(self):
         assert "`~/.arize/harness/state/copilot/`" in self.text
