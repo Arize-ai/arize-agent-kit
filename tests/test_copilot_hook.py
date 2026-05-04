@@ -151,50 +151,34 @@ class TestReadStdin:
 
 class TestPrintResponse:
 
-    def test_vscode_pre_tool_use(self, capsys):
-        """VS Code PreToolUse prints wrapped permission response."""
-        _print_response(_vscode_base(), "PreToolUse")
-        out = json.loads(capsys.readouterr().out.strip())
-        assert out == {
+    def test_pre_tool_use_emits_permission_decision(self, capsys):
+
+        _print_response({}, "PreToolUse")
+        out = capsys.readouterr().out.strip()
+        payload = json.loads(out)
+        assert payload == {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "allow",
             }
         }
 
-    def test_cli_pre_tool_use(self, capsys):
-        """CLI preToolUse prints flat permission response."""
-        _print_response(_cli_base(), "PreToolUse")
-        out = json.loads(capsys.readouterr().out.strip())
-        assert out == {"permissionDecision": "allow"}
+    @pytest.mark.parametrize(
+        "event",
+        [
+            "SessionStart",
+            "UserPromptSubmit",
+            "PostToolUse",
+            "Stop",
+            "SubagentStop",
+        ],
+    )
+    def test_non_pre_tool_use_emits_continue(self, event, capsys):
 
-    def test_cli_pre_tool_use_lowercase(self, capsys):
-        """CLI preToolUse (lowercase event) prints flat permission response."""
-        _print_response(_cli_base(), "preToolUse")
-        out = json.loads(capsys.readouterr().out.strip())
-        assert out == {"permissionDecision": "allow"}
-
-    def test_vscode_non_pre_tool_use(self, capsys):
-        """VS Code non-PreToolUse event prints {"continue": true}."""
-        _print_response(_vscode_base(), "SessionStart")
-        out = json.loads(capsys.readouterr().out.strip())
-        assert out == {"continue": True}
-
-    def test_vscode_stop_event(self, capsys):
-        """VS Code Stop event prints {"continue": true}."""
-        _print_response(_vscode_base(), "Stop")
-        out = json.loads(capsys.readouterr().out.strip())
-        assert out == {"continue": True}
-
-    def test_cli_non_pre_tool_use_prints_nothing(self, capsys):
-        """CLI non-preToolUse prints nothing."""
-        _print_response(_cli_base(), "SessionStart")
-        assert capsys.readouterr().out == ""
-
-    def test_cli_session_end_prints_nothing(self, capsys):
-        """CLI sessionEnd prints nothing."""
-        _print_response(_cli_base(), "SessionEnd")
-        assert capsys.readouterr().out == ""
+        _print_response({}, event)
+        out = capsys.readouterr().out.strip()
+        payload = json.loads(out)
+        assert payload == {"continue": True}
 
 
 # ---------------------------------------------------------------------------
