@@ -133,15 +133,15 @@ class TestReadStdin:
 
     def test_empty_stdin(self):
         with mock.patch.object(sys, "stdin", new=io.StringIO("")):
-            assert _read_stdin() == {}
+            assert _read_stdin("test") == {}
 
     def test_malformed_json(self):
         with mock.patch.object(sys, "stdin", new=io.StringIO("not json")):
-            assert _read_stdin() == {}
+            assert _read_stdin("test") == {}
 
     def test_valid_json(self):
         with mock.patch.object(sys, "stdin", new=io.StringIO('{"key": "val"}')):
-            assert _read_stdin() == {"key": "val"}
+            assert _read_stdin("test") == {"key": "val"}
 
 
 # ---------------------------------------------------------------------------

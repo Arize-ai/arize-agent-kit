@@ -14,6 +14,7 @@ from pathlib import Path
 from core.common import (
     StateManager,
     build_span,
+    debug_dump,
     env,
     error,
     generate_span_id,
@@ -38,13 +39,20 @@ from tracing.copilot.hooks.adapter import (
 # ---------------------------------------------------------------------------
 
 
-def _read_stdin() -> dict:
-    """Read JSON from stdin. Returns {} on empty/invalid input."""
+def _read_stdin(event: str) -> dict:
+    """Read JSON from stdin. Returns {} on empty/invalid input.
+
+    When ARIZE_TRACE_DEBUG=true, the parsed payload is written to
+    ~/.arize/harness/state/debug/copilot_<event>_<ts>.yaml so we can
+    inspect the actual field schema Copilot is sending.
+    """
     try:
         raw = sys.stdin.read()
-        return json.loads(raw) if raw else {}
+        data = json.loads(raw) if raw else {}
     except (json.JSONDecodeError, OSError):
-        return {}
+        data = {}
+    debug_dump(f"copilot_{event}", data)
+    return data
 
 
 def _print_response(input_json: dict, event: str) -> None:
@@ -717,7 +725,7 @@ def session_start():
     """Entry point for arize-hook-copilot-session-start."""
     input_json = {}
     try:
-        input_json = _read_stdin()
+        input_json = _read_stdin("session_start")
         if check_requirements():
             _handle_session_start(input_json)
     except Exception as e:
@@ -730,7 +738,7 @@ def user_prompt_submitted():
     """Entry point for arize-hook-copilot-user-prompt."""
     input_json = {}
     try:
-        input_json = _read_stdin()
+        input_json = _read_stdin("user_prompt_submitted")
         if check_requirements():
             _handle_user_prompt_submitted(input_json)
     except Exception as e:
@@ -743,7 +751,7 @@ def pre_tool_use():
     """Entry point for arize-hook-copilot-pre-tool."""
     input_json = {}
     try:
-        input_json = _read_stdin()
+        input_json = _read_stdin("pre_tool_use")
         if check_requirements():
             _handle_pre_tool_use(input_json)
     except Exception as e:
@@ -756,7 +764,7 @@ def post_tool_use():
     """Entry point for arize-hook-copilot-post-tool."""
     input_json = {}
     try:
-        input_json = _read_stdin()
+        input_json = _read_stdin("post_tool_use")
         if check_requirements():
             _handle_post_tool_use(input_json)
     except Exception as e:
@@ -769,7 +777,7 @@ def stop():
     """Entry point for arize-hook-copilot-stop."""
     input_json = {}
     try:
-        input_json = _read_stdin()
+        input_json = _read_stdin("stop")
         if check_requirements():
             _handle_stop(input_json)
     except Exception as e:
@@ -782,7 +790,7 @@ def error_occurred():
     """Entry point for arize-hook-copilot-error."""
     input_json = {}
     try:
-        input_json = _read_stdin()
+        input_json = _read_stdin("error_occurred")
         if check_requirements():
             _handle_error_occurred(input_json)
     except Exception as e:
@@ -795,7 +803,7 @@ def session_end():
     """Entry point for arize-hook-copilot-session-end."""
     input_json = {}
     try:
-        input_json = _read_stdin()
+        input_json = _read_stdin("session_end")
         if check_requirements():
             _handle_session_end(input_json)
     except Exception as e:
@@ -808,7 +816,7 @@ def subagent_stop():
     """Entry point for arize-hook-copilot-subagent-stop."""
     input_json = {}
     try:
-        input_json = _read_stdin()
+        input_json = _read_stdin("subagent_stop")
         if check_requirements():
             _handle_subagent_stop(input_json)
     except Exception as e:
