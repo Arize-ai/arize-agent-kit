@@ -1381,11 +1381,9 @@ class TestSessionStartIntegration:
         import yaml
 
         data = yaml.safe_load(state_file.read_text())
-        # ensure_session_initialized stores a freshly generated 32-hex trace ID
-        # as the session.id span attribute — not the resolve key.
-        assert "session_id" in data
-        assert len(data["session_id"]) == 32
-        int(data["session_id"], 16)  # valid hex
+        # session.id reuses the payload session_id so Arize spans correlate
+        # back to the same Gemini session.
+        assert data["session_id"] == "sess-123"
         assert data["trace_count"] == "0"
         assert data["project_name"] == "proj"
 

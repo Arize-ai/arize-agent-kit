@@ -131,8 +131,15 @@ def ensure_session_initialized(state: StateManager, input_json: dict) -> None:
     if existing is not None:
         return
 
-    # Use generated trace ID for the Arize session ID, not the PID.
-    session_id = generate_trace_id()
+    # Prefer the Gemini-provided session identifier so Arize spans correlate
+    # back to the same session in Gemini. Fall back to a generated trace ID
+    # (never the PID, which can collide across runs).
+    session_id = (
+        os.environ.get("GEMINI_SESSION_ID")
+        or input_json.get("sessionId")
+        or input_json.get("session_id")
+        or generate_trace_id()
+    )
 
     # project_name
     project_name = env.project_name

@@ -511,8 +511,9 @@ def _handle_notify(input_json: dict) -> None:
     if not assistant_output:
         assistant_output = "(No response)"
 
-    # Redact user prompt unless opted in. Model responses are always included.
+    # Redact prompt and model response unless opted in via ARIZE_LOG_PROMPTS.
     user_prompt = redact_content(env.log_prompts, user_prompt)
+    assistant_output = redact_content(env.log_prompts, assistant_output)
 
     debug_dump(f"{debug_prefix}_text", {"input": user_prompt, "assistant": assistant_output})
 

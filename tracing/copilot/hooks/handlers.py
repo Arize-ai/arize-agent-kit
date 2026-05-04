@@ -172,12 +172,9 @@ def _handle_session_start(input_json: dict) -> None:
 
     vscode = is_vscode_mode(input_json)
     initial_prompt = input_json.get("initialPrompt", "")
-    if initial_prompt:
-        if vscode:
-            state.set("initial_prompt", redact_content(env.log_prompts, initial_prompt))
-        else:
-            # CLI: save as pending turn for deferred sending
-            _save_pending_turn(state, initial_prompt)
+    if initial_prompt and not vscode:
+        # CLI: save as pending turn for deferred sending
+        _save_pending_turn(state, initial_prompt)
 
     log(f"Session started: {state.get('session_id')} (mode={'vscode' if vscode else 'cli'})")
 

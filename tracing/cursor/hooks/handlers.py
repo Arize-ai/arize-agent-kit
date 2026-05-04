@@ -164,7 +164,7 @@ def _handle_before_submit_prompt(input_json, conversation_id, gen_id, trace_id, 
     sid = span_id_16()
     gen_root_span_save(gen_id, sid)
 
-    prompt = redact_content(env.log_prompts, _jq_str(input_json, "prompt", "input", "text"))
+    prompt = _jq_str(input_json, "prompt", "input", "text")
     model = _jq_str(input_json, "model", "model_name")
     deferred_root = _is_cursor_ide_hook_payload(input_json)
 
@@ -187,7 +187,7 @@ def _handle_before_submit_prompt(input_json, conversation_id, gen_id, trace_id, 
 
     root_attrs = {
         "openinference.span.kind": "CHAIN",
-        "input.value": prompt,
+        "input.value": redact_content(env.log_prompts, prompt),
         "session.id": conversation_id,
     }
     if conversation_id:
@@ -225,6 +225,10 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
     root_state = state_pop(f"root_{safe_gen}") if safe_gen else None
     prompt = root_state.get("prompt", "") if root_state else ""
     deferred_root = root_state.get("deferred_root", True) if root_state else True
+
+    # Redact prompt and model response unless opted in via ARIZE_LOG_PROMPTS.
+    prompt = redact_content(env.log_prompts, prompt)
+    response = redact_content(env.log_prompts, response)
 
     # IDE: send User Prompt CHAIN first (parent before LLM for strict backends), full I/O + duration.
     if root_state and deferred_root:
@@ -293,7 +297,7 @@ def _handle_after_agent_thought(input_json, conversation_id, gen_id, trace_id, n
 
     attrs = {
         "openinference.span.kind": "CHAIN",
-        "output.value": thought,
+        "output.value": redact_content(env.log_prompts, thought),
         "session.id": conversation_id,
     }
     if conversation_id:

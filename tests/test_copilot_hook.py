@@ -210,12 +210,6 @@ class TestSessionStart:
         _handle_session_start(inp)
         assert state.get("source") == "new"
 
-    def test_vscode_mode_saves_initial_prompt(self, mock_resolve, mock_ensure, state, captured_spans):
-        """VS Code mode saves initialPrompt to state."""
-        inp = _vscode_base({"initialPrompt": "hello"})
-        _handle_session_start(inp)
-        assert state.get("initial_prompt") == "hello"
-
     def test_cli_mode_saves_initial_prompt_as_pending_turn(self, mock_resolve, mock_ensure, state, captured_spans):
         """CLI mode saves initialPrompt as pending turn."""
         inp = _cli_base({"source": "new", "initialPrompt": "hello"})
