@@ -13,9 +13,9 @@ import os
 import sys
 from pathlib import Path
 
-from tracing.codex import install as _install_mod
 from core.config import get_value, load_config, save_config, set_value
 from core.setup import err, info, print_color, prompt_backend, prompt_project_name, prompt_user_id, write_config
+from tracing.codex import install as _install_mod
 
 
 def install(with_skills: bool = False) -> None:

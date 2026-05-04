@@ -6,8 +6,8 @@ import time
 import pytest
 import yaml
 
-from tracing.codex.hooks import adapter
 from core.common import StateManager
+from tracing.codex.hooks import adapter
 
 # ── Autouse fixture to prevent real sleeps ───────────────────────────────────
 

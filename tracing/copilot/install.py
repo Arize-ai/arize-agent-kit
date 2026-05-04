@@ -16,7 +16,6 @@ import json
 import sys
 from pathlib import Path
 
-from tracing.copilot.constants import CLI_EVENTS, CLI_HOOKS_FILE, HARNESS_NAME, HOOKS_DIR, VSCODE_EVENTS
 from core.config import get_value, load_config
 from core.setup import (
     dry_run,
@@ -33,6 +32,7 @@ from core.setup import (
     write_config,
     write_logging_config,
 )
+from tracing.copilot.constants import CLI_EVENTS, CLI_HOOKS_FILE, HARNESS_NAME, HOOKS_DIR, VSCODE_EVENTS
 
 # ---------------------------------------------------------------------------
 # JSON helpers

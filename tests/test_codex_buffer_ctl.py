@@ -71,8 +71,8 @@ def ctl_paths(tmp_harness_dir, monkeypatch):
     has its own local bindings from `from core.constants import ...`.
     This fixture patches those too.
     """
-    import tracing.codex.codex_buffer_ctl as ctl
     import core.constants as c
+    import tracing.codex.codex_buffer_ctl as ctl
 
     monkeypatch.setattr(ctl, "CODEX_BUFFER_PID_FILE", c.CODEX_BUFFER_PID_FILE)
     monkeypatch.setattr(ctl, "PID_DIR", c.PID_DIR)
@@ -424,8 +424,8 @@ class TestBufferStart:
 
     def test_detects_existing_buffer_on_port(self, ctl_paths, mock_collector, monkeypatch):
         """If port has a healthy buffer with matching identity, start returns True."""
-        import tracing.codex.codex_buffer_ctl as ctl
         import core.constants as c
+        import tracing.codex.codex_buffer_ctl as ctl
 
         # Restore real _health_check for this test (overrides autouse mock)
         monkeypatch.setattr("tracing.codex.codex_buffer_ctl._health_check", _health_check)

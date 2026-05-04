@@ -22,7 +22,6 @@ from __future__ import annotations
 import ast
 import importlib
 import json
-import re
 from pathlib import Path
 
 import pytest
@@ -165,16 +164,14 @@ class TestConsoleScriptEntryPoints:
 
     def test_all_entry_points_use_new_paths(self, arize_entry_points):
         for ep in arize_entry_points:
-            assert "tracing." in ep.value or "core." in ep.value, (
-                f"Entry point {ep.name} -> {ep.value} does not use tracing.* or core.* path"
-            )
+            assert (
+                "tracing." in ep.value or "core." in ep.value
+            ), f"Entry point {ep.name} -> {ep.value} does not use tracing.* or core.* path"
 
     def test_no_entry_point_uses_old_paths(self, arize_entry_points):
         for ep in arize_entry_points:
             for old in OLD_PACKAGES:
-                assert old not in ep.value, (
-                    f"Entry point {ep.name} -> {ep.value} still references old package {old}"
-                )
+                assert old not in ep.value, f"Entry point {ep.name} -> {ep.value} still references old package {old}"
 
     def test_console_script_names_unchanged(self, arize_entry_points):
         """User-facing command names must not have changed."""
@@ -227,9 +224,7 @@ class TestNoLeftoverOldReferences:
             text = filepath.read_text(errors="replace")
             if old_pkg in text:
                 violations.append(str(filepath.relative_to(REPO_ROOT)))
-        assert not violations, (
-            f"Old package name {old_pkg!r} found in non-test files: {violations}"
-        )
+        assert not violations, f"Old package name {old_pkg!r} found in non-test files: {violations}"
 
 
 # ---------------------------------------------------------------------------
@@ -483,9 +478,7 @@ class TestPreCommitConfigComplete:
 
     @pytest.mark.parametrize("harness", PRECOMMIT_HARNESSES)
     def test_references_new_paths(self, text, harness):
-        assert f"^tracing/{harness}/" in text, (
-            f".pre-commit-config.yaml missing ^tracing/{harness}/"
-        )
+        assert f"^tracing/{harness}/" in text, f".pre-commit-config.yaml missing ^tracing/{harness}/"
 
     @pytest.mark.parametrize("old_dir", OLD_DIRS_HYPHENATED)
     def test_no_old_hyphenated_refs(self, text, old_dir):
@@ -581,9 +574,9 @@ class TestInstallAbsoluteImports:
     @pytest.mark.parametrize("harness", ALL_HARNESSES)
     def test_install_imports_constants(self, harness):
         text = (REPO_ROOT / "tracing" / harness / "install.py").read_text()
-        assert f"from tracing.{harness}.constants import" in text, (
-            f"tracing/{harness}/install.py missing absolute import of constants"
-        )
+        assert (
+            f"from tracing.{harness}.constants import" in text
+        ), f"tracing/{harness}/install.py missing absolute import of constants"
 
     @pytest.mark.parametrize("harness", ALL_HARNESSES)
     def test_install_parses_cleanly(self, harness):
@@ -676,9 +669,9 @@ class TestEntryPointConsistency:
     def test_all_pyproject_scripts_installed(self, pyproject_scripts, installed_scripts):
         for name, value in pyproject_scripts.items():
             assert name in installed_scripts, f"pyproject.toml script {name!r} not in installed metadata"
-            assert installed_scripts[name] == value, (
-                f"Mismatch for {name}: pyproject.toml={value}, installed={installed_scripts[name]}"
-            )
+            assert (
+                installed_scripts[name] == value
+            ), f"Mismatch for {name}: pyproject.toml={value}, installed={installed_scripts[name]}"
 
     def test_script_count_matches(self, pyproject_scripts, installed_scripts):
         assert len(pyproject_scripts) == len(installed_scripts), (

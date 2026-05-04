@@ -15,16 +15,6 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from tracing.codex.codex_buffer_ctl import buffer_ensure
-from tracing.codex.hooks.adapter import (
-    SCOPE_NAME,
-    SERVICE_NAME,
-    check_requirements,
-    ensure_session_initialized,
-    gc_stale_state_files,
-    load_env_file,
-    resolve_session,
-)
 from core.common import (
     build_multi_span,
     build_span,
@@ -38,6 +28,16 @@ from core.common import (
     redact_content,
 )
 from core.common import send_span as send_span_to_backend
+from tracing.codex.codex_buffer_ctl import buffer_ensure
+from tracing.codex.hooks.adapter import (
+    SCOPE_NAME,
+    SERVICE_NAME,
+    check_requirements,
+    ensure_session_initialized,
+    gc_stale_state_files,
+    load_env_file,
+    resolve_session,
+)
 
 # HTTP timeout for the /flush-idle request to the buffer service.
 _DRAIN_HTTP_TIMEOUT_SECONDS = 5

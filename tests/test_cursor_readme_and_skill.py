@@ -635,8 +635,7 @@ class TestCursorSkillMirrorsCopilotStructure:
         cursor_h2 = self._extract_h2_headings(self.cursor_text)
         copilot_h2 = self._extract_h2_headings(self.copilot_text)
         assert len(cursor_h2) == len(copilot_h2), (
-            f"H2 count differs. Cursor: {len(cursor_h2)} ({cursor_h2}), "
-            f"Copilot: {len(copilot_h2)} ({copilot_h2})"
+            f"H2 count differs. Cursor: {len(cursor_h2)} ({cursor_h2}), " f"Copilot: {len(copilot_h2)} ({copilot_h2})"
         )
 
     def test_matching_h2_section_names(self):
@@ -650,8 +649,7 @@ class TestCursorSkillMirrorsCopilotStructure:
         cursor_normalized = [normalize(h) for h in cursor_h2]
         copilot_normalized = [normalize(h) for h in copilot_h2]
         assert cursor_normalized == copilot_normalized, (
-            f"H2 headings differ after normalization.\n"
-            f"Cursor: {cursor_h2}\nCopilot: {copilot_h2}"
+            f"H2 headings differ after normalization.\n" f"Cursor: {cursor_h2}\nCopilot: {copilot_h2}"
         )
 
 

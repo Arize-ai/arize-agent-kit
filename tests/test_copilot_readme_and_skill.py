@@ -13,9 +13,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).parent.parent
 README_PATH = REPO_ROOT / "tracing" / "copilot" / "README.md"
-SKILL_PATH = (
-    REPO_ROOT / "tracing" / "copilot" / "skills" / "manage-copilot-tracing" / "SKILL.md"
-)
+SKILL_PATH = REPO_ROOT / "tracing" / "copilot" / "skills" / "manage-copilot-tracing" / "SKILL.md"
 
 # The old package name that must NOT appear anywhere after the refactor.
 OLD_PKG = "copilot_tracing"
@@ -505,7 +503,14 @@ class TestCopilotSkillHookEvents:
             assert event in self.text, f"Missing VS Code event '{event}' in SKILL.md"
 
     def test_cli_events_documented(self):
-        for event in ["sessionStart", "userPromptSubmitted", "preToolUse", "postToolUse", "errorOccurred", "sessionEnd"]:
+        for event in [
+            "sessionStart",
+            "userPromptSubmitted",
+            "preToolUse",
+            "postToolUse",
+            "errorOccurred",
+            "sessionEnd",
+        ]:
             assert event in self.text, f"Missing CLI event '{event}' in SKILL.md"
 
     def test_pre_tool_permission_response_documented(self):
@@ -573,9 +578,9 @@ class TestCopilotReadmeMirrorsGeminiStructure:
         gemini_headings = _extract_markdown_headings(self.gemini_text)
         copilot_levels = [h.split(" ")[0] for h in copilot_headings]
         gemini_levels = [h.split(" ")[0] for h in gemini_headings]
-        assert copilot_levels == gemini_levels, (
-            f"Heading levels differ.\nCopilot: {copilot_levels}\nGemini: {gemini_levels}"
-        )
+        assert (
+            copilot_levels == gemini_levels
+        ), f"Heading levels differ.\nCopilot: {copilot_levels}\nGemini: {gemini_levels}"
 
     def test_same_section_names_except_harness_specific(self):
         copilot_headings = _extract_markdown_headings(self.copilot_text)

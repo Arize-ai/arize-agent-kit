@@ -5,15 +5,6 @@ from __future__ import annotations
 import json
 import sys
 
-from tracing.claude_code.constants import (
-    ARIZE_ENV_KEYS,
-    DISPLAY_NAME,
-    HARNESS_BIN,
-    HARNESS_HOME,
-    HARNESS_NAME,
-    HOOK_EVENTS,
-    SETTINGS_FILE,
-)
 from core.config import load_config
 from core.setup import (
     dry_run,
@@ -32,6 +23,15 @@ from core.setup import (
     venv_bin,
     write_config,
     write_logging_config,
+)
+from tracing.claude_code.constants import (
+    ARIZE_ENV_KEYS,
+    DISPLAY_NAME,
+    HARNESS_BIN,
+    HARNESS_HOME,
+    HARNESS_NAME,
+    HOOK_EVENTS,
+    SETTINGS_FILE,
 )
 
 

@@ -13,8 +13,8 @@ import json
 import sys
 from pathlib import Path
 
-from tracing.claude_code import install as _install_mod
 from core.setup import print_color
+from tracing.claude_code import install as _install_mod
 
 # ---------------------------------------------------------------------------
 # Helper functions preserved for existing tests (test_setup.py::TestClaudeSetup)

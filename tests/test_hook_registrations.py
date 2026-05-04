@@ -365,7 +365,9 @@ class TestDocumentationConsistency:
 
     def test_claude_skill_references_cli_entry_points(self):
         """Claude SKILL.md should use CLI entry points."""
-        skill = (REPO_ROOT / "tracing" / "claude_code" / "skills" / "manage-claude-code-tracing" / "SKILL.md").read_text()
+        skill = (
+            REPO_ROOT / "tracing" / "claude_code" / "skills" / "manage-claude-code-tracing" / "SKILL.md"
+        ).read_text()
         assert "send_span()" in skill
         assert "collector_ctl.sh" not in skill
 

@@ -9,9 +9,7 @@ import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 README_PATH = os.path.join(ROOT, "tracing", "codex", "README.md")
-SKILL_PATH = os.path.join(
-    ROOT, "tracing", "codex", "skills", "manage-codex-tracing", "SKILL.md"
-)
+SKILL_PATH = os.path.join(ROOT, "tracing", "codex", "skills", "manage-codex-tracing", "SKILL.md")
 
 
 @pytest.fixture
@@ -51,30 +49,26 @@ class TestNoLegacyPaths:
     def test_readme_no_codex_tracing_underscore(self, readme_content: str):
         matches = re.findall(r"codex_tracing", readme_content)
         assert matches == [], (
-            f"README.md still contains legacy 'codex_tracing' references: "
-            f"found {len(matches)} occurrence(s)"
+            f"README.md still contains legacy 'codex_tracing' references: " f"found {len(matches)} occurrence(s)"
         )
 
     def test_skill_no_codex_tracing_underscore(self, skill_content: str):
         matches = re.findall(r"codex_tracing", skill_content)
         assert matches == [], (
-            f"SKILL.md still contains legacy 'codex_tracing' references: "
-            f"found {len(matches)} occurrence(s)"
+            f"SKILL.md still contains legacy 'codex_tracing' references: " f"found {len(matches)} occurrence(s)"
         )
 
     def test_readme_no_codex_tracing_dot_import(self, readme_content: str):
         """No dotted import form of the old package."""
         matches = re.findall(r"codex_tracing\.", readme_content)
         assert matches == [], (
-            f"README.md contains legacy dotted import 'codex_tracing.': "
-            f"found {len(matches)} occurrence(s)"
+            f"README.md contains legacy dotted import 'codex_tracing.': " f"found {len(matches)} occurrence(s)"
         )
 
     def test_skill_no_codex_tracing_dot_import(self, skill_content: str):
         matches = re.findall(r"codex_tracing\.", skill_content)
         assert matches == [], (
-            f"SKILL.md contains legacy dotted import 'codex_tracing.': "
-            f"found {len(matches)} occurrence(s)"
+            f"SKILL.md contains legacy dotted import 'codex_tracing.': " f"found {len(matches)} occurrence(s)"
         )
 
 
@@ -86,16 +80,14 @@ class TestSkillPathReferences:
 
     def test_codex_buffer_path_reference(self, skill_content: str):
         """The buffer service path should reference tracing/codex/codex_buffer.py."""
-        assert "tracing/codex/codex_buffer.py" in skill_content, (
-            "SKILL.md should reference 'tracing/codex/codex_buffer.py'"
-        )
+        assert (
+            "tracing/codex/codex_buffer.py" in skill_content
+        ), "SKILL.md should reference 'tracing/codex/codex_buffer.py'"
 
     def test_referenced_file_exists(self):
         """The codex_buffer.py file referenced in SKILL.md must actually exist."""
         buffer_path = os.path.join(ROOT, "tracing", "codex", "codex_buffer.py")
-        assert os.path.isfile(buffer_path), (
-            f"File referenced in SKILL.md does not exist: {buffer_path}"
-        )
+        assert os.path.isfile(buffer_path), f"File referenced in SKILL.md does not exist: {buffer_path}"
 
 
 # --- SKILL.md frontmatter and structure ---

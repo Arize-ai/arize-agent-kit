@@ -8,15 +8,6 @@ import json
 import sys
 from pathlib import Path
 
-from tracing.claude_code.hooks.adapter import (
-    SCOPE_NAME,
-    SERVICE_NAME,
-    check_requirements,
-    ensure_session_initialized,
-    gc_stale_state_files,
-    resolve_session,
-    resolve_transcript_path,
-)
 from core.common import (
     build_span,
     env,
@@ -27,6 +18,15 @@ from core.common import (
     log,
     redact_content,
     send_span,
+)
+from tracing.claude_code.hooks.adapter import (
+    SCOPE_NAME,
+    SERVICE_NAME,
+    check_requirements,
+    ensure_session_initialized,
+    gc_stale_state_files,
+    resolve_session,
+    resolve_transcript_path,
 )
 
 # ---------------------------------------------------------------------------

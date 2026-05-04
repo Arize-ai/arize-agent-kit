@@ -7,8 +7,8 @@ from unittest.mock import mock_open, patch
 import pytest
 import yaml
 
-from tracing.copilot.hooks import adapter
 from core.common import StateManager
+from tracing.copilot.hooks import adapter
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 

@@ -8,9 +8,9 @@ from unittest.mock import mock_open, patch
 import pytest
 import yaml
 
+from core.common import StateManager
 from tracing.claude_code.hooks import adapter
 from tracing.claude_code.hooks.adapter import resolve_transcript_path
-from core.common import StateManager
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 

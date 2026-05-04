@@ -11,15 +11,6 @@ import json
 import sys
 from pathlib import Path
 
-from tracing.copilot.hooks.adapter import (
-    SCOPE_NAME,
-    SERVICE_NAME,
-    check_requirements,
-    ensure_session_initialized,
-    gc_stale_state_files,
-    is_vscode_mode,
-    resolve_session,
-)
 from core.common import (
     StateManager,
     build_span,
@@ -31,6 +22,15 @@ from core.common import (
     log,
     redact_content,
     send_span,
+)
+from tracing.copilot.hooks.adapter import (
+    SCOPE_NAME,
+    SERVICE_NAME,
+    check_requirements,
+    ensure_session_initialized,
+    gc_stale_state_files,
+    is_vscode_mode,
+    resolve_session,
 )
 
 # ---------------------------------------------------------------------------

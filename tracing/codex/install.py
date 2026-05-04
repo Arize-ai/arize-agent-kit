@@ -18,19 +18,6 @@ import stat
 import sys
 from pathlib import Path
 
-from tracing.codex.codex_buffer_ctl import buffer_start, buffer_status, buffer_stop
-from tracing.codex.constants import OTEL_ENDPOINT  # noqa: F401 — re-exported for backwards compat
-from tracing.codex.constants import (
-    BUFFER_PORT,
-    CODEX_CONFIG_DIR,
-    CODEX_CONFIG_FILE,
-    CODEX_ENV_FILE,
-    DISPLAY_NAME,
-    HARNESS_BIN,
-    HARNESS_HOME,
-    HARNESS_NAME,
-    NOTIFY_BIN_NAME,
-)
 from core.config import get_value, load_config
 from core.setup import (
     BIN_DIR,
@@ -50,6 +37,19 @@ from core.setup import (
     venv_bin,
     write_config,
     write_logging_config,
+)
+from tracing.codex.codex_buffer_ctl import buffer_start, buffer_status, buffer_stop
+from tracing.codex.constants import OTEL_ENDPOINT  # noqa: F401 — re-exported for backwards compat
+from tracing.codex.constants import (
+    BUFFER_PORT,
+    CODEX_CONFIG_DIR,
+    CODEX_CONFIG_FILE,
+    CODEX_ENV_FILE,
+    DISPLAY_NAME,
+    HARNESS_BIN,
+    HARNESS_HOME,
+    HARNESS_NAME,
+    NOTIFY_BIN_NAME,
 )
 
 # Try to import tomllib (3.11+), then tomli, then fall back to None

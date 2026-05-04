@@ -13,6 +13,7 @@ from unittest import mock
 
 import pytest
 
+from core.common import StateManager
 from tracing.copilot.hooks.handlers import (
     _clear_pending_turn,
     _flush_pending_turn,
@@ -36,7 +37,6 @@ from tracing.copilot.hooks.handlers import (
     subagent_stop,
     user_prompt_submitted,
 )
-from core.common import StateManager
 
 # ---------------------------------------------------------------------------
 # Helpers

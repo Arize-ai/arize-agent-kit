@@ -734,10 +734,14 @@ class TestGeminiSkillPreservedContent:
 
     def test_all_eight_hook_events_in_table(self):
         events = [
-            "SessionStart", "SessionEnd",
-            "BeforeAgent", "AfterAgent",
-            "BeforeModel", "AfterModel",
-            "BeforeTool", "AfterTool",
+            "SessionStart",
+            "SessionEnd",
+            "BeforeAgent",
+            "AfterAgent",
+            "BeforeModel",
+            "AfterModel",
+            "BeforeTool",
+            "AfterTool",
         ]
         for event in events:
             assert f"`{event}`" in self.text, f"Missing event '{event}' in hook events table"

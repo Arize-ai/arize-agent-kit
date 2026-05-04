@@ -8,6 +8,7 @@ from unittest import mock
 
 import pytest
 
+from core.common import StateManager
 from tracing.claude_code.hooks.handlers import (
     _handle_notification,
     _handle_permission_request,
@@ -32,7 +33,6 @@ from tracing.claude_code.hooks.handlers import (
     subagent_stop,
     user_prompt_submit,
 )
-from core.common import StateManager
 
 # ---------------------------------------------------------------------------
 # Fixtures

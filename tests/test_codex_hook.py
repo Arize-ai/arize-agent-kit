@@ -9,6 +9,7 @@ from unittest import mock
 
 import pytest
 
+from core.common import StateManager
 from tracing.codex.hooks.handlers import (
     _as_text,
     _build_child_spans,
@@ -22,7 +23,6 @@ from tracing.codex.hooks.handlers import (
     _send_span,
     notify,
 )
-from core.common import StateManager
 
 
 @pytest.fixture(autouse=True)
@@ -132,8 +132,8 @@ class TestEventFiltering:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")  # unreachable port
 
-        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
+        import tracing.codex.hooks.adapter as adapter
 
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
@@ -300,8 +300,8 @@ class TestTruncationAndDefaults:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
 
-        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
+        import tracing.codex.hooks.adapter as adapter
 
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
@@ -401,8 +401,8 @@ class TestFindToolCalls:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
 
-        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
+        import tracing.codex.hooks.adapter as adapter
 
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
@@ -433,8 +433,8 @@ class TestFindToolCalls:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
 
-        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
+        import tracing.codex.hooks.adapter as adapter
 
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
@@ -521,8 +521,8 @@ class TestDrainEvents:
 
     def test_drain_saves_last_collector_time(self, tmp_harness_dir, monkeypatch, drain_server):
         """last_collector_time_ns saved in state after successful drain."""
-        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
+        import tracing.codex.hooks.adapter as adapter
 
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
@@ -687,8 +687,8 @@ class TestMultiSpanAssembly:
 
     def test_with_children_sends_multi_span(self, tmp_harness_dir, monkeypatch, drain_server):
         """With child spans, multi-span payload sent (parent + children)."""
-        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
+        import tracing.codex.hooks.adapter as adapter
 
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
@@ -723,8 +723,8 @@ class TestMultiSpanAssembly:
 
     def test_without_children_sends_single_span(self, tmp_harness_dir, monkeypatch):
         """Without child spans, single parent span sent."""
-        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
+        import tracing.codex.hooks.adapter as adapter
 
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
@@ -749,8 +749,8 @@ class TestMultiSpanAssembly:
 
     def test_debug_dumps_when_enabled(self, tmp_harness_dir, monkeypatch):
         """Debug dumps written at each stage when trace_debug enabled."""
-        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
+        import tracing.codex.hooks.adapter as adapter
 
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
@@ -784,8 +784,8 @@ class TestIntegration:
 
     def test_full_handle_notify_with_fixture(self, tmp_harness_dir, monkeypatch, drain_server, codex_notify_input):
         """Full _handle_notify with codex_notify fixture + mock drain."""
-        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
+        import tracing.codex.hooks.adapter as adapter
 
         state_dir = c.STATE_BASE_DIR / "codex"
         state_dir.mkdir(parents=True, exist_ok=True)
