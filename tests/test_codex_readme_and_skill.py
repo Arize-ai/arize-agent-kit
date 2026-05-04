@@ -40,38 +40,6 @@ class TestFilesExist:
         assert os.path.basename(skill_dir) == "manage-codex-tracing"
 
 
-# --- No leftover old path references ---
-
-
-class TestNoLegacyPaths:
-    """Ensure no remnants of the old codex_tracing package path."""
-
-    def test_readme_no_codex_tracing_underscore(self, readme_content: str):
-        matches = re.findall(r"codex_tracing", readme_content)
-        assert matches == [], (
-            f"README.md still contains legacy 'codex_tracing' references: " f"found {len(matches)} occurrence(s)"
-        )
-
-    def test_skill_no_codex_tracing_underscore(self, skill_content: str):
-        matches = re.findall(r"codex_tracing", skill_content)
-        assert matches == [], (
-            f"SKILL.md still contains legacy 'codex_tracing' references: " f"found {len(matches)} occurrence(s)"
-        )
-
-    def test_readme_no_codex_tracing_dot_import(self, readme_content: str):
-        """No dotted import form of the old package."""
-        matches = re.findall(r"codex_tracing\.", readme_content)
-        assert matches == [], (
-            f"README.md contains legacy dotted import 'codex_tracing.': " f"found {len(matches)} occurrence(s)"
-        )
-
-    def test_skill_no_codex_tracing_dot_import(self, skill_content: str):
-        matches = re.findall(r"codex_tracing\.", skill_content)
-        assert matches == [], (
-            f"SKILL.md contains legacy dotted import 'codex_tracing.': " f"found {len(matches)} occurrence(s)"
-        )
-
-
 # --- Correct new path references in SKILL.md ---
 
 

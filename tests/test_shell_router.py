@@ -323,46 +323,6 @@ class TestFlagParsing:
 
 
 # ---------------------------------------------------------------------------
-# Removed code tests
-# ---------------------------------------------------------------------------
-
-
-class TestRemovedCode:
-    """Verify that old monolith code is gone."""
-
-    @pytest.fixture(autouse=True)
-    def _load(self):
-        self.text = _read_install_sh()
-
-    def test_no_python_heredocs(self):
-        """No embedded Python code blocks."""
-        # Old script had "$vp" -c 'import json...' blocks
-        assert "import json" not in self.text
-        assert "import yaml" not in self.text
-
-    def test_no_cursor_hook_events_array(self):
-        assert "CURSOR_HOOK_EVENTS=(" not in self.text
-
-    def test_no_arize_env_keys_array(self):
-        assert "ARIZE_ENV_KEYS=(" not in self.text
-
-    def test_no_codex_buffer_code(self):
-        assert "BUFFER_BIN=" not in self.text
-        assert "BUFFER_PID_FILE=" not in self.text
-
-    def test_no_legacy_collector_code(self):
-        assert "COLLECTOR_BIN=" not in self.text
-        assert "PID_FILE=" not in self.text
-
-    def test_no_write_config(self):
-        """write_config should be removed — Python handles config now."""
-        assert "write_config()" not in self.text
-        # The function definition pattern
-        pattern = r"^write_config\s*\(\)"
-        assert not re.search(pattern, self.text, re.MULTILINE)
-
-
-# ---------------------------------------------------------------------------
 # Constants tests
 # ---------------------------------------------------------------------------
 

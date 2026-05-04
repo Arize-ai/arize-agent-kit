@@ -566,7 +566,14 @@ def _handle_after_tool(input_json: dict) -> None:
 
     tool_args_raw = _get_robust(input_json, "tool_input", "tool_args", "args") or {}
     tool_input = json.dumps(tool_args_raw) if isinstance(tool_args_raw, (dict, list)) else str(tool_args_raw)
-    tool_output = _extract_text(_get_robust(input_json, "tool_response", "tool_result", "result"))
+    # Gemini CLI emits real tool output under `tool_response`, but the field
+    # can be an empty dict on some events. Try `tool_response` first; only fall
+    # through to `tool_result` / `result` when it's empty/None so we never lose
+    # populated output to an empty wrapper.
+    tool_output_raw = _get_robust(input_json, "tool_response")
+    if not tool_output_raw:
+        tool_output_raw = _get_robust(input_json, "tool_result", "result")
+    tool_output = _extract_text(tool_output_raw)
 
     tool_command = ""
     tool_file_path = ""

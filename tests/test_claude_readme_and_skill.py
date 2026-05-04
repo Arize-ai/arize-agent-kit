@@ -294,23 +294,6 @@ class TestClaudeReadmeDefaultSettings:
         assert "| Setting" in self.text and "| Default" in self.text
 
 
-class TestClaudeReadmeNoOldPaths:
-    """README must NOT contain old pre-refactor paths."""
-
-    @pytest.fixture(autouse=True)
-    def _load(self):
-        self.text = README_PATH.read_text()
-
-    def test_no_claude_code_tracing_underscore_path(self):
-        """Must not reference old claude_code_tracing/ filesystem path."""
-        assert "claude_code_tracing/" not in self.text
-        assert "claude_code_tracing." not in self.text
-
-    def test_no_old_import_path(self):
-        """Must not reference old Python import path."""
-        assert "claude_code_tracing" not in self.text
-
-
 class TestClaudeReadmeNoProhibitedContent:
     """README must NOT contain certain sections/content."""
 
@@ -526,25 +509,6 @@ class TestClaudeSkillAgentSDK:
 
     def test_python_sdk_limitations(self):
         assert "Python SDK" in self.text
-
-
-class TestClaudeSkillNoOldPaths:
-    """Skill must NOT contain old pre-refactor paths."""
-
-    @pytest.fixture(autouse=True)
-    def _load(self):
-        self.text = SKILL_PATH.read_text()
-
-    def test_no_claude_code_tracing_underscore_path(self):
-        """Must not reference old claude_code_tracing/ filesystem path."""
-        assert "claude_code_tracing/" not in self.text
-        assert "claude_code_tracing." not in self.text
-
-    def test_no_old_import_path(self):
-        """Must not reference old Python import path as module."""
-        # The slug 'claude-code-tracing' (with hyphens) is allowed — that's the plugin name.
-        # Only the underscore form is the old Python package name.
-        assert "claude_code_tracing" not in self.text
 
 
 class TestClaudeSkillTroubleshootTable:

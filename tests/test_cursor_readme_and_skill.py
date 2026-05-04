@@ -36,26 +36,6 @@ def _extract_markdown_headings(text: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-class TestNoOldPathReferences:
-    """Ensure cursor_tracing (old path) does not appear in any cursor doc."""
-
-    def test_readme_no_cursor_tracing_path(self):
-        text = README_PATH.read_text()
-        assert "cursor_tracing" not in text, "README still references old cursor_tracing path"
-
-    def test_readme_no_cursor_tracing_dot_import(self):
-        text = README_PATH.read_text()
-        assert "cursor_tracing." not in text, "README still references old cursor_tracing. import"
-
-    def test_skill_no_cursor_tracing_path(self):
-        text = SKILL_PATH.read_text()
-        assert "cursor_tracing" not in text, "SKILL.md still references old cursor_tracing path"
-
-    def test_skill_no_cursor_tracing_dot_import(self):
-        text = SKILL_PATH.read_text()
-        assert "cursor_tracing." not in text, "SKILL.md still references old cursor_tracing. import"
-
-
 # ---------------------------------------------------------------------------
 # README tests
 # ---------------------------------------------------------------------------

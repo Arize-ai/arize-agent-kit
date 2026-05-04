@@ -586,49 +586,12 @@ class TestGeminiSkillMirrorsCopilotStructure:
 
 
 # ---------------------------------------------------------------------------
-# Path-refactor verification tests
+# File-existence verification (paths under tracing/gemini/)
 # ---------------------------------------------------------------------------
 
 
-class TestGeminiReadmeNoOldPackagePaths:
-    """Verify the README has no leftover gemini_tracing references (old package path)."""
-
-    @pytest.fixture(autouse=True)
-    def _load(self):
-        self.text = README_PATH.read_text()
-
-    def test_no_gemini_tracing_underscore(self):
-        """Old package name 'gemini_tracing' must not appear anywhere."""
-        assert "gemini_tracing" not in self.text
-
-    def test_no_gemini_tracing_dot_import(self):
-        """Old dotted import 'gemini_tracing.' must not appear."""
-        assert "gemini_tracing." not in self.text
-
-    def test_no_old_package_directory_reference(self):
-        """No path like 'gemini_tracing/' should remain."""
-        assert "gemini_tracing/" not in self.text
-
-
-class TestGeminiSkillNoOldPackagePaths:
-    """Verify the SKILL.md has no leftover gemini_tracing references."""
-
-    @pytest.fixture(autouse=True)
-    def _load(self):
-        self.text = SKILL_PATH.read_text()
-
-    def test_no_gemini_tracing_underscore(self):
-        assert "gemini_tracing" not in self.text
-
-    def test_no_gemini_tracing_dot_import(self):
-        assert "gemini_tracing." not in self.text
-
-    def test_no_old_package_directory_reference(self):
-        assert "gemini_tracing/" not in self.text
-
-
 class TestGeminiFilesAtNewLocation:
-    """Verify files exist at their new tracing/gemini/ location."""
+    """Verify files exist at their tracing/gemini/ location."""
 
     def test_readme_at_tracing_gemini(self):
         assert (REPO_ROOT / "tracing" / "gemini" / "README.md").exists()
@@ -656,10 +619,6 @@ class TestGeminiFilesAtNewLocation:
 
     def test_tracing_init_exists(self):
         assert (REPO_ROOT / "tracing" / "__init__.py").exists()
-
-    def test_old_gemini_tracing_dir_does_not_exist(self):
-        """The old top-level gemini_tracing/ directory must not exist."""
-        assert not (REPO_ROOT / "gemini_tracing").exists()
 
 
 class TestGeminiSkillFolderNamePreserved:
@@ -751,36 +710,3 @@ class TestGeminiSkillPreservedContent:
 
     def test_project_name_default_gemini(self):
         assert 'defaults to `"gemini"`' in self.text or "project_name: gemini" in self.text
-
-
-class TestNoOtherHarnessOldPaths:
-    """Verify no old *_tracing paths leaked into the gemini docs."""
-
-    @pytest.fixture(autouse=True)
-    def _load(self):
-        self.readme = README_PATH.read_text()
-        self.skill = SKILL_PATH.read_text()
-
-    def test_no_claude_code_tracing_in_readme(self):
-        assert "claude_code_tracing" not in self.readme
-
-    def test_no_codex_tracing_in_readme(self):
-        assert "codex_tracing" not in self.readme
-
-    def test_no_copilot_tracing_in_readme(self):
-        assert "copilot_tracing" not in self.readme
-
-    def test_no_cursor_tracing_in_readme(self):
-        assert "cursor_tracing" not in self.readme
-
-    def test_no_claude_code_tracing_in_skill(self):
-        assert "claude_code_tracing" not in self.skill
-
-    def test_no_codex_tracing_in_skill(self):
-        assert "codex_tracing" not in self.skill
-
-    def test_no_copilot_tracing_in_skill(self):
-        assert "copilot_tracing" not in self.skill
-
-    def test_no_cursor_tracing_in_skill(self):
-        assert "cursor_tracing" not in self.skill

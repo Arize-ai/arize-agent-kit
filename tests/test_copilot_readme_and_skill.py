@@ -324,15 +324,6 @@ class TestCopilotReadmeNoProhibitedContent:
         )
         assert not emoji_pattern.search(self.text), "README must not contain emojis"
 
-    def test_no_old_package_path(self):
-        """No leftover copilot_tracing references."""
-        assert OLD_PKG not in self.text, f"Stale '{OLD_PKG}' reference in README"
-
-    def test_no_old_dotted_import(self):
-        """No leftover copilot_tracing. dotted import paths."""
-        assert "copilot_tracing." not in self.text
-
-
 # ---------------------------------------------------------------------------
 # SKILL.md — existence
 # ---------------------------------------------------------------------------
@@ -516,25 +507,6 @@ class TestCopilotSkillHookEvents:
     def test_pre_tool_permission_response_documented(self):
         """Must document the permission response format."""
         assert "permissionDecision" in self.text
-
-
-# ---------------------------------------------------------------------------
-# SKILL.md — no stale references
-# ---------------------------------------------------------------------------
-
-
-class TestCopilotSkillNoStaleReferences:
-    """Ensure no copilot_tracing path references remain."""
-
-    @pytest.fixture(autouse=True)
-    def _load(self):
-        self.text = SKILL_PATH.read_text()
-
-    def test_no_old_package_path(self):
-        assert OLD_PKG not in self.text, f"Stale '{OLD_PKG}' reference in SKILL.md"
-
-    def test_no_old_dotted_import(self):
-        assert "copilot_tracing." not in self.text
 
 
 # ---------------------------------------------------------------------------

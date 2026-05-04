@@ -288,21 +288,12 @@ class TestHarnessDir:
     def test_primary_path(self, fake_install):
         from core.setup import harness_dir
 
-        (fake_install / "tracing" / "copilot").mkdir(parents=True)
         assert harness_dir("copilot") == fake_install / "tracing" / "copilot"
 
-    def test_legacy_fallback(self, fake_install):
+    def test_hyphenated_alias_normalized(self, fake_install):
         from core.setup import harness_dir
 
-        legacy = fake_install / "plugins" / "tracing" / "copilot"
-        legacy.mkdir(parents=True)
-        assert harness_dir("copilot") == legacy
-
-    def test_defaults_to_primary(self, fake_install):
-        from core.setup import harness_dir
-
-        # Neither exists — returns primary path
-        assert harness_dir("copilot") == fake_install / "tracing" / "copilot"
+        assert harness_dir("claude-code") == fake_install / "tracing" / "claude_code"
 
 
 # ---------------------------------------------------------------------------

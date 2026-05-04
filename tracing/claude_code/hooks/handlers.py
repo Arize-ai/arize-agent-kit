@@ -178,7 +178,7 @@ def _handle_user_prompt_submit(input_json: dict) -> None:
         failsafe_attrs = {
             "session.id": session_id,
             "openinference.span.kind": "LLM",
-            "input.value": prev_prompt,
+            "input.value": redact_content(env.log_prompts, prev_prompt),
             "output.value": "(Turn closed by fail-safe: Stop hook did not fire)",
         }
         user_id = state.get("user_id") or ""
@@ -209,7 +209,9 @@ def _handle_user_prompt_submit(input_json: dict) -> None:
     state.set("current_trace_span_id", generate_span_id())
     state.set("current_trace_start_time", str(get_timestamp_ms()))
     prompt = input_json.get("prompt", "") or ""
-    state.set("current_trace_prompt", redact_content(env.log_prompts, prompt))
+    # Store RAW prompt in state; redact only at span build time so the redaction
+    # toggle is read once-per-emit instead of being baked into the state file.
+    state.set("current_trace_prompt", prompt)
 
     # Track transcript position
     transcript = input_json.get("transcript_path", "")
@@ -311,8 +313,10 @@ def _handle_stop(input_json: dict) -> None:
 
     total_tokens = in_tokens + out_tokens
 
-    # Build and send LLM span
-    output_messages = [{"message.role": "assistant", "message.content": output}]
+    # Build and send LLM span. Redact at emit time, not at state-write time.
+    redacted_prompt = redact_content(env.log_prompts, user_prompt)
+    redacted_output = redact_content(env.log_prompts, output)
+    output_messages = [{"message.role": "assistant", "message.content": redacted_output}]
     attrs = {
         "session.id": session_id,
         "trace.number": trace_count,
@@ -322,8 +326,8 @@ def _handle_stop(input_json: dict) -> None:
         "llm.token_count.prompt": in_tokens,
         "llm.token_count.completion": out_tokens,
         "llm.token_count.total": total_tokens,
-        "input.value": user_prompt,
-        "output.value": output,
+        "input.value": redacted_prompt,
+        "output.value": redacted_output,
         "llm.output_messages": json.dumps(output_messages),
     }
     if user_id:
@@ -459,15 +463,17 @@ def _handle_stop_failure(input_json: dict) -> None:
     last_msg = input_json.get("last_assistant_message", "") or ""
 
     output_text = last_msg or f"(Stop failed: {error_type})"
-    output_messages = [{"message.role": "assistant", "message.content": output_text}]
+    redacted_prompt = redact_content(env.log_prompts, user_prompt)
+    redacted_output = redact_content(env.log_prompts, output_text)
+    output_messages = [{"message.role": "assistant", "message.content": redacted_output}]
 
     attrs = {
         "session.id": session_id,
         "trace.number": trace_count,
         "project.name": project_name,
         "openinference.span.kind": "LLM",
-        "input.value": user_prompt,
-        "output.value": output_text,
+        "input.value": redacted_prompt,
+        "output.value": redacted_output,
         "llm.output_messages": json.dumps(output_messages),
         "error.type": error_type,
         "error.message": error_details,

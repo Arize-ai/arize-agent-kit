@@ -335,8 +335,11 @@ def _extract_span_name(span_dict: dict) -> str:
 def send_span(span_dict: dict) -> bool:
     """Send a span payload directly to the configured backend.
 
-    Resolves per-harness credentials from config.yaml, falling back to global
-    backend config and then environment variables.
+    Backend (target/endpoint/api_key/space_id/project_name) is resolved per
+    harness from ``~/.arize/harness/config.yaml`` via ``resolve_backend()``.
+    There is no fallback to a global backend block or to environment variables;
+    if the per-harness entry is missing or incomplete, the span is dropped and
+    an error is logged.
 
     Never raises. Returns True on success, False on failure.
     """

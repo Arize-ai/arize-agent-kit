@@ -1237,11 +1237,16 @@ class TestContentRedaction:
         assert "tool.url" not in attrs
         assert "tool.query" not in attrs
 
-    def test_user_prompt_redacted_when_flag_off(self, mock_resolve, state, captured_spans, monkeypatch):
+    def test_user_prompt_redacted_at_span_emit_when_flag_off(self, mock_resolve, state, captured_spans, monkeypatch):
+        """Prompts are stored RAW in state and redacted only when the span is built."""
         monkeypatch.setenv("ARIZE_LOG_PROMPTS", "false")
         _handle_user_prompt_submit({"prompt": "secret prompt", "session_id": "s1"})
-        stored = state.get("current_trace_prompt")
-        assert stored is not None and stored.startswith("<redacted (")
+        # State holds the raw value
+        assert state.get("current_trace_prompt") == "secret prompt"
+        # Build the Stop span and confirm input.value comes out redacted
+        _handle_stop({"session_id": "s1"})
+        attrs = _attrs(captured_spans[0])
+        assert attrs["input.value"]["stringValue"].startswith("<redacted (")
 
     def test_user_prompt_kept_when_flag_on(self, mock_resolve, state):
         _handle_user_prompt_submit({"prompt": "hello", "session_id": "s1"})

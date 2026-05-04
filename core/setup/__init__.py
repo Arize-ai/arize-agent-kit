@@ -505,32 +505,11 @@ def list_installed_harnesses() -> list[str]:
 def harness_dir(harness: str) -> Path:
     """Return the absolute path of <install-dir>/tracing/<harness>/.
 
-    Prefers ~/.arize/harness/tracing/<harness>, falls back to
-    ~/.arize/harness/plugins/tracing/<harness> (legacy plugin layout).
-    Also checks the old hyphenated names for backwards compatibility.
+    Maps a harness alias (e.g. ``claude-code``) to its directory name
+    (``claude_code``) under ``~/.arize/harness/tracing/``.
     """
     sub_name = harness.replace("-", "_")
-    # claude-code → claude_code
-    primary = INSTALL_DIR / "tracing" / sub_name
-    if primary.is_dir():
-        return primary
-
-    legacy = INSTALL_DIR / "plugins" / "tracing" / sub_name
-    if legacy.is_dir():
-        return legacy
-
-    # Backwards compat: check old hyphenated layout
-    old_name = f"{harness}-tracing"
-    old_primary = INSTALL_DIR / old_name
-    if old_primary.is_dir():
-        return old_primary
-
-    old_legacy = INSTALL_DIR / "plugins" / old_name
-    if old_legacy.is_dir():
-        return old_legacy
-
-    # Default to primary even if it doesn't exist yet
-    return primary
+    return INSTALL_DIR / "tracing" / sub_name
 
 
 def symlink_skills(harness: str, target_dir: Path | None = None) -> None:

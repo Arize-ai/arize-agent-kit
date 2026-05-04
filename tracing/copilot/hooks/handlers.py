@@ -105,7 +105,7 @@ def _flush_pending_turn(state: StateManager) -> None:
         "session.id": session_id,
         "openinference.span.kind": "CHAIN",
         "project.name": project_name,
-        "input.value": prompt,
+        "input.value": redact_content(env.log_prompts, prompt),
     }
     if user_id:
         attrs["user.id"] = user_id
@@ -140,10 +140,13 @@ def _clear_pending_turn(state: StateManager) -> None:
 
 
 def _save_pending_turn(state: StateManager, prompt: str) -> None:
-    """CLI mode: save a new prompt as a pending turn for deferred sending."""
+    """CLI mode: save a new prompt as a pending turn for deferred sending.
+
+    Stores the RAW prompt; redaction happens at span build time.
+    """
     state.increment("trace_count")
     trace_count = state.get("trace_count") or "1"
-    state.set("pending_turn_prompt", redact_content(env.log_prompts, prompt))
+    state.set("pending_turn_prompt", prompt)
     state.set("pending_turn_trace_id", generate_trace_id())
     state.set("pending_turn_span_id", generate_span_id())
     state.set("pending_turn_start_time", str(get_timestamp_ms()))
@@ -201,7 +204,7 @@ def _handle_user_prompt_submitted(input_json: dict) -> None:
                 "session.id": session_id,
                 "openinference.span.kind": "LLM",
                 "project.name": project_name,
-                "input.value": prev_prompt,
+                "input.value": redact_content(env.log_prompts, prev_prompt),
                 "output.value": "(Turn closed by fail-safe: Stop hook did not fire)",
             }
             user_id = state.get("user_id") or ""
@@ -226,7 +229,9 @@ def _handle_user_prompt_submitted(input_json: dict) -> None:
         state.set("current_trace_id", generate_trace_id())
         state.set("current_trace_span_id", generate_span_id())
         state.set("current_trace_start_time", str(get_timestamp_ms()))
-        state.set("current_trace_prompt", redact_content(env.log_prompts, prompt))
+        # Store RAW prompt in state; redact only at span build time so the
+        # redaction toggle is read at emit time, not baked into the state file.
+        state.set("current_trace_prompt", prompt)
 
         # Track transcript position
         transcript = input_json.get("transcript_path", "")
@@ -454,8 +459,10 @@ def _handle_stop(input_json: dict) -> None:
     output = output or "(No response)"
     total_tokens = in_tokens + out_tokens
 
-    # Build and send LLM span
-    output_messages = [{"message.role": "assistant", "message.content": output}]
+    # Build and send LLM span. Redact at emit time, not at state-write time.
+    redacted_prompt = redact_content(env.log_prompts, user_prompt)
+    redacted_output = redact_content(env.log_prompts, output)
+    output_messages = [{"message.role": "assistant", "message.content": redacted_output}]
     attrs = {
         "session.id": session_id,
         "trace.number": trace_count,
@@ -465,8 +472,8 @@ def _handle_stop(input_json: dict) -> None:
         "llm.token_count.prompt": in_tokens,
         "llm.token_count.completion": out_tokens,
         "llm.token_count.total": total_tokens,
-        "input.value": user_prompt,
-        "output.value": output,
+        "input.value": redacted_prompt,
+        "output.value": redacted_output,
         "llm.output_messages": json.dumps(output_messages),
     }
     if user_id:
