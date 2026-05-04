@@ -324,6 +324,7 @@ class TestCopilotReadmeNoProhibitedContent:
         )
         assert not emoji_pattern.search(self.text), "README must not contain emojis"
 
+
 # ---------------------------------------------------------------------------
 # SKILL.md — existence
 # ---------------------------------------------------------------------------
