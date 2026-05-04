@@ -1,4 +1,4 @@
-"""Tests for copilot_tracing/install.py: install and uninstall of Copilot hooks."""
+"""Tests for tracing.copilot/install.py: install and uninstall of Copilot hooks."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import json
 import pytest
 import yaml
 
-import copilot_tracing.install as _install
+import tracing.copilot.install as _install
 
 install = _install.install
 uninstall = _install.uninstall

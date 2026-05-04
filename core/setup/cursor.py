@@ -2,7 +2,7 @@
 """Arize Cursor Tracing - Interactive Setup.
 
 Entry point for ``arize-setup-cursor``.  The heavy lifting now lives in
-``cursor_tracing/install.py``; this module is kept for backwards
+``tracing/cursor/install.py``; this module is kept for backwards
 compatibility with the existing entry point.
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sys
 
-from cursor_tracing import install as _install_mod
+from tracing.cursor import install as _install_mod
 
 
 def main() -> None:
@@ -23,7 +23,7 @@ def main() -> None:
 
 
 def _run() -> None:
-    """Delegate to the install module in cursor_tracing/.
+    """Delegate to the install module in tracing/cursor/.
 
     This replaces the old interactive flow so that ``arize-setup-cursor``
     and the installer router share a single code path.

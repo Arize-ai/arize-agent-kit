@@ -6,8 +6,8 @@ Gemini uses a single ~/.gemini/settings.json with a hooks dict
 keyed by event name.
 
 Usage (called by the shell router):
-    python gemini_tracing/install.py install
-    python gemini_tracing/install.py uninstall
+    python tracing/gemini/install.py install
+    python tracing/gemini/install.py uninstall
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from core.setup import (
     write_config,
     write_logging_config,
 )
-from gemini_tracing.constants import EVENTS, HARNESS_NAME, HOOK_NAME, HOOK_TIMEOUT_MS
+from tracing.gemini.constants import EVENTS, HARNESS_NAME, HOOK_NAME, HOOK_TIMEOUT_MS
 
 # ---------------------------------------------------------------------------
 # JSON helpers
@@ -40,14 +40,14 @@ from gemini_tracing.constants import EVENTS, HARNESS_NAME, HOOK_NAME, HOOK_TIMEO
 
 def _settings_file():
     """Return the current SETTINGS_FILE path (re-read each call for testability)."""
-    import gemini_tracing.constants as _c
+    import tracing.gemini.constants as _c
 
     return _c.SETTINGS_FILE
 
 
 def _settings_dir():
     """Return the current SETTINGS_DIR path (re-read each call for testability)."""
-    import gemini_tracing.constants as _c
+    import tracing.gemini.constants as _c
 
     return _c.SETTINGS_DIR
 

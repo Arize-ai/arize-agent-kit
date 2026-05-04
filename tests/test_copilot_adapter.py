@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for copilot_tracing.hooks.adapter — dual-mode session resolution, init, GC, requirements."""
+"""Tests for tracing.copilot.hooks.adapter — dual-mode session resolution, init, GC, requirements."""
 import os
 import subprocess
 from unittest.mock import mock_open, patch
@@ -7,7 +7,7 @@ from unittest.mock import mock_open, patch
 import pytest
 import yaml
 
-from copilot_tracing.hooks import adapter
+from tracing.copilot.hooks import adapter
 from core.common import StateManager
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

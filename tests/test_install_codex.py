@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
-import codex_tracing.install as codex_install
+import tracing.codex.install as codex_install
 
 # ---------------------------------------------------------------------------
 # Import the install module (now a proper Python package)
@@ -745,7 +745,7 @@ class TestWriteEnvFile:
 
 
 class TestCoreSetupDelegation:
-    """Test that core/setup/codex.py delegates to codex_tracing/install.py."""
+    """Test that core/setup/codex.py delegates to tracing.codex/install.py."""
 
     def test_install_delegates(self, fake_home, mock_buffer, mock_prompts):
         import core.setup.codex as setup_codex
@@ -854,7 +854,7 @@ class TestTomlFallbackQuoting:
             assert codex_install._toml_split_key_path(path) == expected, f"split failed for {path!r}"
 
     def test_fallback_roundtrips_quoted_section_keys(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("codex_tracing.install._tomllib", None)
+        monkeypatch.setattr("tracing.codex.install._tomllib", None)
         toml_text = textwrap.dedent(
             """\
             [mcp_servers."@scope/server"]
@@ -882,7 +882,7 @@ class TestTomlFallbackQuoting:
         assert data2 == data
 
     def test_fallback_repairs_malformed_unquoted_keys(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("codex_tracing.install._tomllib", None)
+        monkeypatch.setattr("tracing.codex.install._tomllib", None)
         toml_text = textwrap.dedent(
             """\
             [plugins.@scope/server]
@@ -935,7 +935,7 @@ class TestTomlFallbackQuoting:
 
     def test_fallback_deeply_nested_quoted_keys(self, tmp_path, monkeypatch):
         """Multiple levels with quoted keys parse and round-trip correctly."""
-        monkeypatch.setattr("codex_tracing.install._tomllib", None)
+        monkeypatch.setattr("tracing.codex.install._tomllib", None)
         toml_text = textwrap.dedent(
             """\
             [a."b.c"."d/e"]
@@ -956,7 +956,7 @@ class TestTomlFallbackQuoting:
 
     def test_fallback_multiple_sections_with_quoted_keys(self, tmp_path, monkeypatch):
         """Multiple sections with special-char keys coexist correctly."""
-        monkeypatch.setattr("codex_tracing.install._tomllib", None)
+        monkeypatch.setattr("tracing.codex.install._tomllib", None)
         toml_text = textwrap.dedent(
             """\
             [servers."@org/alpha"]

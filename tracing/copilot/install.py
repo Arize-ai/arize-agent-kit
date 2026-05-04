@@ -6,8 +6,8 @@ Copilot is dual-mode: VS Code uses per-event JSON files, CLI uses a
 single hooks.json with version: 1.
 
 Usage (called by the shell router):
-    python copilot_tracing/install.py install   [--project NAME]
-    python copilot_tracing/install.py uninstall
+    python tracing/copilot/install.py install   [--project NAME]
+    python tracing/copilot/install.py uninstall
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import json
 import sys
 from pathlib import Path
 
-from copilot_tracing.constants import CLI_EVENTS, CLI_HOOKS_FILE, HARNESS_NAME, HOOKS_DIR, VSCODE_EVENTS
+from tracing.copilot.constants import CLI_EVENTS, CLI_HOOKS_FILE, HARNESS_NAME, HOOKS_DIR, VSCODE_EVENTS
 from core.config import get_value, load_config
 from core.setup import (
     dry_run,

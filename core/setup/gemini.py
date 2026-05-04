@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """Arize setup wizard shim for Gemini CLI tracing.
 
-Delegates to gemini_tracing.install for the actual install/uninstall logic.
+Delegates to tracing.gemini.install for the actual install/uninstall logic.
 """
 
 from __future__ import annotations
 
 import sys
 
-from gemini_tracing import install as _install_mod
+from tracing.gemini import install as _install_mod
 
 
 def install() -> None:
-    """Delegate to gemini_tracing.install.install()."""
+    """Delegate to tracing.gemini.install.install()."""
     _install_mod.install()
 
 
 def uninstall() -> None:
-    """Delegate to gemini_tracing.install.uninstall()."""
+    """Delegate to tracing.gemini.install.uninstall()."""
     _install_mod.uninstall()
 
 

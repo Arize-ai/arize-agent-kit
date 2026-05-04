@@ -1,4 +1,4 @@
-"""Tests for cursor_tracing/install.py — install/uninstall module."""
+"""Tests for tracing.cursor/install.py — install/uninstall module."""
 
 from __future__ import annotations
 
@@ -8,17 +8,17 @@ from pathlib import Path
 import pytest
 import yaml
 
-import cursor_tracing.constants
-import cursor_tracing.install
+import tracing.cursor.constants
+import tracing.cursor.install
 
 
 def _load_cursor_module(name: str):
-    """Import a module from cursor_tracing package by name."""
+    """Import a module from tracing.cursor package by name."""
     if name == "constants":
-        return cursor_tracing.constants
+        return tracing.cursor.constants
     elif name == "install":
-        return cursor_tracing.install
-    raise ValueError(f"Unknown cursor_tracing module: {name}")
+        return tracing.cursor.install
+    raise ValueError(f"Unknown tracing.cursor module: {name}")
 
 
 @pytest.fixture()
@@ -61,7 +61,7 @@ def fake_home(tmp_path, monkeypatch):
     monkeypatch.setattr(cursor_install, "INSTALL_DIR", install_dir)
 
     # Create the harness plugin dir so harness_dir() resolves
-    plugin_dir = install_dir / "cursor_tracing"
+    plugin_dir = install_dir / "tracing" / "cursor"
     plugin_dir.mkdir(parents=True, exist_ok=True)
 
     return tmp_path

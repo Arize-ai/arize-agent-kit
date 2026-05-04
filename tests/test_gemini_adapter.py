@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for gemini_tracing.hooks.adapter — session resolution, init, GC, requirements.
+"""Tests for tracing.gemini.hooks.adapter — session resolution, init, GC, requirements.
 
 Mirrors tests/test_copilot_adapter.py structure but adapted for Gemini's
 single-mode (CLI-only) adapter with GEMINI_SESSION_ID env var instead of
@@ -19,7 +19,7 @@ from core.common import StateManager
 # We import the adapter module itself so we can monkeypatch its module-level
 # constants.  The actual functions under test are attributes of this module.
 # ---------------------------------------------------------------------------
-from gemini_tracing.hooks import adapter
+from tracing.gemini.hooks import adapter
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 

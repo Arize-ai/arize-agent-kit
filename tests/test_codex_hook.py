@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for codex_tracing.hooks.handlers — the Codex notify hook handler."""
+"""Tests for tracing.codex.hooks.handlers — the Codex notify hook handler."""
 
 import json
 import sys
@@ -9,7 +9,7 @@ from unittest import mock
 
 import pytest
 
-from codex_tracing.hooks.handlers import (
+from tracing.codex.hooks.handlers import (
     _as_text,
     _build_child_spans,
     _drain_events,
@@ -104,7 +104,7 @@ def codex_state(tmp_harness_dir):
     state_dir.mkdir(parents=True, exist_ok=True)
 
     # Also patch the adapter's STATE_DIR
-    import codex_tracing.hooks.adapter as adapter
+    import tracing.codex.hooks.adapter as adapter
 
     original_state_dir = adapter.STATE_DIR
     adapter.STATE_DIR = state_dir
@@ -132,7 +132,7 @@ class TestEventFiltering:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")  # unreachable port
 
-        import codex_tracing.hooks.adapter as adapter
+        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
 
         state_dir = c.STATE_BASE_DIR / "codex"
@@ -141,7 +141,7 @@ class TestEventFiltering:
 
         # Mock _send_span to capture what was sent
         sent = []
-        with mock.patch("codex_tracing.hooks.handlers._send_span", side_effect=lambda p: sent.append(p)):
+        with mock.patch("tracing.codex.hooks.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify(
                 {
                     "type": "agent-turn-complete",
@@ -300,7 +300,7 @@ class TestTruncationAndDefaults:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
 
-        import codex_tracing.hooks.adapter as adapter
+        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
 
         state_dir = c.STATE_BASE_DIR / "codex"
@@ -308,7 +308,7 @@ class TestTruncationAndDefaults:
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
 
         sent = []
-        with mock.patch("codex_tracing.hooks.handlers._send_span", side_effect=lambda p: sent.append(p)):
+        with mock.patch("tracing.codex.hooks.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify(
                 {
                     "type": "agent-turn-complete",
@@ -401,7 +401,7 @@ class TestFindToolCalls:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
 
-        import codex_tracing.hooks.adapter as adapter
+        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
 
         state_dir = c.STATE_BASE_DIR / "codex"
@@ -410,7 +410,7 @@ class TestFindToolCalls:
 
         tools = [{"name": f"tool{i}"} for i in range(8)]
         sent = []
-        with mock.patch("codex_tracing.hooks.handlers._send_span", side_effect=lambda p: sent.append(p)):
+        with mock.patch("tracing.codex.hooks.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify(
                 {
                     "type": "agent-turn-complete",
@@ -433,7 +433,7 @@ class TestFindToolCalls:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
 
-        import codex_tracing.hooks.adapter as adapter
+        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
 
         state_dir = c.STATE_BASE_DIR / "codex"
@@ -441,7 +441,7 @@ class TestFindToolCalls:
         monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
 
         sent = []
-        with mock.patch("codex_tracing.hooks.handlers._send_span", side_effect=lambda p: sent.append(p)):
+        with mock.patch("tracing.codex.hooks.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify(
                 {
                     "type": "agent-turn-complete",
@@ -521,7 +521,7 @@ class TestDrainEvents:
 
     def test_drain_saves_last_collector_time(self, tmp_harness_dir, monkeypatch, drain_server):
         """last_collector_time_ns saved in state after successful drain."""
-        import codex_tracing.hooks.adapter as adapter
+        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
 
         state_dir = c.STATE_BASE_DIR / "codex"
@@ -537,7 +537,7 @@ class TestDrainEvents:
         drain_server["set_drain"](events)
 
         sent = []
-        with mock.patch("codex_tracing.hooks.handlers._send_span", side_effect=lambda p: sent.append(p)):
+        with mock.patch("tracing.codex.hooks.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify(
                 {
                     "type": "agent-turn-complete",
@@ -687,7 +687,7 @@ class TestMultiSpanAssembly:
 
     def test_with_children_sends_multi_span(self, tmp_harness_dir, monkeypatch, drain_server):
         """With child spans, multi-span payload sent (parent + children)."""
-        import codex_tracing.hooks.adapter as adapter
+        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
 
         state_dir = c.STATE_BASE_DIR / "codex"
@@ -704,7 +704,7 @@ class TestMultiSpanAssembly:
         )
 
         sent = []
-        with mock.patch("codex_tracing.hooks.handlers._send_span", side_effect=lambda p: sent.append(p)):
+        with mock.patch("tracing.codex.hooks.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify(
                 {
                     "type": "agent-turn-complete",
@@ -723,7 +723,7 @@ class TestMultiSpanAssembly:
 
     def test_without_children_sends_single_span(self, tmp_harness_dir, monkeypatch):
         """Without child spans, single parent span sent."""
-        import codex_tracing.hooks.adapter as adapter
+        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
 
         state_dir = c.STATE_BASE_DIR / "codex"
@@ -733,7 +733,7 @@ class TestMultiSpanAssembly:
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
 
         sent = []
-        with mock.patch("codex_tracing.hooks.handlers._send_span", side_effect=lambda p: sent.append(p)):
+        with mock.patch("tracing.codex.hooks.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify(
                 {
                     "type": "agent-turn-complete",
@@ -749,7 +749,7 @@ class TestMultiSpanAssembly:
 
     def test_debug_dumps_when_enabled(self, tmp_harness_dir, monkeypatch):
         """Debug dumps written at each stage when trace_debug enabled."""
-        import codex_tracing.hooks.adapter as adapter
+        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
 
         state_dir = c.STATE_BASE_DIR / "codex"
@@ -759,7 +759,7 @@ class TestMultiSpanAssembly:
         monkeypatch.setenv("ARIZE_TRACE_DEBUG", "true")
         monkeypatch.setenv("ARIZE_COLLECTOR_PORT", "19999")
 
-        with mock.patch("codex_tracing.hooks.handlers._send_span"):
+        with mock.patch("tracing.codex.hooks.handlers._send_span"):
             _handle_notify(
                 {
                     "type": "agent-turn-complete",
@@ -784,7 +784,7 @@ class TestIntegration:
 
     def test_full_handle_notify_with_fixture(self, tmp_harness_dir, monkeypatch, drain_server, codex_notify_input):
         """Full _handle_notify with codex_notify fixture + mock drain."""
-        import codex_tracing.hooks.adapter as adapter
+        import tracing.codex.hooks.adapter as adapter
         import core.constants as c
 
         state_dir = c.STATE_BASE_DIR / "codex"
@@ -804,7 +804,7 @@ class TestIntegration:
         )
 
         sent = []
-        with mock.patch("codex_tracing.hooks.handlers._send_span", side_effect=lambda p: sent.append(p)):
+        with mock.patch("tracing.codex.hooks.handlers._send_span", side_effect=lambda p: sent.append(p)):
             _handle_notify(fixture)
 
         assert len(sent) == 1
@@ -840,7 +840,7 @@ class TestSendSpan:
             ]
         }
 
-        with mock.patch("codex_tracing.hooks.handlers.send_span_to_backend", return_value=True) as mock_send:
+        with mock.patch("tracing.codex.hooks.handlers.send_span_to_backend", return_value=True) as mock_send:
             _send_span(payload)
 
         mock_send.assert_called_once_with(payload)
@@ -856,7 +856,7 @@ class TestSendSpan:
             ]
         }
 
-        with mock.patch("codex_tracing.hooks.handlers.send_span_to_backend", return_value=False):
+        with mock.patch("tracing.codex.hooks.handlers.send_span_to_backend", return_value=False):
             _send_span(payload)
 
         assert "Failed to send span to backend" in capsys.readouterr().err
@@ -874,7 +874,7 @@ class TestErrorHandling:
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
 
         with (
-            mock.patch("codex_tracing.hooks.handlers._handle_notify", side_effect=RuntimeError("boom")),
+            mock.patch("tracing.codex.hooks.handlers._handle_notify", side_effect=RuntimeError("boom")),
             mock.patch.object(sys, "argv", ["hook", '{"type":"agent-turn-complete"}']),
         ):
             # Should not raise

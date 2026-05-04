@@ -41,7 +41,7 @@ goto :usage
 if "%COMMAND%"=="" ( echo [arize] No command specified >&2 & goto :usage )
 
 REM --- Harness name -> directory mapping ---
-REM claude->claude_code_tracing  codex->codex_tracing  copilot->copilot_tracing  cursor->cursor_tracing
+REM claude->tracing\claude_code  codex->tracing\codex  copilot->tracing\copilot  cursor->tracing\cursor
 
 REM --- Dispatch ---
 if "%COMMAND%"=="update"    goto :cmd_update
@@ -199,11 +199,11 @@ goto :eof
 REM --- resolve_dir: map command/harness name to directory ---
 :resolve_dir
 set "HARNESS_DIR="
-if /i "%~1"=="claude"      set "HARNESS_DIR=claude_code_tracing"
-if /i "%~1"=="claude-code" set "HARNESS_DIR=claude_code_tracing"
-if /i "%~1"=="codex"       set "HARNESS_DIR=codex_tracing"
-if /i "%~1"=="copilot"     set "HARNESS_DIR=copilot_tracing"
-if /i "%~1"=="cursor"      set "HARNESS_DIR=cursor_tracing"
+if /i "%~1"=="claude"      set "HARNESS_DIR=tracing\claude_code"
+if /i "%~1"=="claude-code" set "HARNESS_DIR=tracing\claude_code"
+if /i "%~1"=="codex"       set "HARNESS_DIR=tracing\codex"
+if /i "%~1"=="copilot"     set "HARNESS_DIR=tracing\copilot"
+if /i "%~1"=="cursor"      set "HARNESS_DIR=tracing\cursor"
 if "%HARNESS_DIR%"=="" ( echo [arize] Unknown harness: %~1 >&2 & exit /b 1 )
 goto :eof
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for gemini_tracing.hooks.handlers — the 8 Gemini hook handlers.
+"""Tests for tracing.gemini.hooks.handlers — the 8 Gemini hook handlers.
 
 Mirrors tests/test_copilot_hook.py structure but adapted for Gemini's
 single-mode adapter (no VS Code / CLI dual-mode) and Gemini-specific
@@ -15,8 +15,8 @@ from unittest import mock
 import pytest
 
 from core.common import StateManager
-from gemini_tracing.hooks import handlers as handlers_mod
-from gemini_tracing.hooks.handlers import (
+from tracing.gemini.hooks import handlers as handlers_mod
+from tracing.gemini.hooks.handlers import (
     _extract_text,
     _extract_tokens,
     _flush_pending_model_call,
@@ -81,14 +81,14 @@ def state(tmp_path):
 @pytest.fixture
 def mock_resolve(state):
     """Mock resolve_session to return the test state fixture."""
-    with mock.patch("gemini_tracing.hooks.handlers.resolve_session", return_value=state) as m:
+    with mock.patch("tracing.gemini.hooks.handlers.resolve_session", return_value=state) as m:
         yield m
 
 
 @pytest.fixture
 def mock_ensure():
     """Mock ensure_session_initialized."""
-    with mock.patch("gemini_tracing.hooks.handlers.ensure_session_initialized") as m:
+    with mock.patch("tracing.gemini.hooks.handlers.ensure_session_initialized") as m:
         yield m
 
 
@@ -100,7 +100,7 @@ def captured_spans():
     synchronously without forking, regardless of the ARIZE_DISABLE_FORK env.
     """
     sent = []
-    with mock.patch("gemini_tracing.hooks.handlers._send_span_async", side_effect=lambda s: sent.append(s)):
+    with mock.patch("tracing.gemini.hooks.handlers._send_span_async", side_effect=lambda s: sent.append(s)):
         yield sent
 
 
@@ -162,7 +162,7 @@ class TestSessionStart:
 
     def test_logs_session_id(self, mock_resolve, mock_ensure, state):
         """session_start logs the session ID."""
-        with mock.patch("gemini_tracing.hooks.handlers.log") as log_mock:
+        with mock.patch("tracing.gemini.hooks.handlers.log") as log_mock:
             _handle_session_start({})
         calls = [c[0][0] for c in log_mock.call_args_list]
         assert any("test-session-gemini" in c for c in calls)
@@ -178,9 +178,9 @@ class TestSessionEnd:
         """Returns early when session_id is None."""
         state.delete("session_id")
         with (
-            mock.patch("gemini_tracing.hooks.handlers.resolve_session", return_value=state),
-            mock.patch("gemini_tracing.hooks.handlers.log") as log_mock,
-            mock.patch("gemini_tracing.hooks.handlers.gc_stale_state_files") as gc_mock,
+            mock.patch("tracing.gemini.hooks.handlers.resolve_session", return_value=state),
+            mock.patch("tracing.gemini.hooks.handlers.log") as log_mock,
+            mock.patch("tracing.gemini.hooks.handlers.gc_stale_state_files") as gc_mock,
         ):
             _handle_session_end({})
         log_mock.assert_not_called()
@@ -191,8 +191,8 @@ class TestSessionEnd:
         state.set("trace_count", "10")
         state.set("tool_count", "25")
         with (
-            mock.patch("gemini_tracing.hooks.handlers.log") as log_mock,
-            mock.patch("gemini_tracing.hooks.handlers.gc_stale_state_files"),
+            mock.patch("tracing.gemini.hooks.handlers.log") as log_mock,
+            mock.patch("tracing.gemini.hooks.handlers.gc_stale_state_files"),
         ):
             _handle_session_end({})
         calls = [c[0][0] for c in log_mock.call_args_list]
@@ -202,8 +202,8 @@ class TestSessionEnd:
         """Removes state file on session end."""
         assert state.state_file.exists()
         with (
-            mock.patch("gemini_tracing.hooks.handlers.log"),
-            mock.patch("gemini_tracing.hooks.handlers.gc_stale_state_files"),
+            mock.patch("tracing.gemini.hooks.handlers.log"),
+            mock.patch("tracing.gemini.hooks.handlers.gc_stale_state_files"),
         ):
             _handle_session_end({})
         assert not state.state_file.exists()
@@ -211,8 +211,8 @@ class TestSessionEnd:
     def test_calls_gc(self, mock_resolve, state):
         """Calls gc_stale_state_files."""
         with (
-            mock.patch("gemini_tracing.hooks.handlers.log"),
-            mock.patch("gemini_tracing.hooks.handlers.gc_stale_state_files") as gc_mock,
+            mock.patch("tracing.gemini.hooks.handlers.log"),
+            mock.patch("tracing.gemini.hooks.handlers.gc_stale_state_files") as gc_mock,
         ):
             _handle_session_end({})
         gc_mock.assert_called_once()
@@ -223,8 +223,8 @@ class TestSessionEnd:
         state.set("current_trace_span_id", "s" * 16)
         state.set("current_trace_start_time", "1000")
         with (
-            mock.patch("gemini_tracing.hooks.handlers.log"),
-            mock.patch("gemini_tracing.hooks.handlers.gc_stale_state_files"),
+            mock.patch("tracing.gemini.hooks.handlers.log"),
+            mock.patch("tracing.gemini.hooks.handlers.gc_stale_state_files"),
         ):
             _handle_session_end({})
         assert len(captured_spans) >= 1
@@ -605,7 +605,7 @@ class TestAfterModel:
     def test_after_agent_flushes_pending_call_with_zero_tokens(self, mock_resolve, state, captured_spans):
         """A model call that never received a final chunk is flushed by AfterAgent
         with whatever it accumulated -- including zero token counts."""
-        from gemini_tracing.hooks.handlers import _handle_after_agent
+        from tracing.gemini.hooks.handlers import _handle_after_agent
 
         state.set("current_trace_id", "a" * 32)
         state.set("current_trace_span_id", "b" * 16)
@@ -680,7 +680,7 @@ class TestAfterModel:
     def test_next_before_model_flushes_prior_call(self, mock_resolve, state, captured_spans):
         """If a prior model call never received its final chunk, the next BeforeModel
         flushes it as its own LLM span before opening the new accumulator."""
-        from gemini_tracing.hooks.handlers import _handle_before_model
+        from tracing.gemini.hooks.handlers import _handle_before_model
 
         state.set("current_trace_id", "a" * 32)
         state.set("current_trace_span_id", "b" * 16)
@@ -1121,9 +1121,9 @@ class TestErrorHandling:
         """Exception in handler -> entry point catches, calls error()."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("gemini_tracing.hooks.handlers._read_stdin", return_value={}),
-            mock.patch("gemini_tracing.hooks.handlers.check_requirements", return_value=True),
-            mock.patch("gemini_tracing.hooks.handlers._handle_session_start", side_effect=RuntimeError("boom")),
+            mock.patch("tracing.gemini.hooks.handlers._read_stdin", return_value={}),
+            mock.patch("tracing.gemini.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.gemini.hooks.handlers._handle_session_start", side_effect=RuntimeError("boom")),
         ):
             session_start()
         captured = capsys.readouterr()
@@ -1133,10 +1133,10 @@ class TestErrorHandling:
         """Malformed stdin JSON doesn't crash entry point."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("gemini_tracing.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.gemini.hooks.handlers.check_requirements", return_value=True),
             mock.patch.object(sys, "stdin", new=io.StringIO("not json")),
-            mock.patch("gemini_tracing.hooks.handlers.resolve_session") as rs,
-            mock.patch("gemini_tracing.hooks.handlers.ensure_session_initialized"),
+            mock.patch("tracing.gemini.hooks.handlers.resolve_session") as rs,
+            mock.patch("tracing.gemini.hooks.handlers.ensure_session_initialized"),
         ):
             session_start()
         rs.assert_called_once_with({})
@@ -1144,9 +1144,9 @@ class TestErrorHandling:
     def test_response_printed_on_exception(self, capsys):
         """Response is printed even when handler raises."""
         with (
-            mock.patch("gemini_tracing.hooks.handlers._read_stdin", return_value={}),
-            mock.patch("gemini_tracing.hooks.handlers.check_requirements", return_value=True),
-            mock.patch("gemini_tracing.hooks.handlers._handle_session_start", side_effect=RuntimeError("boom")),
+            mock.patch("tracing.gemini.hooks.handlers._read_stdin", return_value={}),
+            mock.patch("tracing.gemini.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.gemini.hooks.handlers._handle_session_start", side_effect=RuntimeError("boom")),
         ):
             session_start()
         out = json.loads(capsys.readouterr().out.strip())
@@ -1155,9 +1155,9 @@ class TestErrorHandling:
     def test_no_sys_exit(self, capsys):
         """Entry points never call sys.exit()."""
         with (
-            mock.patch("gemini_tracing.hooks.handlers._read_stdin", return_value={}),
-            mock.patch("gemini_tracing.hooks.handlers.check_requirements", return_value=True),
-            mock.patch("gemini_tracing.hooks.handlers._handle_session_start", side_effect=RuntimeError("boom")),
+            mock.patch("tracing.gemini.hooks.handlers._read_stdin", return_value={}),
+            mock.patch("tracing.gemini.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.gemini.hooks.handlers._handle_session_start", side_effect=RuntimeError("boom")),
         ):
             # This should NOT raise SystemExit
             session_start()
@@ -1185,10 +1185,10 @@ class TestEntryPoints:
         """Entry point calls the corresponding _handle_* with parsed stdin JSON."""
         input_data = {"prompt": "test"}
         with (
-            mock.patch("gemini_tracing.hooks.handlers.check_requirements", return_value=True),
-            mock.patch("gemini_tracing.hooks.handlers._read_stdin", return_value=input_data),
-            mock.patch(f"gemini_tracing.hooks.handlers.{handler_name}") as handler_mock,
-            mock.patch("gemini_tracing.hooks.handlers._print_response"),
+            mock.patch("tracing.gemini.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.gemini.hooks.handlers._read_stdin", return_value=input_data),
+            mock.patch(f"tracing.gemini.hooks.handlers.{handler_name}") as handler_mock,
+            mock.patch("tracing.gemini.hooks.handlers._print_response"),
         ):
             entry_fn()
         handler_mock.assert_called_once_with(input_data)
@@ -1197,10 +1197,10 @@ class TestEntryPoints:
     def test_requirements_not_met_skips_handler(self, name, entry_fn, handler_name):
         """When check_requirements returns False, handler is NOT called but response is still printed."""
         with (
-            mock.patch("gemini_tracing.hooks.handlers.check_requirements", return_value=False),
-            mock.patch("gemini_tracing.hooks.handlers._read_stdin", return_value={}),
-            mock.patch(f"gemini_tracing.hooks.handlers.{handler_name}") as handler_mock,
-            mock.patch("gemini_tracing.hooks.handlers._print_response") as pr_mock,
+            mock.patch("tracing.gemini.hooks.handlers.check_requirements", return_value=False),
+            mock.patch("tracing.gemini.hooks.handlers._read_stdin", return_value={}),
+            mock.patch(f"tracing.gemini.hooks.handlers.{handler_name}") as handler_mock,
+            mock.patch("tracing.gemini.hooks.handlers._print_response") as pr_mock,
         ):
             entry_fn()
         handler_mock.assert_not_called()
@@ -1210,10 +1210,10 @@ class TestEntryPoints:
     def test_exception_caught_and_logged(self, name, entry_fn, handler_name, capsys):
         """Handler exception is caught; error is logged to stderr, response still printed."""
         with (
-            mock.patch("gemini_tracing.hooks.handlers.check_requirements", return_value=True),
-            mock.patch("gemini_tracing.hooks.handlers._read_stdin", return_value={}),
-            mock.patch(f"gemini_tracing.hooks.handlers.{handler_name}", side_effect=RuntimeError("test-boom")),
-            mock.patch("gemini_tracing.hooks.handlers._print_response") as pr_mock,
+            mock.patch("tracing.gemini.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.gemini.hooks.handlers._read_stdin", return_value={}),
+            mock.patch(f"tracing.gemini.hooks.handlers.{handler_name}", side_effect=RuntimeError("test-boom")),
+            mock.patch("tracing.gemini.hooks.handlers._print_response") as pr_mock,
         ):
             entry_fn()  # should not raise
         captured = capsys.readouterr()
@@ -1224,9 +1224,9 @@ class TestEntryPoints:
     def test_always_prints_empty_json_response(self, name, entry_fn, handler_name, capsys):
         """Entry point always prints {} to stdout."""
         with (
-            mock.patch("gemini_tracing.hooks.handlers.check_requirements", return_value=True),
-            mock.patch("gemini_tracing.hooks.handlers._read_stdin", return_value={}),
-            mock.patch(f"gemini_tracing.hooks.handlers.{handler_name}"),
+            mock.patch("tracing.gemini.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.gemini.hooks.handlers._read_stdin", return_value={}),
+            mock.patch(f"tracing.gemini.hooks.handlers.{handler_name}"),
         ):
             entry_fn()
         out = json.loads(capsys.readouterr().out.strip())
@@ -1351,7 +1351,7 @@ class TestSessionStartIntegration:
     @pytest.fixture
     def gemini_state_dir(self, tmp_harness_dir, monkeypatch):
         """Point adapter STATE_DIR to a temp directory."""
-        from gemini_tracing.hooks import adapter as _adapter
+        from tracing.gemini.hooks import adapter as _adapter
 
         state_dir = tmp_harness_dir / "state" / "gemini"
         state_dir.mkdir(parents=True, exist_ok=True)
@@ -1362,7 +1362,7 @@ class TestSessionStartIntegration:
     def captured_spans_real(self):
         """Mock _send_span_async and collect all payloads emitted by handlers."""
         sent = []
-        with mock.patch("gemini_tracing.hooks.handlers._send_span_async", side_effect=lambda s: sent.append(s)):
+        with mock.patch("tracing.gemini.hooks.handlers._send_span_async", side_effect=lambda s: sent.append(s)):
             yield sent
 
     def test_session_start_initializes_state(self, tmp_harness_dir, gemini_state_dir, monkeypatch, captured_spans_real):
@@ -1470,7 +1470,7 @@ class TestSendSpanAsync:
     def test_disable_fork_env_uses_sync_send(self, monkeypatch):
         """ARIZE_DISABLE_FORK=true short-circuits to synchronous send_span."""
         monkeypatch.setenv("ARIZE_DISABLE_FORK", "true")
-        with mock.patch("gemini_tracing.hooks.handlers.send_span") as send_mock:
+        with mock.patch("tracing.gemini.hooks.handlers.send_span") as send_mock:
             _send_span_async({"x": 1})
         send_mock.assert_called_once_with({"x": 1})
 
@@ -1478,13 +1478,13 @@ class TestSendSpanAsync:
         """If os.fork is absent (Windows-like), fall back to sync send."""
         monkeypatch.setenv("ARIZE_DISABLE_FORK", "false")
         # Simulate Windows by removing os.fork from the module's view.
-        import gemini_tracing.hooks.handlers as h
+        import tracing.gemini.hooks.handlers as h
 
         real_fork = getattr(h.os, "fork", None)
         try:
             if real_fork is not None:
                 monkeypatch.delattr(h.os, "fork", raising=False)
-            with mock.patch("gemini_tracing.hooks.handlers.send_span") as send_mock:
+            with mock.patch("tracing.gemini.hooks.handlers.send_span") as send_mock:
                 _send_span_async({"x": 2})
             send_mock.assert_called_once_with({"x": 2})
         finally:
@@ -1499,8 +1499,8 @@ class TestSendSpanAsync:
             raise OSError("EAGAIN")
 
         with (
-            mock.patch("gemini_tracing.hooks.handlers.os.fork", side_effect=boom),
-            mock.patch("gemini_tracing.hooks.handlers.send_span") as send_mock,
+            mock.patch("tracing.gemini.hooks.handlers.os.fork", side_effect=boom),
+            mock.patch("tracing.gemini.hooks.handlers.send_span") as send_mock,
         ):
             _send_span_async({"x": 3})
         send_mock.assert_called_once_with({"x": 3})
@@ -1516,7 +1516,7 @@ class TestFlushPendingModelCall:
         """No-op when state has no current_model_call_id."""
         sm = StateManager(state_dir=tmp_path, state_file=tmp_path / "s.yaml", lock_path=tmp_path / ".l")
         sm.init_state()
-        with mock.patch("gemini_tracing.hooks.handlers._send_span_async") as send_mock:
+        with mock.patch("tracing.gemini.hooks.handlers._send_span_async") as send_mock:
             _flush_pending_model_call(sm)
         send_mock.assert_not_called()
 
@@ -1527,7 +1527,7 @@ class TestFlushPendingModelCall:
         sm.init_state()
         sm.set("current_model_call_id", "orphan")
         sm.set("model_orphan_response", "partial")
-        with mock.patch("gemini_tracing.hooks.handlers._send_span_async") as send_mock:
+        with mock.patch("tracing.gemini.hooks.handlers._send_span_async") as send_mock:
             _flush_pending_model_call(sm)
         send_mock.assert_not_called()
         assert sm.get("model_orphan_response") is None
@@ -1546,8 +1546,8 @@ class TestSessionEndEdgeCases:
         sm = StateManager(state_dir=tmp_path, state_file=tmp_path / "s.yaml", lock_path=tmp_path / ".l")
         sm.init_state()
         with (
-            mock.patch("gemini_tracing.hooks.handlers.resolve_session", return_value=sm),
-            mock.patch("gemini_tracing.hooks.handlers.gc_stale_state_files") as gc_mock,
+            mock.patch("tracing.gemini.hooks.handlers.resolve_session", return_value=sm),
+            mock.patch("tracing.gemini.hooks.handlers.gc_stale_state_files") as gc_mock,
         ):
             _handle_session_end({})
         gc_mock.assert_not_called()
@@ -1562,9 +1562,9 @@ class TestSessionEndEdgeCases:
         lp.write_text("")  # fcntl-style file lock
         sm = StateManager(state_dir=tmp_path, state_file=sf, lock_path=lp)
         with (
-            mock.patch("gemini_tracing.hooks.handlers.resolve_session", return_value=sm),
-            mock.patch("gemini_tracing.hooks.handlers.log"),
-            mock.patch("gemini_tracing.hooks.handlers.gc_stale_state_files"),
+            mock.patch("tracing.gemini.hooks.handlers.resolve_session", return_value=sm),
+            mock.patch("tracing.gemini.hooks.handlers.log"),
+            mock.patch("tracing.gemini.hooks.handlers.gc_stale_state_files"),
         ):
             _handle_session_end({})
         assert not lp.exists()
@@ -1577,9 +1577,9 @@ class TestSessionEndEdgeCases:
         lp.mkdir()  # mkdir-fallback lock
         sm = StateManager(state_dir=tmp_path, state_file=sf, lock_path=lp)
         with (
-            mock.patch("gemini_tracing.hooks.handlers.resolve_session", return_value=sm),
-            mock.patch("gemini_tracing.hooks.handlers.log"),
-            mock.patch("gemini_tracing.hooks.handlers.gc_stale_state_files"),
+            mock.patch("tracing.gemini.hooks.handlers.resolve_session", return_value=sm),
+            mock.patch("tracing.gemini.hooks.handlers.log"),
+            mock.patch("tracing.gemini.hooks.handlers.gc_stale_state_files"),
         ):
             _handle_session_end({})
         assert not lp.exists()

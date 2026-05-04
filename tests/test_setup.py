@@ -474,13 +474,13 @@ class TestClaudeSetup:
         monkeypatch.setattr(core.config, "CONFIG_FILE", str(config_path))
 
         # Create the harness plugin dir so harness_dir() resolves
-        plugin_dir = install_dir / "claude_code_tracing"
+        plugin_dir = install_dir / "tracing" / "claude_code"
         plugin_dir.mkdir(parents=True, exist_ok=True)
 
         # Patch SETTINGS_FILE in install module
         settings_file = tmp_path / ".claude" / "settings.json"
-        import claude_code_tracing.constants as claude_constants
-        import claude_code_tracing.install as claude_install
+        import tracing.claude_code.constants as claude_constants
+        import tracing.claude_code.install as claude_install
 
         monkeypatch.setattr(claude_install, "SETTINGS_FILE", settings_file)
         monkeypatch.setattr(claude_constants, "SETTINGS_FILE", settings_file)
@@ -913,7 +913,7 @@ class TestCursorSetup:
         monkeypatch.setattr(setup_mod, "STATE_DIR", install_dir / "state")
 
         # Patch HOOKS_FILE + INSTALL_DIR in the cursor install module.
-        import cursor_tracing.install as cursor_install
+        import tracing.cursor.install as cursor_install
 
         monkeypatch.setattr(cursor_install, "HOOKS_FILE", hooks_file)
         monkeypatch.setattr(cursor_install, "INSTALL_DIR", install_dir)
@@ -1047,7 +1047,7 @@ class TestCopilotSetup:
             assert exc_info.value.code == 1
 
     def test_run_delegates_to_installer(self):
-        """_run() delegates to copilot_tracing/install.py install()."""
+        """_run() delegates to tracing.copilot/install.py install()."""
         import core.setup.copilot as copilot_mod
 
         mock_mod = MagicMock()
@@ -1056,7 +1056,7 @@ class TestCopilotSetup:
             mock_mod.install.assert_called_once()
 
     def test_install_delegates_to_installer(self):
-        """install() delegates to copilot_tracing/install.py install()."""
+        """install() delegates to tracing.copilot/install.py install()."""
         import core.setup.copilot as copilot_mod
 
         mock_mod = MagicMock()
@@ -1065,7 +1065,7 @@ class TestCopilotSetup:
             mock_mod.install.assert_called_once()
 
     def test_uninstall_delegates_to_installer(self):
-        """uninstall() delegates to copilot_tracing/install.py uninstall()."""
+        """uninstall() delegates to tracing.copilot/install.py uninstall()."""
         import core.setup.copilot as copilot_mod
 
         mock_mod = MagicMock()
@@ -1110,7 +1110,7 @@ class TestGeminiSetup:
         assert "Setup cancelled." in capsys.readouterr().out
 
     def test_run_delegates_to_installer(self):
-        """_run() delegates to gemini_tracing/install.py install()."""
+        """_run() delegates to tracing.gemini/install.py install()."""
         import core.setup.gemini as gemini_mod
 
         mock_mod = MagicMock()
@@ -1119,7 +1119,7 @@ class TestGeminiSetup:
             mock_mod.install.assert_called_once()
 
     def test_install_delegates_to_installer(self):
-        """install() delegates to gemini_tracing/install.py install()."""
+        """install() delegates to tracing.gemini/install.py install()."""
         import core.setup.gemini as gemini_mod
 
         mock_mod = MagicMock()
@@ -1128,7 +1128,7 @@ class TestGeminiSetup:
             mock_mod.install.assert_called_once()
 
     def test_uninstall_delegates_to_installer(self):
-        """uninstall() delegates to gemini_tracing/install.py uninstall()."""
+        """uninstall() delegates to tracing.gemini/install.py uninstall()."""
         import core.setup.gemini as gemini_mod
 
         mock_mod = MagicMock()

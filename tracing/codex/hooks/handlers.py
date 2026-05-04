@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Codex hook handler — creates OpenInference LLM spans from agent-turn-complete events.
 
-Replaces codex-tracing/hooks/notify.sh (445 lines). Registered as the
+Replaces tracing/codex/hooks/notify.sh (445 lines). Registered as the
 ``arize-hook-codex-notify`` CLI entry point.
 
 Input contract: JSON as sys.argv[1] (NOT stdin -- Codex passes JSON as a CLI arg).
@@ -15,8 +15,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from codex_tracing.codex_buffer_ctl import buffer_ensure
-from codex_tracing.hooks.adapter import (
+from tracing.codex.codex_buffer_ctl import buffer_ensure
+from tracing.codex.hooks.adapter import (
     SCOPE_NAME,
     SERVICE_NAME,
     check_requirements,

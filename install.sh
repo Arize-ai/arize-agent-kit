@@ -2,7 +2,7 @@
 # Arize Agent Kit — Thin shell router
 #
 # Handles Python discovery, repo clone/tarball, venv creation, and pip install.
-# All harness-specific logic lives in <harness>_tracing/install.py.
+# All harness-specific logic lives in tracing/<harness>/install.py.
 #
 # Usage:
 #   curl -sSL .../install.sh | bash -s -- claude [--with-skills] [--branch NAME]
@@ -184,11 +184,11 @@ setup_venv() {
 # -- Harness name mapping ----------------------------------------------------
 harness_dir() {
     case "$1" in
-        claude)  echo "claude_code_tracing" ;;
-        codex)   echo "codex_tracing" ;;
-        copilot) echo "copilot_tracing" ;;
-        cursor)  echo "cursor_tracing" ;;
-        gemini)  echo "gemini_tracing" ;;
+        claude)  echo "tracing/claude_code" ;;
+        codex)   echo "tracing/codex" ;;
+        copilot) echo "tracing/copilot" ;;
+        cursor)  echo "tracing/cursor" ;;
+        gemini)  echo "tracing/gemini" ;;
         *)       return 1 ;;
     esac
 }

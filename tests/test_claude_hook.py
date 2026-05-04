@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for claude_code_tracing.hooks.handlers — the 10 Claude Code hook handlers."""
+"""Tests for tracing.claude_code.hooks.handlers — the 10 Claude Code hook handlers."""
 
 import json
 import sys
@@ -8,7 +8,7 @@ from unittest import mock
 
 import pytest
 
-from claude_code_tracing.hooks.handlers import (
+from tracing.claude_code.hooks.handlers import (
     _handle_notification,
     _handle_permission_request,
     _handle_post_tool_use,
@@ -65,7 +65,7 @@ def state(tmp_path):
 @pytest.fixture
 def mock_resolve(state):
     """Mock resolve_session to return the test state fixture."""
-    with mock.patch("claude_code_tracing.hooks.handlers.resolve_session", return_value=state) as m:
+    with mock.patch("tracing.claude_code.hooks.handlers.resolve_session", return_value=state) as m:
         yield m
 
 
@@ -73,7 +73,7 @@ def mock_resolve(state):
 def captured_spans():
     """Mock send_span and collect all payloads sent."""
     sent = []
-    with mock.patch("claude_code_tracing.hooks.handlers.send_span", side_effect=lambda s: sent.append(s)):
+    with mock.patch("tracing.claude_code.hooks.handlers.send_span", side_effect=lambda s: sent.append(s)):
         yield sent
 
 
@@ -113,8 +113,8 @@ class TestSessionStart:
     def test_calls_resolve_and_init(self, state, captured_spans):
         """session_start calls resolve_session and ensure_session_initialized."""
         with (
-            mock.patch("claude_code_tracing.hooks.handlers.resolve_session", return_value=state) as rs,
-            mock.patch("claude_code_tracing.hooks.handlers.ensure_session_initialized") as esi,
+            mock.patch("tracing.claude_code.hooks.handlers.resolve_session", return_value=state) as rs,
+            mock.patch("tracing.claude_code.hooks.handlers.ensure_session_initialized") as esi,
         ):
             inp = {"session_id": "s1"}
             _handle_session_start(inp)
@@ -138,7 +138,7 @@ class TestPreToolUse:
 
     def test_missing_tool_use_id_generates_one(self, mock_resolve, state):
         """Missing tool_use_id generates a fallback id and still sets start time."""
-        with mock.patch("claude_code_tracing.hooks.handlers.generate_trace_id", return_value="gen-id-123"):
+        with mock.patch("tracing.claude_code.hooks.handlers.generate_trace_id", return_value="gen-id-123"):
             _handle_pre_tool_use({})
         val = state.get("tool_gen-id-123_start")
         assert val is not None
@@ -263,7 +263,7 @@ class TestPostToolUse:
     def test_no_session_id_returns_early(self, state, captured_spans):
         """If session_id is None, returns without sending span."""
         state.delete("session_id")
-        with mock.patch("claude_code_tracing.hooks.handlers.resolve_session", return_value=state):
+        with mock.patch("tracing.claude_code.hooks.handlers.resolve_session", return_value=state):
             _handle_post_tool_use({"tool_name": "Bash", "tool_use_id": "t8"})
         assert len(captured_spans) == 0
 
@@ -277,7 +277,7 @@ class TestUserPromptSubmit:
 
     def test_sets_trace_state(self, mock_resolve, state, captured_spans):
         """user_prompt_submit sets current_trace_id, span_id, start_time, prompt."""
-        with mock.patch("claude_code_tracing.hooks.handlers.ensure_session_initialized"):
+        with mock.patch("tracing.claude_code.hooks.handlers.ensure_session_initialized"):
             _handle_user_prompt_submit({"prompt": "hello world"})
         assert state.get("current_trace_id") is not None
         assert len(state.get("current_trace_id")) == 32
@@ -288,13 +288,13 @@ class TestUserPromptSubmit:
 
     def test_increments_trace_count(self, mock_resolve, state, captured_spans):
         """user_prompt_submit increments trace_count."""
-        with mock.patch("claude_code_tracing.hooks.handlers.ensure_session_initialized"):
+        with mock.patch("tracing.claude_code.hooks.handlers.ensure_session_initialized"):
             _handle_user_prompt_submit({"prompt": "test"})
         assert state.get("trace_count") == "1"
 
     def test_records_trace_start_line(self, mock_resolve, state, captured_spans, transcript_file):
         """Records trace_start_line from transcript file line count."""
-        with mock.patch("claude_code_tracing.hooks.handlers.ensure_session_initialized"):
+        with mock.patch("tracing.claude_code.hooks.handlers.ensure_session_initialized"):
             _handle_user_prompt_submit(
                 {
                     "prompt": "test",
@@ -306,7 +306,7 @@ class TestUserPromptSubmit:
 
     def test_no_transcript_sets_zero(self, mock_resolve, state, captured_spans):
         """Missing transcript sets trace_start_line to 0."""
-        with mock.patch("claude_code_tracing.hooks.handlers.ensure_session_initialized"):
+        with mock.patch("tracing.claude_code.hooks.handlers.ensure_session_initialized"):
             _handle_user_prompt_submit({"prompt": "test"})
         assert state.get("trace_start_line") == "0"
 
@@ -316,7 +316,7 @@ class TestUserPromptSubmit:
         state.set("current_trace_span_id", "old-span-1234567")
         state.set("current_trace_start_time", "999000")
         state.set("current_trace_prompt", "old prompt")
-        with mock.patch("claude_code_tracing.hooks.handlers.ensure_session_initialized"):
+        with mock.patch("tracing.claude_code.hooks.handlers.ensure_session_initialized"):
             _handle_user_prompt_submit({"prompt": "new prompt"})
         # Should have sent a fail-safe span
         assert len(captured_spans) == 1
@@ -343,7 +343,7 @@ class TestStop:
         state.set("current_trace_prompt", "fix the bug")
         state.set("trace_start_line", "0")
         with mock.patch(
-            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+            "tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
         ):
             _handle_stop({})
         assert len(captured_spans) == 1
@@ -369,7 +369,7 @@ class TestStop:
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "test")
         state.set("trace_start_line", "0")
-        with mock.patch("claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=tf):
+        with mock.patch("tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=tf):
             _handle_stop({})
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
@@ -383,7 +383,7 @@ class TestStop:
         state.set("current_trace_prompt", "fix the bug")
         state.set("trace_start_line", "0")
         with mock.patch(
-            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+            "tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
         ):
             _handle_stop({})
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
@@ -404,7 +404,7 @@ class TestStop:
         # Set start_line past all entries (3 lines in fixture)
         state.set("trace_start_line", "3")
         with mock.patch(
-            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+            "tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
         ):
             _handle_stop({})
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
@@ -418,7 +418,7 @@ class TestStop:
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "test")
         state.set("trace_start_line", "0")
-        with mock.patch("claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=None):
+        with mock.patch("tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=None):
             _handle_stop({})
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
@@ -432,7 +432,7 @@ class TestStop:
         state.set("current_trace_prompt", "fix the bug")
         state.set("trace_start_line", "0")
         with mock.patch(
-            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+            "tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
         ):
             _handle_stop({})
         assert state.get("current_trace_id") is None
@@ -449,7 +449,7 @@ class TestStop:
         state.set("current_trace_prompt", "test")
         state.set("trace_count", "5")
         state.set("trace_start_line", "0")
-        with mock.patch("claude_code_tracing.hooks.handlers.gc_stale_state_files") as gc_mock:
+        with mock.patch("tracing.claude_code.hooks.handlers.gc_stale_state_files") as gc_mock:
             _handle_stop({})
             gc_mock.assert_called_once()
 
@@ -461,7 +461,7 @@ class TestStop:
         state.set("current_trace_prompt", "test")
         state.set("trace_count", "3")
         state.set("trace_start_line", "0")
-        with mock.patch("claude_code_tracing.hooks.handlers.gc_stale_state_files") as gc_mock:
+        with mock.patch("tracing.claude_code.hooks.handlers.gc_stale_state_files") as gc_mock:
             _handle_stop({})
             gc_mock.assert_not_called()
 
@@ -478,7 +478,7 @@ class TestStop:
         state.set("current_trace_prompt", "fix the bug")
         state.set("trace_start_line", "0")
         with mock.patch(
-            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+            "tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
         ):
             _handle_stop({})
 
@@ -501,7 +501,7 @@ class TestStop:
         state.set("current_trace_span_id", "s" * 16)
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "test")
-        with mock.patch("claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=None):
+        with mock.patch("tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=None):
             _handle_stop({"last_assistant_message": "hello world"})
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
@@ -514,7 +514,7 @@ class TestStop:
         state.set("current_trace_span_id", "s" * 16)
         state.set("current_trace_start_time", "1000")
         state.set("current_trace_prompt", "test")
-        with mock.patch("claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=None):
+        with mock.patch("tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=None):
             _handle_stop({})
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
@@ -530,7 +530,7 @@ class TestStop:
         state.set("current_trace_prompt", "test")
         state.set("trace_start_line", "0")
         with mock.patch(
-            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+            "tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
         ):
             _handle_stop({"last_assistant_message": "overridden text"})
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
@@ -551,7 +551,7 @@ class TestStop:
         state.set("current_trace_prompt", "test")
         state.set("trace_start_line", "0")
         with mock.patch(
-            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+            "tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
         ):
             _handle_stop({})
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
@@ -722,7 +722,7 @@ class TestSubagentStop:
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
         with mock.patch(
-            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+            "tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
         ):
             _handle_subagent_stop(
                 {
@@ -749,7 +749,7 @@ class TestSubagentStop:
         mock_stat.st_mode = real_stat.st_mode
 
         with mock.patch(
-            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+            "tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
         ):
             with mock.patch.object(Path, "stat", return_value=mock_stat):
                 _handle_subagent_stop(
@@ -778,7 +778,7 @@ class TestSubagentStop:
             st_ctime = 1600000.0
 
         with mock.patch(
-            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+            "tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
         ):
             with mock.patch.object(Path, "stat", return_value=FakeStat()):
                 _handle_subagent_stop(
@@ -801,7 +801,7 @@ class TestSubagentStop:
         """Regression: output.value is always set, even when empty (was conditional)."""
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
-        with mock.patch("claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=None):
+        with mock.patch("tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=None):
             _handle_subagent_stop(
                 {
                     "agent_type": "explorer",
@@ -861,7 +861,7 @@ class TestSubagentStop:
         """SubagentStop prefers last_assistant_message from input when present."""
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
-        with mock.patch("claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=None):
+        with mock.patch("tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=None):
             _handle_subagent_stop(
                 {
                     "agent_type": "explorer",
@@ -881,7 +881,7 @@ class TestSubagentStop:
         state.set("current_trace_id", "t" * 32)
         state.set("current_trace_span_id", "s" * 16)
         with mock.patch(
-            "claude_code_tracing.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
+            "tracing.claude_code.hooks.handlers.resolve_transcript_path", return_value=Path(transcript_file)
         ):
             _handle_subagent_stop(
                 {
@@ -1031,7 +1031,7 @@ class TestPermissionRequest:
     def test_logs_debug_input(self, mock_resolve, state, captured_spans):
         """Logs debug input via log()."""
         state.set("current_trace_id", "t" * 32)
-        with mock.patch("claude_code_tracing.hooks.handlers.log") as log_mock:
+        with mock.patch("tracing.claude_code.hooks.handlers.log") as log_mock:
             _handle_permission_request({"permission": "deny", "tool_name": "Edit"})
         log_mock.assert_called_once()
         assert "permission_request" in log_mock.call_args[0][0]
@@ -1054,8 +1054,8 @@ class TestSessionEnd:
         state.set("trace_count", "10")
         state.set("tool_count", "25")
         with (
-            mock.patch("claude_code_tracing.hooks.handlers.error") as err_mock,
-            mock.patch("claude_code_tracing.hooks.handlers.gc_stale_state_files"),
+            mock.patch("tracing.claude_code.hooks.handlers.error") as err_mock,
+            mock.patch("tracing.claude_code.hooks.handlers.gc_stale_state_files"),
         ):
             _handle_session_end({})
         calls = [c[0][0] for c in err_mock.call_args_list]
@@ -1066,8 +1066,8 @@ class TestSessionEnd:
         """Removes state file and lock dir."""
         assert state.state_file.exists()
         with (
-            mock.patch("claude_code_tracing.hooks.handlers.error"),
-            mock.patch("claude_code_tracing.hooks.handlers.gc_stale_state_files"),
+            mock.patch("tracing.claude_code.hooks.handlers.error"),
+            mock.patch("tracing.claude_code.hooks.handlers.gc_stale_state_files"),
         ):
             _handle_session_end({})
         assert not state.state_file.exists()
@@ -1075,8 +1075,8 @@ class TestSessionEnd:
     def test_calls_gc(self, mock_resolve, state):
         """Calls gc_stale_state_files."""
         with (
-            mock.patch("claude_code_tracing.hooks.handlers.error"),
-            mock.patch("claude_code_tracing.hooks.handlers.gc_stale_state_files") as gc_mock,
+            mock.patch("tracing.claude_code.hooks.handlers.error"),
+            mock.patch("tracing.claude_code.hooks.handlers.gc_stale_state_files") as gc_mock,
         ):
             _handle_session_end({})
         gc_mock.assert_called_once()
@@ -1085,9 +1085,9 @@ class TestSessionEnd:
         """Returns early when session_id is None."""
         state.delete("session_id")
         with (
-            mock.patch("claude_code_tracing.hooks.handlers.resolve_session", return_value=state),
-            mock.patch("claude_code_tracing.hooks.handlers.error") as err_mock,
-            mock.patch("claude_code_tracing.hooks.handlers.gc_stale_state_files") as gc_mock,
+            mock.patch("tracing.claude_code.hooks.handlers.resolve_session", return_value=state),
+            mock.patch("tracing.claude_code.hooks.handlers.error") as err_mock,
+            mock.patch("tracing.claude_code.hooks.handlers.gc_stale_state_files") as gc_mock,
         ):
             _handle_session_end({})
         err_mock.assert_not_called()
@@ -1105,9 +1105,9 @@ class TestErrorHandling:
         """Exception in _handle_session_start → entry point catches, calls error()."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("claude_code_tracing.hooks.handlers._read_stdin", return_value={}),
-            mock.patch("claude_code_tracing.hooks.handlers.check_requirements", return_value=True),
-            mock.patch("claude_code_tracing.hooks.handlers._handle_session_start", side_effect=RuntimeError("boom")),
+            mock.patch("tracing.claude_code.hooks.handlers._read_stdin", return_value={}),
+            mock.patch("tracing.claude_code.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.claude_code.hooks.handlers._handle_session_start", side_effect=RuntimeError("boom")),
         ):
             session_start()
         captured = capsys.readouterr()
@@ -1117,10 +1117,10 @@ class TestErrorHandling:
         """Malformed stdin JSON in entry point doesn't crash."""
         monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
         with (
-            mock.patch("claude_code_tracing.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.claude_code.hooks.handlers.check_requirements", return_value=True),
             mock.patch.object(sys, "stdin", new=__import__("io").StringIO("not valid json")),
-            mock.patch("claude_code_tracing.hooks.handlers.resolve_session") as rs,
-            mock.patch("claude_code_tracing.hooks.handlers.ensure_session_initialized"),
+            mock.patch("tracing.claude_code.hooks.handlers.resolve_session") as rs,
+            mock.patch("tracing.claude_code.hooks.handlers.ensure_session_initialized"),
         ):
             session_start()
         # _read_stdin returns {} on invalid JSON, so resolve_session is called with {}
@@ -1152,9 +1152,9 @@ class TestEntryPoints:
         """Entry point calls the corresponding _handle_* with parsed stdin JSON."""
         input_data = {"session_id": "s1"}
         with (
-            mock.patch("claude_code_tracing.hooks.handlers.check_requirements", return_value=True),
-            mock.patch("claude_code_tracing.hooks.handlers._read_stdin", return_value=input_data),
-            mock.patch(f"claude_code_tracing.hooks.handlers.{handler_name}") as handler_mock,
+            mock.patch("tracing.claude_code.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.claude_code.hooks.handlers._read_stdin", return_value=input_data),
+            mock.patch(f"tracing.claude_code.hooks.handlers.{handler_name}") as handler_mock,
         ):
             entry_fn()
         handler_mock.assert_called_once_with(input_data)
@@ -1163,8 +1163,8 @@ class TestEntryPoints:
     def test_requirements_not_met_skips_handler(self, name, entry_fn, handler_name):
         """When check_requirements returns False, handler is NOT called."""
         with (
-            mock.patch("claude_code_tracing.hooks.handlers.check_requirements", return_value=False),
-            mock.patch(f"claude_code_tracing.hooks.handlers.{handler_name}") as handler_mock,
+            mock.patch("tracing.claude_code.hooks.handlers.check_requirements", return_value=False),
+            mock.patch(f"tracing.claude_code.hooks.handlers.{handler_name}") as handler_mock,
         ):
             entry_fn()
         handler_mock.assert_not_called()
@@ -1173,9 +1173,9 @@ class TestEntryPoints:
     def test_exception_caught_and_logged(self, name, entry_fn, handler_name, capsys):
         """Handler exception is caught; error is logged to stderr, no raise."""
         with (
-            mock.patch("claude_code_tracing.hooks.handlers.check_requirements", return_value=True),
-            mock.patch("claude_code_tracing.hooks.handlers._read_stdin", return_value={}),
-            mock.patch(f"claude_code_tracing.hooks.handlers.{handler_name}", side_effect=RuntimeError("test-boom")),
+            mock.patch("tracing.claude_code.hooks.handlers.check_requirements", return_value=True),
+            mock.patch("tracing.claude_code.hooks.handlers._read_stdin", return_value={}),
+            mock.patch(f"tracing.claude_code.hooks.handlers.{handler_name}", side_effect=RuntimeError("test-boom")),
         ):
             entry_fn()  # should not raise
         captured = capsys.readouterr()

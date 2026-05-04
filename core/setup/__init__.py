@@ -503,18 +503,19 @@ def list_installed_harnesses() -> list[str]:
 
 
 def harness_dir(harness: str) -> Path:
-    """Return the absolute path of <install-dir>/<harness>_tracing/.
+    """Return the absolute path of <install-dir>/tracing/<harness>/.
 
-    Prefers ~/.arize/harness/<harness>_tracing, falls back to
-    ~/.arize/harness/plugins/<harness>_tracing (legacy plugin layout).
+    Prefers ~/.arize/harness/tracing/<harness>, falls back to
+    ~/.arize/harness/plugins/tracing/<harness> (legacy plugin layout).
     Also checks the old hyphenated names for backwards compatibility.
     """
-    dir_name = f"{harness.replace('-', '_')}_tracing"
-    primary = INSTALL_DIR / dir_name
+    sub_name = harness.replace("-", "_")
+    # claude-code → claude_code
+    primary = INSTALL_DIR / "tracing" / sub_name
     if primary.is_dir():
         return primary
 
-    legacy = INSTALL_DIR / "plugins" / dir_name
+    legacy = INSTALL_DIR / "plugins" / "tracing" / sub_name
     if legacy.is_dir():
         return legacy
 
@@ -533,7 +534,7 @@ def harness_dir(harness: str) -> Path:
 
 
 def symlink_skills(harness: str, target_dir: Path | None = None) -> None:
-    """Symlink <install-dir>/<harness>_tracing/skills/* into target_dir/.agents/skills/.
+    """Symlink <install-dir>/tracing/<harness>/skills/* into target_dir/.agents/skills/.
 
     target_dir defaults to the current working directory. Idempotent (skip
     existing links pointing at the right target). Does nothing if the harness

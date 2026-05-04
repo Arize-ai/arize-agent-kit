@@ -18,24 +18,24 @@ REPO_ROOT = Path(__file__).parent.parent
 
 # --- Fixtures ---
 
-HARNESS_DIRS = ["claude_code_tracing", "codex_tracing", "cursor_tracing"]
+HARNESS_DIRS = ["tracing/claude_code", "tracing/codex", "tracing/cursor"]
 
 EXPECTED_ENTRY_POINTS = {
-    "arize-codex-buffer": "codex_tracing.codex_buffer_ctl:main",
+    "arize-codex-buffer": "tracing.codex.codex_buffer_ctl:main",
     "arize-config": "core.config:main",
-    "arize-hook-session-start": "claude_code_tracing.hooks.handlers:session_start",
-    "arize-hook-pre-tool-use": "claude_code_tracing.hooks.handlers:pre_tool_use",
-    "arize-hook-post-tool-use": "claude_code_tracing.hooks.handlers:post_tool_use",
-    "arize-hook-user-prompt-submit": "claude_code_tracing.hooks.handlers:user_prompt_submit",
-    "arize-hook-stop": "claude_code_tracing.hooks.handlers:stop",
-    "arize-hook-subagent-stop": "claude_code_tracing.hooks.handlers:subagent_stop",
-    "arize-hook-stop-failure": "claude_code_tracing.hooks.handlers:stop_failure",
-    "arize-hook-notification": "claude_code_tracing.hooks.handlers:notification",
-    "arize-hook-permission-request": "claude_code_tracing.hooks.handlers:permission_request",
-    "arize-hook-session-end": "claude_code_tracing.hooks.handlers:session_end",
-    "arize-hook-codex-notify": "codex_tracing.hooks.handlers:notify",
-    "arize-codex-proxy": "codex_tracing.hooks.proxy:main",
-    "arize-hook-cursor": "cursor_tracing.hooks.handlers:main",
+    "arize-hook-session-start": "tracing.claude_code.hooks.handlers:session_start",
+    "arize-hook-pre-tool-use": "tracing.claude_code.hooks.handlers:pre_tool_use",
+    "arize-hook-post-tool-use": "tracing.claude_code.hooks.handlers:post_tool_use",
+    "arize-hook-user-prompt-submit": "tracing.claude_code.hooks.handlers:user_prompt_submit",
+    "arize-hook-stop": "tracing.claude_code.hooks.handlers:stop",
+    "arize-hook-subagent-stop": "tracing.claude_code.hooks.handlers:subagent_stop",
+    "arize-hook-stop-failure": "tracing.claude_code.hooks.handlers:stop_failure",
+    "arize-hook-notification": "tracing.claude_code.hooks.handlers:notification",
+    "arize-hook-permission-request": "tracing.claude_code.hooks.handlers:permission_request",
+    "arize-hook-session-end": "tracing.claude_code.hooks.handlers:session_end",
+    "arize-hook-codex-notify": "tracing.codex.hooks.handlers:notify",
+    "arize-codex-proxy": "tracing.codex.hooks.proxy:main",
+    "arize-hook-cursor": "tracing.cursor.hooks.handlers:main",
 }
 
 
@@ -86,11 +86,11 @@ def _collect_json_files():
 
 
 class TestPluginJson:
-    """Tests for claude_code_tracing/.claude-plugin/plugin.json."""
+    """Tests for tracing.claude_code/.claude-plugin/plugin.json."""
 
     @pytest.fixture
     def plugin_data(self):
-        path = REPO_ROOT / "claude_code_tracing" / ".claude-plugin" / "plugin.json"
+        path = REPO_ROOT / "tracing" / "claude_code" / ".claude-plugin" / "plugin.json"
         with open(path) as f:
             return json.load(f)
 
@@ -116,11 +116,11 @@ class TestPluginJson:
 
 
 class TestHooksJson:
-    """Tests for claude_code_tracing/hooks/hooks.json."""
+    """Tests for tracing.claude_code/hooks/hooks.json."""
 
     @pytest.fixture
     def hooks_data(self):
-        path = REPO_ROOT / "claude_code_tracing" / "hooks" / "hooks.json"
+        path = REPO_ROOT / "tracing" / "claude_code" / "hooks" / "hooks.json"
         with open(path) as f:
             return json.load(f)
 
@@ -211,26 +211,26 @@ class TestHooksJson:
 
 
 class TestRunHookScript:
-    """Tests for claude_code_tracing/scripts/run-hook."""
+    """Tests for tracing.claude_code/scripts/run-hook."""
 
     def test_run_hook_exists(self):
-        path = REPO_ROOT / "claude_code_tracing" / "scripts" / "run-hook"
+        path = REPO_ROOT / "tracing" / "claude_code" / "scripts" / "run-hook"
         assert path.is_file(), "scripts/run-hook must exist"
 
     def test_run_hook_is_executable(self):
         import os
 
-        path = REPO_ROOT / "claude_code_tracing" / "scripts" / "run-hook"
+        path = REPO_ROOT / "tracing" / "claude_code" / "scripts" / "run-hook"
         assert os.access(path, os.X_OK), "scripts/run-hook must be executable"
 
     def test_run_hook_has_sh_shebang(self):
-        path = REPO_ROOT / "claude_code_tracing" / "scripts" / "run-hook"
+        path = REPO_ROOT / "tracing" / "claude_code" / "scripts" / "run-hook"
         first_line = path.read_text().splitlines()[0]
         assert first_line.startswith("#!/bin/sh"), f"Expected sh shebang, got: {first_line}"
 
     def test_run_hook_references_plugin_vars(self):
         """run-hook must use CLAUDE_PLUGIN_ROOT and CLAUDE_PLUGIN_DATA."""
-        text = (REPO_ROOT / "claude_code_tracing" / "scripts" / "run-hook").read_text()
+        text = (REPO_ROOT / "tracing" / "claude_code" / "scripts" / "run-hook").read_text()
         assert "CLAUDE_PLUGIN_ROOT" in text
         assert "CLAUDE_PLUGIN_DATA" in text
 
@@ -351,21 +351,21 @@ class TestDocumentationConsistency:
 
     def test_cursor_skill_references_cli_entry_points(self):
         """Cursor SKILL.md should use CLI entry points for hooks."""
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
+        skill = (REPO_ROOT / "tracing" / "cursor" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
         assert "arize-hook-cursor" in skill
         assert "send_span()" in skill
         assert "hook-handler.sh" not in skill
 
     def test_codex_skill_references_cli_entry_points(self):
         """Codex SKILL.md should use CLI entry points."""
-        skill = (REPO_ROOT / "codex_tracing" / "skills" / "manage-codex-tracing" / "SKILL.md").read_text()
+        skill = (REPO_ROOT / "tracing" / "codex" / "skills" / "manage-codex-tracing" / "SKILL.md").read_text()
         assert "arize-hook-codex-notify" in skill
         assert "arize-codex-buffer" in skill
         assert "notify.sh" not in skill
 
     def test_claude_skill_references_cli_entry_points(self):
         """Claude SKILL.md should use CLI entry points."""
-        skill = (REPO_ROOT / "claude_code_tracing" / "skills" / "manage-claude-code-tracing" / "SKILL.md").read_text()
+        skill = (REPO_ROOT / "tracing" / "claude_code" / "skills" / "manage-claude-code-tracing" / "SKILL.md").read_text()
         assert "send_span()" in skill
         assert "collector_ctl.sh" not in skill
 
@@ -378,7 +378,7 @@ class TestCodexHookReference:
 
     def test_codex_skill_notify_command(self):
         """Codex SKILL.md notify hook should use the CLI entry point."""
-        skill = (REPO_ROOT / "codex_tracing" / "skills" / "manage-codex-tracing" / "SKILL.md").read_text()
+        skill = (REPO_ROOT / "tracing" / "codex" / "skills" / "manage-codex-tracing" / "SKILL.md").read_text()
         assert "arize-hook-codex-notify" in skill
 
 
@@ -390,7 +390,7 @@ class TestCursorHookReference:
 
     def test_cursor_skill_hook_command(self):
         """Cursor SKILL.md should show arize-hook-cursor for all 12 events."""
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
+        skill = (REPO_ROOT / "tracing" / "cursor" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
         # All events should reference the same entry point
         events = [
             "beforeSubmitPrompt",

@@ -11,7 +11,7 @@ import json
 import sys
 from pathlib import Path
 
-from copilot_tracing.hooks.adapter import (
+from tracing.copilot.hooks.adapter import (
     SCOPE_NAME,
     SERVICE_NAME,
     check_requirements,
