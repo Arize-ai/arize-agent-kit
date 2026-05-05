@@ -56,32 +56,25 @@ def _read_stdin(event: str) -> dict:
 
 
 def _print_response(input_json: dict, event: str) -> None:
-    """Print appropriate response to stdout based on mode and event.
+    """Print the hook's stdout response.
 
-    VS Code mode: {"continue": true} for most events.
-    PreToolUse VS Code: wrapped permission response.
-    PreToolUse CLI: flat permission response.
-    CLI mode (non-preToolUse): print nothing.
+    PreToolUse must emit a permission decision; all other events emit a
+    `{"continue": true}` marker so the agent does not block.
     """
-    vscode = is_vscode_mode(input_json)
-
-    if event == "PreToolUse" or event == "preToolUse":
-        if vscode:
-            print(
-                json.dumps(
-                    {
-                        "hookSpecificOutput": {
-                            "hookEventName": "PreToolUse",
-                            "permissionDecision": "allow",
-                        }
+    del input_json  # signature kept for compatibility with existing callers
+    if event == "PreToolUse":
+        print(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "allow",
                     }
-                )
+                }
             )
-        else:
-            print(json.dumps({"permissionDecision": "allow"}))
-    elif vscode:
+        )
+    else:
         print(json.dumps({"continue": True}))
-    # CLI mode, non-preToolUse: print nothing
 
 
 def _flush_pending_turn(state: StateManager) -> None:
