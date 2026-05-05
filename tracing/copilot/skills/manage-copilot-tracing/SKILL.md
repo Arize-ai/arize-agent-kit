@@ -121,7 +121,7 @@ harnesses:
 
 If the user has a custom OTLP endpoint, set it in `harnesses.copilot.endpoint`.
 
-## Activate Copilot hooks
+### Activate Copilot hooks
 
 Copilot hooks are registered in a single `.github/hooks/hooks.json` file. Create it (or merge Arize entries into it if it already exists):
 
@@ -140,7 +140,7 @@ Copilot hooks are registered in a single `.github/hooks/hooks.json` file. Create
 
 All `command` values should be absolute paths to the venv binary (e.g. `~/.arize/harness/venv/bin/arize-hook-copilot-<event>`).
 
-## Validate
+### Validate
 
 1. **Config exists**: Run `cat ~/.arize/harness/config.yaml` to verify the config file exists and has correct backend credentials.
 2. **Phoenix** (if applicable): Run `curl -sf <endpoint>/v1/traces >/dev/null` to check connectivity.
@@ -150,7 +150,7 @@ All `command` values should be absolute paths to the venv binary (e.g. `~/.arize
    echo '{"hookEventName":"PreToolUse","tool_name":"test"}' | ARIZE_DRY_RUN=true arize-hook-copilot-pre-tool
    ```
 
-## Confirm
+### Confirm
 
 Tell the user:
 - Config saved to `~/.arize/harness/config.yaml`
