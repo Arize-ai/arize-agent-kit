@@ -50,8 +50,6 @@ EXPECTED_HARNESS_ENTRY_POINTS = {
     "arize-hook-copilot-pre-tool": "tracing.copilot.hooks.handlers:pre_tool_use",
     "arize-hook-copilot-post-tool": "tracing.copilot.hooks.handlers:post_tool_use",
     "arize-hook-copilot-stop": "tracing.copilot.hooks.handlers:stop",
-    "arize-hook-copilot-error": "tracing.copilot.hooks.handlers:error_occurred",
-    "arize-hook-copilot-session-end": "tracing.copilot.hooks.handlers:session_end",
     "arize-hook-copilot-subagent-stop": "tracing.copilot.hooks.handlers:subagent_stop",
     # Gemini hooks
     "arize-hook-gemini-session-start": "tracing.gemini.hooks.handlers:session_start",
@@ -127,7 +125,7 @@ class TestPyprojectEntryPointsUpdated:
         assert "core.codex_buffer_ctl" not in self.pyproject_text
 
     def test_total_entry_point_count(self):
-        """Should have exactly 27 entry points (23 harness + 4 setup + arize-config)."""
+        """Entry point count should match expected harness + setup + arize-config."""
         expected_count = (
             len(EXPECTED_HARNESS_ENTRY_POINTS) + len(EXPECTED_SETUP_ENTRY_POINTS) + 1
         )  # +1 for arize-config

@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""Copilot adapter — dual-mode session resolution (VS Code + CLI), initialization, and GC.
+"""Copilot adapter — single-mode session resolution, initialization, and GC.
 
-Supports two modes:
-- VS Code Copilot: uses sessionId from payload for session keys
-- Copilot CLI: uses PID-based session keys (grandparent PID, like Claude)
-
-Mode is auto-detected by checking for VS Code-specific fields in the hook payload.
+The Copilot hook payload schema is unified across VS Code Copilot Chat and
+`gh copilot` CLI: snake_case fields with a top-level `session_id`. We use
+that as the session key directly.
 """
 import os
 import platform
@@ -22,14 +20,6 @@ STATE_DIR = STATE_BASE_DIR / _HARNESS["state_subdir"]  # ~/.arize/harness/state/
 
 # Route hook stderr to a per-harness log file unless the user already set one.
 os.environ.setdefault("ARIZE_LOG_FILE", str(_HARNESS["default_log_file"]))
-
-
-def is_vscode_mode(input_json: dict) -> bool:
-    """Detect VS Code Copilot by presence of sessionId or hookEventName.
-
-    VS Code Copilot hooks always include these base fields. Copilot CLI does not.
-    """
-    return bool(input_json.get("sessionId") or input_json.get("hookEventName"))
 
 
 def _get_grandparent_pid() -> str:
@@ -105,16 +95,11 @@ def _is_pid_alive(pid: int) -> bool:
 def resolve_session(input_json: dict) -> StateManager:
     """Resolve the per-session state file from hook input JSON.
 
-    Dual-mode session key resolution:
-    1. VS Code mode: use sessionId from the payload directly
-    2. CLI mode: use grandparent PID (same approach as Claude adapter)
-
-    Returns a StateManager instance with state_file and lock_path set.
-    Calls init_state() to ensure the file exists.
+    The hook payload always carries `session_id` (snake_case). Use it directly.
+    Defensive fallback to grandparent PID when the payload is malformed.
     """
-    if is_vscode_mode(input_json):
-        session_key = input_json["sessionId"]
-    else:
+    session_key = input_json.get("session_id") or ""
+    if not session_key:
         if platform.system() == "Windows":
             session_key = str(os.getppid())
         else:
@@ -133,27 +118,22 @@ def resolve_session(input_json: dict) -> StateManager:
 
 
 def ensure_session_initialized(state: StateManager, input_json: dict) -> None:
-    """Idempotent session initialization. No-op if session_id already in state.
+    """Idempotent session init. No-op if session_id already in state.
 
-    Sets the following state keys:
-    - session_id: from input_json sessionId (VS Code) or generate_trace_id()
-    - session_start_time: get_timestamp_ms() as string
-    - project_name: from ARIZE_PROJECT_NAME env, or basename of input_json["cwd"], or cwd
-    - trace_count: "0"
-    - tool_count: "0"
-    - user_id: from env.user_id, then ""
+    State keys set:
+      session_id          -- input_json["session_id"] (always populated by Copilot)
+      session_start_time  -- get_timestamp_ms() as string
+      project_name        -- env.project_name, else basename(input_json["cwd"]),
+                             else basename(getcwd())
+      trace_count         -- "0"
+      tool_count          -- "0"
+      user_id             -- env.user_id (Copilot does not pass user_id in payload)
     """
-    # Skip if already initialized
-    existing = state.get("session_id")
-    if existing is not None:
+    if state.get("session_id") is not None:
         return
 
-    # session_id: prefer sessionId from VS Code payload, else generate
-    session_id = input_json.get("sessionId", "")
-    if not session_id:
-        session_id = generate_trace_id()
+    session_id = input_json.get("session_id", "") or generate_trace_id()
 
-    # project_name
     project_name = env.project_name
     if not project_name:
         cwd = input_json.get("cwd", "")
@@ -164,10 +144,7 @@ def ensure_session_initialized(state: StateManager, input_json: dict) -> None:
     state.set("project_name", project_name)
     state.set("trace_count", "0")
     state.set("tool_count", "0")
-
-    # user_id from env (Copilot hooks don't pass user_id in payload)
-    user_id = env.user_id
-    state.set("user_id", user_id)
+    state.set("user_id", env.user_id)
 
     log(f"Session initialized: {session_id}")
 
