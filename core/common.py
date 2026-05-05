@@ -40,7 +40,12 @@ class _Env:
 
     @property
     def user_id(self) -> str:
-        return os.environ.get("ARIZE_USER_ID", "")
+        # env var > config.yaml top-level `user_id` > ""
+        raw = os.environ.get("ARIZE_USER_ID")
+        if raw is not None:
+            return raw
+        val = self._top_level_config.get("user_id")
+        return str(val) if val else ""
 
     @property
     def verbose(self) -> bool:
@@ -74,6 +79,17 @@ class _Env:
     @property
     def space_id(self) -> str:
         return os.environ.get("ARIZE_SPACE_ID", "")
+
+    @functools.cached_property
+    def _top_level_config(self) -> dict:
+        """Full top-level config.yaml mapping. Loaded once per process."""
+        try:
+            from core.config import load_config
+
+            data = load_config()
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
 
     @functools.cached_property
     def _logging_config(self) -> dict:
