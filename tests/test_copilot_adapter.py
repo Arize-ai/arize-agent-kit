@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for tracing.copilot.hooks.adapter — dual-mode session resolution, init, GC, requirements."""
+"""Tests for tracing.copilot.hooks.adapter — single-mode session resolution, init, GC, requirements."""
 import os
 import subprocess
 from unittest.mock import mock_open, patch
@@ -30,7 +30,7 @@ def disable_env_vars(monkeypatch):
     monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
 
 
-# ── is_vscode_mode tests ────────────────────────────────────────────────────
+# ── is_vscode_mode tests (kept — function still present) ─────────────────────
 
 
 class TestIsVscodeMode:
@@ -59,41 +59,58 @@ class TestIsVscodeMode:
 
 
 class TestResolveSession:
-    def test_vscode_uses_session_id(self, copilot_state_dir, disable_env_vars):
-        """VS Code mode: sessionId from payload used as state file key."""
-        sm = adapter.resolve_session({"sessionId": "vscode-sess-42", "hookEventName": "SessionStart"})
-        assert sm.state_file == copilot_state_dir / "state_vscode-sess-42.yaml"
+    def test_snake_case_session_id_used_as_key(self, copilot_state_dir, disable_env_vars):
+        """session_id from payload used as state file key."""
+        sm = adapter.resolve_session({"session_id": "sess-42", "hook_event_name": "SessionStart"})
+        assert sm.state_file == copilot_state_dir / "state_sess-42.yaml"
         assert sm.state_file.exists()
 
-    def test_cli_uses_pid(self, copilot_state_dir, disable_env_vars, monkeypatch):
-        """CLI mode: falls back to PID-based key when no VS Code fields."""
+    def test_fallback_to_pid_when_no_session_id(self, copilot_state_dir, disable_env_vars, monkeypatch):
+        """Falls back to PID-based key when session_id absent."""
         monkeypatch.setattr(adapter, "_get_grandparent_pid", lambda: "54321")
-        sm = adapter.resolve_session({"prompt": "hello"})
+        sm = adapter.resolve_session({"cwd": "/tmp/project"})
         assert sm.state_file == copilot_state_dir / "state_54321.yaml"
+
+    def test_fallback_to_pid_when_session_id_empty(self, copilot_state_dir, disable_env_vars, monkeypatch):
+        """Falls back to PID-based key when session_id is empty string."""
+        monkeypatch.setattr(adapter, "_get_grandparent_pid", lambda: "11111")
+        sm = adapter.resolve_session({"session_id": "", "cwd": "/tmp/project"})
+        assert sm.state_file == copilot_state_dir / "state_11111.yaml"
 
     def test_init_state_called(self, copilot_state_dir, disable_env_vars):
         """Returned StateManager has init_state() called (file exists with {})."""
-        sm = adapter.resolve_session({"sessionId": "test-init", "hookEventName": "SessionStart"})
+        sm = adapter.resolve_session({"session_id": "test-init", "hook_event_name": "SessionStart"})
         assert sm.state_file.exists()
         data = yaml.safe_load(sm.state_file.read_text())
         assert data == {}
 
     def test_same_input_same_file(self, copilot_state_dir, disable_env_vars):
         """Calling resolve_session twice with same input returns same file path."""
-        inp = {"sessionId": "stable", "hookEventName": "Stop"}
+        inp = {"session_id": "stable", "hook_event_name": "Stop"}
         sm1 = adapter.resolve_session(inp)
         sm2 = adapter.resolve_session(inp)
         assert sm1.state_file == sm2.state_file
 
-    def test_vscode_session_id_required(self, copilot_state_dir, disable_env_vars):
-        """VS Code mode requires sessionId in payload (hookEventName alone triggers vscode mode)."""
-        # hookEventName present but no sessionId — is_vscode_mode returns True,
-        # but sessionId key is missing; should raise KeyError or use hookEventName path
-        # Actually: hookEventName triggers vscode mode, sessionId must be there
-        # This tests the expected behavior when only hookEventName present
-        inp = {"hookEventName": "SessionStart", "sessionId": "from-event"}
-        sm = adapter.resolve_session(inp)
-        assert sm.state_file == copilot_state_dir / "state_from-event.yaml"
+    def test_uuid_session_id(self, copilot_state_dir, disable_env_vars):
+        """UUID-style session_id (as seen in real payloads) works correctly."""
+        uuid = "d4870649-2f69-472d-96a2-599e55ab13f0"
+        sm = adapter.resolve_session({"session_id": uuid, "hook_event_name": "SessionStart"})
+        assert sm.state_file == copilot_state_dir / f"state_{uuid}.yaml"
+        assert sm.state_file.exists()
+
+    def test_windows_fallback_uses_ppid(self, copilot_state_dir, disable_env_vars, monkeypatch):
+        """On Windows, falls back to os.getppid() when no session_id."""
+        monkeypatch.setattr("platform.system", lambda: "Windows")
+        monkeypatch.setattr(os, "getppid", lambda: 12345)
+        sm = adapter.resolve_session({"cwd": "/tmp/project"})
+        assert sm.state_file == copilot_state_dir / "state_12345.yaml"
+
+    def test_camel_case_session_id_not_used(self, copilot_state_dir, disable_env_vars, monkeypatch):
+        """Old camelCase sessionId is NOT recognized — triggers PID fallback."""
+        monkeypatch.setattr(adapter, "_get_grandparent_pid", lambda: "77777")
+        sm = adapter.resolve_session({"sessionId": "camel-case-id", "hookEventName": "SessionStart"})
+        # Should NOT use "camel-case-id"; should fall back to PID
+        assert sm.state_file == copilot_state_dir / "state_77777.yaml"
 
 
 # ── ensure_session_initialized tests ─────────────────────────────────────────
@@ -112,7 +129,7 @@ class TestEnsureSessionInitialized:
     def test_sets_all_keys(self, copilot_state_dir, disable_env_vars):
         """First call sets all expected keys."""
         sm = self._make_state(copilot_state_dir, "all-keys")
-        adapter.ensure_session_initialized(sm, {"sessionId": "sid-1"})
+        adapter.ensure_session_initialized(sm, {"session_id": "sid-1"})
         assert sm.get("session_id") == "sid-1"
         assert sm.get("session_start_time") is not None
         assert sm.get("project_name") is not None
@@ -123,26 +140,44 @@ class TestEnsureSessionInitialized:
     def test_idempotent(self, copilot_state_dir, disable_env_vars):
         """Second call is a no-op — values unchanged."""
         sm = self._make_state(copilot_state_dir, "idempotent")
-        adapter.ensure_session_initialized(sm, {"sessionId": "sid-2"})
+        adapter.ensure_session_initialized(sm, {"session_id": "sid-2"})
         start_time = sm.get("session_start_time")
-        adapter.ensure_session_initialized(sm, {"sessionId": "sid-different"})
+        adapter.ensure_session_initialized(sm, {"session_id": "sid-different"})
         assert sm.get("session_id") == "sid-2"
         assert sm.get("session_start_time") == start_time
 
-    def test_session_id_from_vscode_payload(self, copilot_state_dir, disable_env_vars):
-        """sessionId from VS Code payload is used as session_id."""
-        sm = self._make_state(copilot_state_dir, "from-vscode")
-        adapter.ensure_session_initialized(sm, {"sessionId": "vscode-session"})
-        assert sm.get("session_id") == "vscode-session"
+    def test_session_id_from_snake_case_payload(self, copilot_state_dir, disable_env_vars):
+        """session_id from snake_case payload is used as session_id."""
+        sm = self._make_state(copilot_state_dir, "from-payload")
+        adapter.ensure_session_initialized(sm, {"session_id": "payload-session"})
+        assert sm.get("session_id") == "payload-session"
 
-    def test_session_id_generated_for_cli(self, copilot_state_dir, disable_env_vars):
-        """session_id is generated (32-hex) when not in input (CLI mode)."""
+    def test_session_id_generated_when_missing(self, copilot_state_dir, disable_env_vars):
+        """session_id is generated (32-hex) when not in input."""
         sm = self._make_state(copilot_state_dir, "generated")
-        adapter.ensure_session_initialized(sm, {"prompt": "hello"})
+        adapter.ensure_session_initialized(sm, {"cwd": "/tmp/project"})
         sid = sm.get("session_id")
         assert sid is not None
         assert len(sid) == 32
         int(sid, 16)  # should not raise
+
+    def test_session_id_generated_when_empty(self, copilot_state_dir, disable_env_vars):
+        """session_id is generated when payload has empty string session_id."""
+        sm = self._make_state(copilot_state_dir, "empty-sid")
+        adapter.ensure_session_initialized(sm, {"session_id": ""})
+        sid = sm.get("session_id")
+        assert sid is not None
+        assert len(sid) == 32
+        int(sid, 16)  # should not raise
+
+    def test_camel_case_session_id_not_used(self, copilot_state_dir, disable_env_vars):
+        """Old camelCase sessionId is NOT recognized — generates new ID."""
+        sm = self._make_state(copilot_state_dir, "camel-ignore")
+        adapter.ensure_session_initialized(sm, {"sessionId": "camel-case-id"})
+        sid = sm.get("session_id")
+        assert sid != "camel-case-id"
+        assert len(sid) == 32
+        int(sid, 16)
 
     def test_project_name_from_env(self, copilot_state_dir, monkeypatch):
         """ARIZE_PROJECT_NAME env var takes priority over cwd."""
@@ -159,12 +194,43 @@ class TestEnsureSessionInitialized:
         adapter.ensure_session_initialized(sm, {"cwd": "/home/user/my-project"})
         assert sm.get("project_name") == "my-project"
 
+    def test_project_name_fallback_to_os_cwd(self, copilot_state_dir, disable_env_vars):
+        """project_name falls back to os.getcwd() basename when no cwd in input."""
+        sm = self._make_state(copilot_state_dir, "proj-fallback")
+        adapter.ensure_session_initialized(sm, {})
+        # Should be basename of current working directory
+        assert sm.get("project_name") == os.path.basename(os.getcwd())
+
     def test_counters_start_at_zero(self, copilot_state_dir, disable_env_vars):
         """trace_count and tool_count start at '0'."""
         sm = self._make_state(copilot_state_dir, "counters")
         adapter.ensure_session_initialized(sm, {})
         assert sm.get("trace_count") == "0"
         assert sm.get("tool_count") == "0"
+
+    def test_user_id_from_env(self, copilot_state_dir, monkeypatch):
+        """user_id is taken from env.user_id."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        monkeypatch.setenv("ARIZE_USER_ID", "env-user-42")
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+        sm = self._make_state(copilot_state_dir, "user-env")
+        adapter.ensure_session_initialized(sm, {"session_id": "s1"})
+        assert sm.get("user_id") == "env-user-42"
+
+    def test_full_payload_schema(self, copilot_state_dir, disable_env_vars):
+        """Full verified payload schema (snake_case) works end-to-end."""
+        sm = self._make_state(copilot_state_dir, "full-schema")
+        payload = {
+            "cwd": "/Users/duncan/Documents/code/arize-agent-kit",
+            "hook_event_name": "SessionStart",
+            "session_id": "d4870649-2f69-472d-96a2-599e55ab13f0",
+            "timestamp": "2026-05-04T23:25:33.735Z",
+            "initial_prompt": "fix the bug",
+            "source": "new",
+        }
+        adapter.ensure_session_initialized(sm, payload)
+        assert sm.get("session_id") == "d4870649-2f69-472d-96a2-599e55ab13f0"
+        assert sm.get("project_name") == "arize-agent-kit"
 
 
 # ── gc_stale_state_files tests ───────────────────────────────────────────────
@@ -190,8 +256,8 @@ class TestGcStaleStateFiles:
         assert state_file.exists()
 
     def test_non_numeric_key_kept(self, copilot_state_dir, disable_env_vars):
-        """state file with non-numeric key (VS Code sessionId) is never GC'd."""
-        state_file = copilot_state_dir / "state_vscode-sess-abc123.yaml"
+        """state file with non-numeric key (UUID sessionId) is never GC'd."""
+        state_file = copilot_state_dir / "state_d4870649-2f69-472d-96a2-599e55ab13f0.yaml"
         state_file.write_text("{}")
         adapter.gc_stale_state_files()
         assert state_file.exists()
