@@ -472,26 +472,15 @@ class TestCopilotSkillDecisionTree:
 
 
 class TestCopilotSkillHookEvents:
-    """Skill must document hook events for both VS Code and CLI."""
+    """Skill must document hook events."""
 
     @pytest.fixture(autouse=True)
     def _load(self):
         self.text = SKILL_PATH.read_text()
 
-    def test_vscode_events_documented(self):
-        for event in ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SubagentStop"]:
-            assert event in self.text, f"Missing VS Code event '{event}' in SKILL.md"
-
-    def test_cli_events_documented(self):
-        for event in [
-            "sessionStart",
-            "userPromptSubmitted",
-            "preToolUse",
-            "postToolUse",
-            "errorOccurred",
-            "sessionEnd",
-        ]:
-            assert event in self.text, f"Missing CLI event '{event}' in SKILL.md"
+    def test_hook_events_documented(self):
+        for event in ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SubagentStop"):
+            assert event in self.text, f"Missing event '{event}' in SKILL.md"
 
     def test_pre_tool_permission_response_documented(self):
         """Must document the permission response format."""
