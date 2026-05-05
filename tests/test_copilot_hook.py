@@ -255,26 +255,39 @@ class TestUserPromptSubmitted:
 
 class TestPreToolUse:
 
-    def test_vscode_records_tool_start(self, mock_resolve, state):
-        """VS Code mode records tool_{id}_start in state."""
-        inp = _vscode_base({"tool_use_id": "tool-42", "tool_name": "Bash", "tool_input": {}})
+    def test_records_tool_start_by_tool_use_id(self, mock_resolve, state):
+        """Records tool_{tool_use_id}_start when tool_use_id is present."""
+        inp = {
+            "cwd": "/repo",
+            "hook_event_name": "PreToolUse",
+            "session_id": "sess-1",
+            "tool_use_id": "tool-42",
+            "tool_name": "bash",
+            "tool_input": {"command": "ls"},
+        }
         _handle_pre_tool_use(inp)
         val = state.get("tool_tool-42_start")
         assert val is not None
         assert int(val) > 0
 
-    def test_cli_records_tool_start_by_name(self, mock_resolve, state):
-        """CLI mode uses toolName as the key for start time."""
-        inp = _cli_base({"toolName": "Bash", "toolArgs": '{"command": "ls"}'})
+    def test_records_tool_start_by_tool_name(self, mock_resolve, state):
+        """Falls back to tool_name when tool_use_id is absent."""
+        inp = {
+            "cwd": "/repo",
+            "hook_event_name": "PreToolUse",
+            "session_id": "sess-1",
+            "tool_name": "bash",
+            "tool_input": {"command": "ls"},
+        }
         _handle_pre_tool_use(inp)
-        val = state.get("tool_Bash_start")
+        val = state.get("tool_bash_start")
         assert val is not None
         assert int(val) > 0
 
     def test_missing_tool_id_generates_fallback(self, mock_resolve, state):
-        """Missing tool_use_id generates a fallback ID."""
+        """Missing tool_use_id and tool_name generates a fallback ID."""
         with mock.patch("tracing.copilot.hooks.handlers.generate_trace_id", return_value="gen-id-123"):
-            inp = _vscode_base({})
+            inp = {"cwd": "/repo", "hook_event_name": "PreToolUse", "session_id": "sess-1"}
             _handle_pre_tool_use(inp)
         val = state.get("tool_gen-id-123_start")
         assert val is not None
@@ -287,121 +300,108 @@ class TestPreToolUse:
 
 class TestPostToolUse:
 
-    def test_vscode_builds_tool_span(self, mock_resolve, state, captured_spans):
-        """VS Code mode builds a TOOL span with correct attributes."""
+    def test_emits_bash_tool_span(self, mock_resolve, state, captured_spans):
+        """Builds a TOOL span for bash with command enrichment."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _vscode_base(
-            {
-                "tool_name": "Read",
-                "tool_use_id": "t1",
-                "tool_input": {"file_path": "/foo/bar.py"},
-                "tool_response": "file content",
-            }
-        )
+        inp = {
+            "session_id": "sess-1",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/repo",
+            "tool_name": "bash",
+            "tool_input": {"command": "ls -la", "description": "list"},
+            "tool_result": {"result_type": "success", "text_result_for_llm": "out"},
+        }
         _handle_post_tool_use(inp)
         assert len(captured_spans) == 1
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["openinference.span.kind"]["stringValue"] == "TOOL"
-        assert attrs["tool.name"]["stringValue"] == "Read"
-        assert attrs["tool.file_path"]["stringValue"] == "/foo/bar.py"
-        assert attrs["output.value"]["stringValue"] == "file content"
-
-    def test_cli_builds_tool_span_with_json_args(self, mock_resolve, state, captured_spans):
-        """CLI mode parses toolArgs JSON string and builds TOOL span."""
-        state.set("current_trace_id", "trace-abc")
-        state.set("current_trace_span_id", "span-parent")
-        inp = _cli_base(
-            {
-                "toolName": "Bash",
-                "toolArgs": '{"command": "ls -la"}',
-                "toolResult": {"resultType": "success", "textResultForLlm": "total 42"},
-            }
-        )
-        _handle_post_tool_use(inp)
-        assert len(captured_spans) == 1
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["openinference.span.kind"]["stringValue"] == "TOOL"
-        assert attrs["tool.name"]["stringValue"] == "Bash"
+        assert attrs["tool.name"]["stringValue"] == "bash"
+        assert "ls -la" in attrs["input.value"]["stringValue"]
+        assert attrs["output.value"]["stringValue"] == "out"
         assert attrs["tool.command"]["stringValue"] == "ls -la"
-        assert attrs["output.value"]["stringValue"] == "total 42"
+        assert attrs["tool.description"]["stringValue"] == "ls -la"
         assert attrs["tool.result_type"]["stringValue"] == "success"
 
-    def test_cli_extracts_text_result_for_llm(self, mock_resolve, state, captured_spans):
-        """CLI mode extracts textResultForLlm from nested toolResult."""
+    def test_emits_span_for_unknown_tool(self, mock_resolve, state, captured_spans):
+        """Builds a TOOL span for an unrecognized tool name."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _cli_base(
-            {
-                "toolName": "Read",
-                "toolArgs": '{"file_path": "/foo.py"}',
-                "toolResult": {"resultType": "success", "textResultForLlm": "file contents here"},
-            }
-        )
+        inp = {
+            "session_id": "sess-1",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/repo",
+            "tool_name": "report_intent",
+            "tool_input": {"intent": "checking copilot"},
+            "tool_result": {"result_type": "success", "text_result_for_llm": "ack"},
+        }
+        _handle_post_tool_use(inp)
+        assert len(captured_spans) == 1
+        attrs = _get_span_attrs(captured_spans[0])
+        assert attrs["tool.name"]["stringValue"] == "report_intent"
+        assert attrs["output.value"]["stringValue"] == "ack"
+        assert attrs["tool.description"]["stringValue"]  # non-empty
+
+    def test_extracts_text_result_for_llm(self, mock_resolve, state, captured_spans):
+        """Extracts text_result_for_llm from tool_result."""
+        state.set("current_trace_id", "trace-abc")
+        state.set("current_trace_span_id", "span-parent")
+        inp = {
+            "session_id": "sess-1",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/repo",
+            "tool_name": "read",
+            "tool_input": {"file_path": "/foo.py"},
+            "tool_result": {"result_type": "success", "text_result_for_llm": "file contents here"},
+        }
         _handle_post_tool_use(inp)
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["output.value"]["stringValue"] == "file contents here"
 
-    def test_cli_result_type_attribute(self, mock_resolve, state, captured_spans):
-        """CLI mode sets tool.result_type from toolResult.resultType."""
+    def test_result_type_attribute(self, mock_resolve, state, captured_spans):
+        """Sets tool.result_type from tool_result.result_type."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _cli_base(
-            {
-                "toolName": "Edit",
-                "toolArgs": "{}",
-                "toolResult": {"resultType": "failure", "textResultForLlm": "error"},
-            }
-        )
+        inp = {
+            "session_id": "sess-1",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/repo",
+            "tool_name": "edit",
+            "tool_input": {},
+            "tool_result": {"result_type": "failure", "text_result_for_llm": "error"},
+        }
         _handle_post_tool_use(inp)
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["tool.result_type"]["stringValue"] == "failure"
 
-    def test_vscode_no_result_type(self, mock_resolve, state, captured_spans):
-        """VS Code mode does not set tool.result_type."""
+    def test_no_result_type_when_empty(self, mock_resolve, state, captured_spans):
+        """Does not set tool.result_type when result_type is empty."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _vscode_base(
-            {
-                "tool_name": "Bash",
-                "tool_use_id": "t1",
-                "tool_input": {"command": "echo hi"},
-                "tool_response": "hi",
-            }
-        )
+        inp = {
+            "session_id": "sess-1",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/repo",
+            "tool_name": "bash",
+            "tool_input": {"command": "echo hi"},
+            "tool_result": {"text_result_for_llm": "hi"},
+        }
         _handle_post_tool_use(inp)
         attrs = _get_span_attrs(captured_spans[0])
         assert "tool.result_type" not in attrs
 
-    def test_cli_malformed_tool_args(self, mock_resolve, state, captured_spans):
-        """CLI mode handles malformed toolArgs gracefully."""
+    def test_case_insensitive_bash_enrichment(self, mock_resolve, state, captured_spans):
+        """Bash tool enrichment works regardless of tool name casing."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _cli_base(
-            {
-                "toolName": "CustomTool",
-                "toolArgs": "not valid json",
-                "toolResult": {"textResultForLlm": "result"},
-            }
-        )
-        _handle_post_tool_use(inp)
-        assert len(captured_spans) == 1
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["tool.name"]["stringValue"] == "CustomTool"
-        assert attrs["input.value"]["stringValue"] == "not valid json"
-
-    def test_vscode_bash_tool_description(self, mock_resolve, state, captured_spans):
-        """VS Code Bash tool sets command and description."""
-        state.set("current_trace_id", "trace-abc")
-        state.set("current_trace_span_id", "span-parent")
-        inp = _vscode_base(
-            {
-                "tool_name": "Bash",
-                "tool_use_id": "t1",
-                "tool_input": {"command": "git status"},
-                "tool_response": "clean",
-            }
-        )
+        inp = {
+            "session_id": "sess-1",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/repo",
+            "tool_name": "Bash",
+            "tool_input": {"command": "git status"},
+            "tool_result": {"result_type": "success", "text_result_for_llm": "clean"},
+        }
         _handle_post_tool_use(inp)
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["tool.command"]["stringValue"] == "git status"
@@ -411,39 +411,39 @@ class TestPostToolUse:
         """If session_id is None, returns without sending span."""
         state.delete("session_id")
         with mock.patch("tracing.copilot.hooks.handlers.resolve_session", return_value=state):
-            _handle_post_tool_use(_vscode_base({"tool_name": "Bash", "tool_use_id": "t1"}))
+            _handle_post_tool_use({"tool_name": "bash", "tool_input": {"command": "ls"}})
         assert len(captured_spans) == 0
 
     def test_uses_pre_tool_start_time(self, mock_resolve, state, captured_spans):
         """Timing uses pre_tool_use start time if available in state."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        state.set("tool_t7_start", "1000000")
-        inp = _vscode_base(
-            {
-                "tool_name": "Read",
-                "tool_use_id": "t7",
-                "tool_input": {"file_path": "/a.py"},
-                "tool_response": "content",
-            }
-        )
+        state.set("tool_read_start", "1000000")
+        inp = {
+            "session_id": "sess-1",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/repo",
+            "tool_name": "read",
+            "tool_input": {"file_path": "/a.py"},
+            "tool_result": {"text_result_for_llm": "content"},
+        }
         _handle_post_tool_use(inp)
         span = _get_span(captured_spans[0])
         assert span["startTimeUnixNano"] == "1000000000000"
-        assert state.get("tool_t7_start") is None
+        assert state.get("tool_read_start") is None
 
     def test_grep_tool_enrichment(self, mock_resolve, state, captured_spans):
         """Grep tool sets query, file_path, and description."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _vscode_base(
-            {
-                "tool_name": "Grep",
-                "tool_use_id": "t1",
-                "tool_input": {"pattern": "TODO", "path": "/src"},
-                "tool_response": "matches",
-            }
-        )
+        inp = {
+            "session_id": "sess-1",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/repo",
+            "tool_name": "grep",
+            "tool_input": {"pattern": "TODO", "path": "/src"},
+            "tool_result": {"text_result_for_llm": "matches"},
+        }
         _handle_post_tool_use(inp)
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["tool.query"]["stringValue"] == "TODO"
@@ -451,37 +451,38 @@ class TestPostToolUse:
         assert attrs["tool.description"]["stringValue"].startswith("grep: ")
 
     def test_webfetch_tool_enrichment(self, mock_resolve, state, captured_spans):
-        """WebFetch tool sets url."""
+        """WebFetch tool sets url (case-insensitive match)."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _vscode_base(
-            {
-                "tool_name": "WebFetch",
-                "tool_use_id": "t1",
-                "tool_input": {"url": "https://example.com"},
-                "tool_response": "page",
-            }
-        )
+        inp = {
+            "session_id": "sess-1",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/repo",
+            "tool_name": "WebFetch",
+            "tool_input": {"url": "https://example.com"},
+            "tool_result": {"text_result_for_llm": "page"},
+        }
         _handle_post_tool_use(inp)
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["tool.url"]["stringValue"] == "https://example.com"
 
-    def test_cli_input_value_normalized_like_vscode(self, mock_resolve, state, captured_spans):
-        """CLI mode re-serializes parsed toolArgs so input.value matches VS Code json.dumps format."""
+    def test_read_tool_file_path_enrichment(self, mock_resolve, state, captured_spans):
+        """Read tool sets file_path and description."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        tool_dict = {"file_path": "/foo.py"}
-        inp = _cli_base(
-            {
-                "toolName": "Read",
-                "toolArgs": json.dumps(tool_dict),
-                "toolResult": {"textResultForLlm": "ok"},
-            }
-        )
+        inp = {
+            "session_id": "sess-1",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/repo",
+            "tool_name": "Read",
+            "tool_input": {"file_path": "/foo/bar.py"},
+            "tool_result": {"result_type": "success", "text_result_for_llm": "file content"},
+        }
         _handle_post_tool_use(inp)
         attrs = _get_span_attrs(captured_spans[0])
-        # Should match json.dumps of the parsed dict (same as VS Code mode)
-        assert attrs["input.value"]["stringValue"] == json.dumps(tool_dict)
+        assert attrs["tool.name"]["stringValue"] == "Read"
+        assert attrs["tool.file_path"]["stringValue"] == "/foo/bar.py"
+        assert attrs["output.value"]["stringValue"] == "file content"
 
 
 # ---------------------------------------------------------------------------
@@ -1037,14 +1038,14 @@ class TestProjectNameOnAllSpans:
         """TOOL spans include project.name."""
         state.set("current_trace_id", "trace-abc")
         state.set("current_trace_span_id", "span-parent")
-        inp = _vscode_base(
-            {
-                "tool_name": "Bash",
-                "tool_use_id": "t1",
-                "tool_input": {"command": "ls"},
-                "tool_response": "output",
-            }
-        )
+        inp = {
+            "session_id": "sess-1",
+            "hook_event_name": "PostToolUse",
+            "cwd": "/repo",
+            "tool_name": "bash",
+            "tool_input": {"command": "ls"},
+            "tool_result": {"text_result_for_llm": "output"},
+        }
         _handle_post_tool_use(inp)
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["project.name"]["stringValue"] == "test-copilot-project"

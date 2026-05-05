@@ -197,14 +197,7 @@ def _handle_user_prompt_submitted(input_json: dict) -> None:
 def _handle_pre_tool_use(input_json: dict) -> None:
     """Handle pre_tool_use: record tool start time."""
     state = resolve_session(input_json)
-
-    vscode = is_vscode_mode(input_json)
-    if vscode:
-        tool_id = input_json.get("tool_use_id") or generate_trace_id()
-    else:
-        # CLI: no tool_use_id; use toolName as key fallback
-        tool_id = input_json.get("toolName", "") or generate_trace_id()
-
+    tool_id = input_json.get("tool_use_id") or input_json.get("tool_name", "") or generate_trace_id()
     state.set(f"tool_{tool_id}_start", str(get_timestamp_ms()))
 
 
@@ -219,55 +212,38 @@ def _handle_post_tool_use(input_json: dict) -> None:
     parent_span_id = state.get("current_trace_span_id")
     state.increment("tool_count")
 
-    vscode = is_vscode_mode(input_json)
+    tool_name = input_json.get("tool_name", "unknown")
+    tool_id = input_json.get("tool_use_id") or tool_name or generate_trace_id()
+    tool_input_raw = input_json.get("tool_input") or {}
+    tool_input = json.dumps(tool_input_raw) if isinstance(tool_input_raw, dict) else str(tool_input_raw)
 
-    # Normalize tool info from VS Code or CLI format
-    if vscode:
-        tool_name = input_json.get("tool_name", "unknown")
-        tool_id = input_json.get("tool_use_id", "")
-        tool_input_raw = input_json.get("tool_input", {})
-        tool_input = json.dumps(tool_input_raw) if isinstance(tool_input_raw, dict) else str(tool_input_raw)
-        tool_response = str(input_json.get("tool_response", ""))
-    else:
-        tool_name = input_json.get("toolName", "unknown")
-        tool_id = tool_name  # CLI uses toolName as key (matches pre_tool_use)
-        # toolArgs is a JSON string in CLI mode
-        tool_args_raw = input_json.get("toolArgs", "")
-        if isinstance(tool_args_raw, str):
-            try:
-                tool_input_raw = json.loads(tool_args_raw)
-                tool_input = json.dumps(tool_input_raw)
-            except (json.JSONDecodeError, TypeError):
-                tool_input_raw = {}
-                tool_input = tool_args_raw
-        else:
-            tool_input_raw = tool_args_raw or {}
-            tool_input = json.dumps(tool_input_raw)
-        # toolResult is a nested object with resultType and textResultForLlm
-        tool_result = input_json.get("toolResult", {}) or {}
-        tool_response = str(tool_result.get("textResultForLlm", ""))
+    tool_result_obj = input_json.get("tool_result") or {}
+    tool_response = str(tool_result_obj.get("text_result_for_llm", ""))
+    result_type = tool_result_obj.get("result_type", "")
 
-    # Tool-specific metadata (same enrichment as Claude)
+    # Tool-specific enrichment. Match case-insensitively because Copilot uses
+    # lowercase tool names (`bash`, `read`) where Claude Code uses TitleCase.
     tool_command = ""
     tool_file_path = ""
     tool_url = ""
     tool_query = ""
     tool_description = ""
+    tool_name_lc = tool_name.lower()
 
     if isinstance(tool_input_raw, dict):
-        if tool_name == "Bash":
+        if tool_name_lc == "bash":
             tool_command = tool_input_raw.get("command", "")
             tool_description = tool_command[:200]
-        elif tool_name in ("Read", "Write", "Edit", "Glob"):
+        elif tool_name_lc in ("read", "write", "edit", "glob"):
             tool_file_path = tool_input_raw.get("file_path") or tool_input_raw.get("pattern", "")
             tool_description = tool_file_path[:200]
-        elif tool_name == "WebSearch":
+        elif tool_name_lc == "websearch":
             tool_query = tool_input_raw.get("query", "")
             tool_description = tool_query[:200]
-        elif tool_name == "WebFetch":
+        elif tool_name_lc == "webfetch":
             tool_url = tool_input_raw.get("url", "")
             tool_description = tool_url[:200]
-        elif tool_name == "Grep":
+        elif tool_name_lc == "grep":
             tool_query = tool_input_raw.get("pattern", "")
             tool_file_path = tool_input_raw.get("path", "")
             tool_description = f"grep: {tool_query[:100]}"
@@ -281,8 +257,7 @@ def _handle_post_tool_use(input_json: dict) -> None:
     end_time = str(get_timestamp_ms())
     state.delete(f"tool_{tool_id}_start")
 
-    # Redaction: tool input/output may contain raw file contents or command output;
-    # tool_command/file_path/url/query/description describe what was requested.
+    # Redaction
     tool_input = redact_content(env.log_tool_content, tool_input)
     tool_response = redact_content(env.log_tool_content, tool_response)
     tool_description = redact_content(env.log_tool_details, tool_description)
@@ -317,13 +292,8 @@ def _handle_post_tool_use(input_json: dict) -> None:
         attrs["tool.url"] = tool_url
     if tool_query:
         attrs["tool.query"] = tool_query
-
-    # CLI-specific: result type
-    if not vscode:
-        tool_result = input_json.get("toolResult", {}) or {}
-        result_type = tool_result.get("resultType", "")
-        if result_type:
-            attrs["tool.result_type"] = result_type
+    if result_type:
+        attrs["tool.result_type"] = result_type
 
     span = build_span(
         tool_name,
