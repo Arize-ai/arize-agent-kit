@@ -6,7 +6,6 @@ and delegates to the corresponding _handle_* implementation.
 """
 import json
 import sys
-from pathlib import Path
 
 from core.common import (
     StateManager,
@@ -30,6 +29,7 @@ from tracing.copilot.hooks.adapter import (
     is_vscode_mode,
     resolve_session,
 )
+from tracing.copilot.hooks.transcript import parse_transcript
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -311,7 +311,7 @@ def _handle_post_tool_use(input_json: dict) -> None:
 
 
 def _handle_stop(input_json: dict) -> None:
-    """Handle stop: VS Code only. Parse transcript and send LLM span for the completed turn."""
+    """Handle stop: parse transcript and send LLM span for the completed turn."""
     state = resolve_session(input_json)
     session_id = state.get("session_id")
     trace_id = state.get("current_trace_id")
@@ -322,107 +322,59 @@ def _handle_stop(input_json: dict) -> None:
     trace_start_time = state.get("current_trace_start_time") or str(get_timestamp_ms())
     user_prompt = state.get("current_trace_prompt") or ""
     project_name = state.get("project_name") or ""
-    trace_count = state.get("trace_count") or "0"
     user_id = state.get("user_id") or ""
 
-    # Parse transcript
     transcript_path = input_json.get("transcript_path", "")
-    output = ""
-    model = ""
-    in_tokens = 0
-    out_tokens = 0
+    summary = parse_transcript(transcript_path) if transcript_path else {}
 
-    if transcript_path and Path(transcript_path).is_file():
-        start_line = int(state.get("trace_start_line") or "0")
-        with open(transcript_path) as f:
-            for i, line in enumerate(f):
-                if i < start_line:
-                    continue
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if entry.get("message", {}).get("role") != "assistant":
-                    continue
-                # Extract text from message.content
-                content = entry.get("message", {}).get("content")
-                if isinstance(content, list):
-                    text = "\n".join(
-                        item.get("text", "")
-                        for item in content
-                        if isinstance(item, dict) and item.get("type") == "text"
-                    )
-                elif isinstance(content, str):
-                    text = content
-                else:
-                    text = ""
-                if text:
-                    output = f"{output}\n{text}" if output else text
-                # Extract model
-                model = entry.get("message", {}).get("model", "") or model
-                # Accumulate tokens
-                usage = entry.get("message", {}).get("usage", {})
-                for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
-                    val = usage.get(key, 0)
-                    if isinstance(val, int):
-                        in_tokens += val
-                val = usage.get("output_tokens", 0)
-                if isinstance(val, int):
-                    out_tokens += val
+    model_name = summary.get("model_name", "")
+    # TODO(transcript): extract assistant turn text once events.jsonl assistant
+    # event shape is captured. Until then, output_text is empty.
+    output_text = summary.get("output_text", "")
+    tool_count = state.get("tool_count") or "0"
 
-    output = output or "(No response)"
-    total_tokens = in_tokens + out_tokens
+    end_time = str(get_timestamp_ms())
 
-    # Build and send LLM span. Redact at emit time, not at state-write time.
-    redacted_prompt = redact_content(env.log_prompts, user_prompt)
-    redacted_output = redact_content(env.log_prompts, output)
-    output_messages = [{"message.role": "assistant", "message.content": redacted_output}]
+    user_prompt = redact_content(env.log_prompts, user_prompt)
+    output_text = redact_content(env.log_tool_content, output_text)
+
     attrs = {
         "session.id": session_id,
-        "trace.number": trace_count,
-        "project.name": project_name,
         "openinference.span.kind": "LLM",
-        "llm.model_name": model,
-        "llm.token_count.prompt": in_tokens,
-        "llm.token_count.completion": out_tokens,
-        "llm.token_count.total": total_tokens,
-        "input.value": redacted_prompt,
-        "output.value": redacted_output,
-        "llm.output_messages": json.dumps(output_messages),
+        "project.name": project_name,
+        "input.value": user_prompt,
+        "output.value": output_text,
+        "metadata": json.dumps(
+            {
+                "stop_reason": input_json.get("stop_reason", ""),
+                "tool_count": int(tool_count or 0),
+            }
+        ),
     }
+    if model_name:
+        attrs["llm.model_name"] = model_name
     if user_id:
         attrs["user.id"] = user_id
 
     span = build_span(
-        f"Turn {trace_count}",
+        "Agent Stop",
         "LLM",
         trace_span_id,
         trace_id,
         "",
         trace_start_time,
-        str(get_timestamp_ms()),
+        end_time,
         attrs,
         SERVICE_NAME,
         SCOPE_NAME,
     )
     send_span(span)
 
-    # Clean up state
+    # Clear per-turn state so the next user prompt starts a fresh trace
     state.delete("current_trace_id")
     state.delete("current_trace_span_id")
     state.delete("current_trace_start_time")
     state.delete("current_trace_prompt")
-
-    # Periodic GC
-    try:
-        tc = int(trace_count or "0")
-    except (ValueError, TypeError):
-        tc = 0
-    if tc % 5 == 0:
-        gc_stale_state_files()
 
 
 def _handle_error_occurred(input_json: dict) -> None:
@@ -525,101 +477,43 @@ def _handle_session_end(input_json: dict) -> None:
 
 
 def _handle_subagent_stop(input_json: dict) -> None:
-    """Handle subagent_stop: VS Code only. Build and send LLM span for subagent."""
+    """Handle subagent_stop: build and send CHAIN span for subagent."""
     state = resolve_session(input_json)
-    trace_id = state.get("current_trace_id")
-    if trace_id is None:
+    session_id = state.get("session_id")
+    if session_id is None:
         return
 
-    session_id = state.get("session_id")
     agent_id = input_json.get("agent_id", "")
     agent_type = input_json.get("agent_type", "")
+    transcript_path = input_json.get("transcript_path", "")
 
-    if not agent_type or agent_type in ("unknown", "null"):
-        return
-
-    span_id = generate_span_id()
-    end_time = str(get_timestamp_ms())
-    parent = state.get("current_trace_span_id")
-
-    # Parse subagent transcript
-    output = ""
-    model = ""
-    in_tokens = 0
-    out_tokens = 0
-    start_time = end_time
-
-    transcript_path = input_json.get("transcript_path", "") or input_json.get("agent_transcript_path", "")
-    if transcript_path and Path(transcript_path).is_file():
-        p = Path(transcript_path)
-        st = p.stat()
-        # st_birthtime is macOS/BSD only; fall back to ctime elsewhere.
-        birth = getattr(st, "st_birthtime", st.st_ctime)
-        start_ms = int(birth * 1000)
-        start_time = str(start_ms)
-
-        with open(transcript_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if entry.get("message", {}).get("role") != "assistant":
-                    continue
-                content = entry.get("message", {}).get("content")
-                if isinstance(content, list):
-                    text = "\n".join(
-                        item.get("text", "")
-                        for item in content
-                        if isinstance(item, dict) and item.get("type") == "text"
-                    )
-                elif isinstance(content, str):
-                    text = content
-                else:
-                    text = ""
-                if text:
-                    output = f"{output}\n{text}" if output else text
-                model = entry.get("message", {}).get("model", "") or model
-                usage = entry.get("message", {}).get("usage", {})
-                for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
-                    val = usage.get(key, 0)
-                    if isinstance(val, int):
-                        in_tokens += val
-                val = usage.get("output_tokens", 0)
-                if isinstance(val, int):
-                    out_tokens += val
-
-    total_tokens = in_tokens + out_tokens
+    summary = parse_transcript(transcript_path) if transcript_path else {}
+    model_name = summary.get("model_name", "")
 
     project_name = state.get("project_name") or ""
+    user_id = state.get("user_id") or ""
+    end_time = str(get_timestamp_ms())
+
     attrs = {
         "session.id": session_id,
-        "openinference.span.kind": "LLM",
+        "openinference.span.kind": "CHAIN",
         "project.name": project_name,
-        "copilot.agent.type": agent_type,
-        "subagent.id": agent_id,
-        "subagent.type": agent_type,
-        "llm.model_name": model,
-        "llm.token_count.prompt": in_tokens,
-        "llm.token_count.completion": out_tokens,
-        "llm.token_count.total": total_tokens,
+        "metadata": json.dumps({"agent_type": agent_type, "agent_id": agent_id}),
     }
-    if output:
-        attrs["output.value"] = output
-    user_id = state.get("user_id") or ""
+    if model_name:
+        attrs["llm.model_name"] = model_name
     if user_id:
         attrs["user.id"] = user_id
 
+    span_name = f"Subagent: {agent_id}" if agent_id else "Subagent"
+
     span = build_span(
-        f"Subagent: {agent_type}",
-        "LLM",
-        span_id,
-        trace_id,
-        parent or "",
-        start_time,
+        span_name,
+        "CHAIN",
+        generate_span_id(),
+        state.get("current_trace_id") or generate_trace_id(),
+        state.get("current_trace_span_id") or "",
+        end_time,
         end_time,
         attrs,
         SERVICE_NAME,

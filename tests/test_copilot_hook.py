@@ -21,7 +21,6 @@ from tracing.copilot.hooks.handlers import (
     _handle_pre_tool_use,
     _handle_session_end,
     _handle_session_start,
-    _handle_stop,
     _handle_subagent_stop,
     _handle_user_prompt_submitted,
     _print_response,
@@ -486,114 +485,97 @@ class TestPostToolUse:
 
 
 # ---------------------------------------------------------------------------
-# stop tests (VS Code only)
+# stop tests
 # ---------------------------------------------------------------------------
 
 
-class TestStop:
+class TestHandleStop:
 
-    def test_parses_transcript_and_builds_llm_span(self, mock_resolve, state, captured_spans, transcript_file):
-        """Parses transcript and builds LLM span with output and tokens."""
-        state.set("current_trace_id", "t" * 32)
-        state.set("current_trace_span_id", "s" * 16)
-        state.set("current_trace_start_time", "1000")
-        state.set("current_trace_prompt", "fix the bug")
-        state.set("trace_start_line", "0")
-        _handle_stop({"transcript_path": transcript_file, "sessionId": "s1", "hookEventName": "Stop"})
-        assert len(captured_spans) == 1
-        attrs = _get_span_attrs(captured_spans[0])
-        assert "I found the issue." in attrs["output.value"]["stringValue"]
-        assert attrs["openinference.span.kind"]["stringValue"] == "LLM"
-        assert attrs["llm.model_name"]["stringValue"] == "gpt-4o"
-        # Token counts: input=100, cache_read=10, cache_creation=5 = 115
-        assert attrs["llm.token_count.prompt"]["intValue"] == 115
-        assert attrs["llm.token_count.completion"]["intValue"] == 50
-        assert attrs["llm.token_count.total"]["intValue"] == 165
+    def _seed_trace(self, tmp_path, monkeypatch, prompt="hi"):
+        from tracing.copilot.hooks import adapter as _adapter
 
-    def test_no_transcript_no_response(self, mock_resolve, state, captured_spans):
-        """No transcript → output is '(No response)'."""
-        state.set("current_trace_id", "t" * 32)
-        state.set("current_trace_span_id", "s" * 16)
-        state.set("current_trace_start_time", "1000")
-        state.set("current_trace_prompt", "test")
-        state.set("trace_start_line", "0")
-        _handle_stop({"sessionId": "s1", "hookEventName": "Stop"})
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["output.value"]["stringValue"] == "(No response)"
+        monkeypatch.setattr(_adapter, "STATE_DIR", tmp_path)
+        from tracing.copilot.hooks.handlers import _handle_user_prompt_submitted
 
-    def test_cleans_up_trace_state(self, mock_resolve, state, captured_spans, transcript_file):
-        """Cleans up current_trace_* state keys after sending."""
-        state.set("current_trace_id", "t" * 32)
-        state.set("current_trace_span_id", "s" * 16)
-        state.set("current_trace_start_time", "1000")
-        state.set("current_trace_prompt", "test")
-        state.set("trace_start_line", "0")
-        _handle_stop({"transcript_path": transcript_file, "sessionId": "s1"})
+        _handle_user_prompt_submitted(
+            {
+                "session_id": "sess-1",
+                "hook_event_name": "UserPromptSubmit",
+                "cwd": "/repo",
+                "prompt": prompt,
+            }
+        )
+
+    def test_emits_llm_span_with_model_from_transcript(self, tmp_path, monkeypatch):
+        self._seed_trace(tmp_path, monkeypatch, prompt="why?")
+        tpath = tmp_path / "events.jsonl"
+        tpath.write_text(
+            json.dumps({"type": "session.model_change", "data": {"newModel": "gpt-5-mini"}}) + "\n",
+            encoding="utf-8",
+        )
+
+        sent = []
+        from tracing.copilot.hooks import handlers as _handlers
+
+        monkeypatch.setattr(_handlers, "send_span", lambda s: sent.append(s))
+
+        _handlers._handle_stop(
+            {
+                "session_id": "sess-1",
+                "hook_event_name": "Stop",
+                "cwd": "/repo",
+                "stop_reason": "end_turn",
+                "transcript_path": str(tpath),
+            }
+        )
+
+        assert len(sent) == 1
+        attrs = _get_span_attrs(sent[0])
+        assert attrs["llm.model_name"]["stringValue"] == "gpt-5-mini"
+        assert attrs["input.value"]["stringValue"] == "why?"
+        meta = json.loads(attrs["metadata"]["stringValue"])
+        assert meta["stop_reason"] == "end_turn"
+
+    def test_emits_llm_span_without_transcript(self, tmp_path, monkeypatch):
+        self._seed_trace(tmp_path, monkeypatch, prompt="ping")
+        sent = []
+        from tracing.copilot.hooks import handlers as _handlers
+
+        monkeypatch.setattr(_handlers, "send_span", lambda s: sent.append(s))
+
+        _handlers._handle_stop(
+            {
+                "session_id": "sess-1",
+                "hook_event_name": "Stop",
+                "cwd": "/repo",
+                "stop_reason": "end_turn",
+            }
+        )
+
+        assert len(sent) == 1
+        attrs = _get_span_attrs(sent[0])
+        assert attrs["input.value"]["stringValue"] == "ping"
+        assert "llm.model_name" not in attrs
+
+    def test_clears_trace_state_after_emit(self, tmp_path, monkeypatch):
+        self._seed_trace(tmp_path, monkeypatch)
+        from tracing.copilot.hooks import handlers as _handlers
+
+        monkeypatch.setattr(_handlers, "send_span", lambda s: None)
+        from tracing.copilot.hooks.adapter import resolve_session
+
+        payload = {
+            "session_id": "sess-1",
+            "hook_event_name": "Stop",
+            "cwd": "/repo",
+            "stop_reason": "end_turn",
+        }
+        _handlers._handle_stop(payload)
+
+        state = resolve_session(payload)
         assert state.get("current_trace_id") is None
         assert state.get("current_trace_span_id") is None
-        assert state.get("current_trace_start_time") is None
         assert state.get("current_trace_prompt") is None
-
-    def test_gc_every_5_turns(self, mock_resolve, state, captured_spans):
-        """GC runs every 5 turns."""
-        state.set("current_trace_id", "t" * 32)
-        state.set("current_trace_span_id", "s" * 16)
-        state.set("current_trace_start_time", "1000")
-        state.set("current_trace_prompt", "test")
-        state.set("trace_count", "5")
-        state.set("trace_start_line", "0")
-        with mock.patch("tracing.copilot.hooks.handlers.gc_stale_state_files") as gc_mock:
-            _handle_stop({"sessionId": "s1"})
-            gc_mock.assert_called_once()
-
-    def test_gc_not_called_off_cycle(self, mock_resolve, state, captured_spans):
-        """GC not called when trace_count is not multiple of 5."""
-        state.set("current_trace_id", "t" * 32)
-        state.set("current_trace_span_id", "s" * 16)
-        state.set("current_trace_start_time", "1000")
-        state.set("current_trace_prompt", "test")
-        state.set("trace_count", "3")
-        state.set("trace_start_line", "0")
-        with mock.patch("tracing.copilot.hooks.handlers.gc_stale_state_files") as gc_mock:
-            _handle_stop({"sessionId": "s1"})
-            gc_mock.assert_not_called()
-
-    def test_no_trace_id_returns_early(self, mock_resolve, state, captured_spans):
-        """No current_trace_id → returns without sending."""
-        _handle_stop({"sessionId": "s1"})
-        assert len(captured_spans) == 0
-
-    def test_skips_lines_before_trace_start_line(self, mock_resolve, state, captured_spans, transcript_file):
-        """Skips transcript lines before trace_start_line."""
-        state.set("current_trace_id", "t" * 32)
-        state.set("current_trace_span_id", "s" * 16)
-        state.set("current_trace_start_time", "1000")
-        state.set("current_trace_prompt", "test")
-        state.set("trace_start_line", "2")  # past all lines
-        _handle_stop({"transcript_path": transcript_file, "sessionId": "s1"})
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["output.value"]["stringValue"] == "(No response)"
-
-    def test_string_content_format(self, mock_resolve, state, captured_spans, tmp_path):
-        """Handles transcript with string content format."""
-        tf = tmp_path / "t.jsonl"
-        entry = {
-            "message": {
-                "role": "assistant",
-                "content": "Hello string",
-                "model": "gpt-4o",
-                "usage": {"input_tokens": 10, "output_tokens": 5},
-            }
-        }
-        tf.write_text(json.dumps(entry) + "\n")
-        state.set("current_trace_id", "t" * 32)
-        state.set("current_trace_span_id", "s" * 16)
-        state.set("current_trace_start_time", "1000")
-        state.set("current_trace_prompt", "test")
-        state.set("trace_start_line", "0")
-        _handle_stop({"transcript_path": str(tf), "sessionId": "s1"})
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["output.value"]["stringValue"] == "Hello string"
 
 
 # ---------------------------------------------------------------------------
@@ -739,99 +721,48 @@ class TestSessionEnd:
 
 
 # ---------------------------------------------------------------------------
-# subagent_stop tests (VS Code only)
+# subagent_stop tests
 # ---------------------------------------------------------------------------
 
 
-class TestSubagentStop:
+class TestHandleSubagentStop:
 
-    def test_builds_llm_span_for_subagent(self, mock_resolve, state, captured_spans, transcript_file):
-        """Builds LLM span for subagent with agent_type using transcript_path (VS Code base field)."""
-        state.set("current_trace_id", "t" * 32)
-        state.set("current_trace_span_id", "s" * 16)
-        inp = _vscode_base(
+    def test_emits_chain_span_with_agent_metadata(self, tmp_path, monkeypatch):
+        from tracing.copilot.hooks import adapter as _adapter
+
+        monkeypatch.setattr(_adapter, "STATE_DIR", tmp_path)
+        from tracing.copilot.hooks.handlers import _handle_user_prompt_submitted
+
+        _handle_user_prompt_submitted(
             {
-                "agent_type": "code-review",
-                "agent_id": "agent-1",
-                "transcript_path": transcript_file,
+                "session_id": "sess-X",
+                "hook_event_name": "UserPromptSubmit",
+                "cwd": "/repo",
+                "prompt": "p",
             }
         )
-        _handle_subagent_stop(inp)
-        assert len(captured_spans) == 1
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["openinference.span.kind"]["stringValue"] == "LLM"
-        assert attrs["copilot.agent.type"]["stringValue"] == "code-review"
-        assert attrs["subagent.type"]["stringValue"] == "code-review"
-        assert "I found the issue." in attrs["output.value"]["stringValue"]
 
-    def test_falls_back_to_agent_transcript_path(self, mock_resolve, state, captured_spans, transcript_file):
-        """Falls back to agent_transcript_path if transcript_path not present."""
-        state.set("current_trace_id", "t" * 32)
-        state.set("current_trace_span_id", "s" * 16)
-        inp = _vscode_base(
+        sent = []
+        from tracing.copilot.hooks import handlers as _handlers
+
+        monkeypatch.setattr(_handlers, "send_span", lambda s: sent.append(s))
+
+        _handlers._handle_subagent_stop(
             {
-                "agent_type": "code-review",
-                "agent_id": "agent-1",
-                "agent_transcript_path": transcript_file,
+                "session_id": "sess-X",
+                "hook_event_name": "SubagentStop",
+                "cwd": "/repo",
+                "agent_id": "ag-7",
+                "agent_type": "research",
             }
         )
-        _handle_subagent_stop(inp)
-        assert len(captured_spans) == 1
-        attrs = _get_span_attrs(captured_spans[0])
-        assert "I found the issue." in attrs["output.value"]["stringValue"]
 
-    def test_skips_empty_agent_type(self, mock_resolve, state, captured_spans):
-        """Skips when agent_type is empty."""
-        state.set("current_trace_id", "t" * 32)
-        _handle_subagent_stop(_vscode_base({"agent_type": ""}))
-        assert len(captured_spans) == 0
-
-    def test_skips_unknown_agent_type(self, mock_resolve, state, captured_spans):
-        """Skips when agent_type is 'unknown'."""
-        state.set("current_trace_id", "t" * 32)
-        _handle_subagent_stop(_vscode_base({"agent_type": "unknown"}))
-        assert len(captured_spans) == 0
-
-    def test_skips_null_agent_type(self, mock_resolve, state, captured_spans):
-        """Skips when agent_type is 'null'."""
-        state.set("current_trace_id", "t" * 32)
-        _handle_subagent_stop(_vscode_base({"agent_type": "null"}))
-        assert len(captured_spans) == 0
-
-    def test_no_trace_id_returns_early(self, mock_resolve, state, captured_spans):
-        """No current_trace_id → returns without sending."""
-        _handle_subagent_stop(_vscode_base({"agent_type": "explorer"}))
-        assert len(captured_spans) == 0
-
-    def test_no_transcript_no_output(self, mock_resolve, state, captured_spans):
-        """No transcript → no output.value attribute."""
-        state.set("current_trace_id", "t" * 32)
-        state.set("current_trace_span_id", "s" * 16)
-        inp = _vscode_base(
-            {
-                "agent_type": "explorer",
-                "agent_id": "a1",
-            }
-        )
-        _handle_subagent_stop(inp)
-        assert len(captured_spans) == 1
-        attrs = _get_span_attrs(captured_spans[0])
-        assert "output.value" not in attrs
-
-    def test_parent_span_id(self, mock_resolve, state, captured_spans):
-        """Subagent span has parent_span_id from current trace."""
-        state.set("current_trace_id", "t" * 32)
-        state.set("current_trace_span_id", "parentspan1234567")
-        _handle_subagent_stop(
-            _vscode_base(
-                {
-                    "agent_type": "test-agent",
-                    "agent_id": "a1",
-                }
-            )
-        )
-        span = _get_span(captured_spans[0])
-        assert span.get("parentSpanId") == "parentspan1234567"
+        assert len(sent) == 1
+        attrs = _get_span_attrs(sent[0])
+        assert attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
+        meta = json.loads(attrs["metadata"]["stringValue"])
+        assert meta["agent_id"] == "ag-7"
+        assert meta["agent_type"] == "research"
 
 
 # ---------------------------------------------------------------------------
@@ -1059,9 +990,7 @@ class TestProjectNameOnAllSpans:
         assert attrs["project.name"]["stringValue"] == "test-copilot-project"
 
     def test_subagent_span_has_project_name(self, mock_resolve, state, captured_spans):
-        """Subagent LLM spans include project.name."""
-        state.set("current_trace_id", "t" * 32)
-        state.set("current_trace_span_id", "s" * 16)
+        """Subagent CHAIN spans include project.name."""
         inp = _vscode_base({"agent_type": "test-agent", "agent_id": "a1"})
         _handle_subagent_stop(inp)
         attrs = _get_span_attrs(captured_spans[0])
