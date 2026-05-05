@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Tests for tracing.copilot.hooks.handlers — the 8 Copilot hook handlers.
+"""Tests for tracing.copilot.hooks.handlers — Copilot hook handlers.
 
-Tests cover both VS Code mode (sessionId-based) and CLI mode (PID-based),
-dual-mode detection, response printing, deferred turn flushing, and all
-entry points.
+Tests cover response printing, session/prompt/tool/stop handlers,
+deferred turn helpers, and all CLI entry points.
 """
 
 import io
@@ -188,25 +187,27 @@ class TestPrintResponse:
 
 class TestSessionStart:
 
-    def test_vscode_mode_saves_source(self, mock_resolve, mock_ensure, state, captured_spans):
-        """VS Code mode saves source to state."""
-        inp = _vscode_base({"source": "new"})
-        _handle_session_start(inp)
-        assert state.get("source") == "new"
+    def test_initializes_state_from_snake_case_payload(self, tmp_path, monkeypatch):
+        from tracing.copilot.hooks import adapter as _adapter
 
-    def test_cli_mode_saves_initial_prompt_as_pending_turn(self, mock_resolve, mock_ensure, state, captured_spans):
-        """CLI mode saves initialPrompt as pending turn."""
-        inp = _cli_base({"source": "new", "initialPrompt": "hello"})
-        _handle_session_start(inp)
-        assert state.get("pending_turn_prompt") == "hello"
-        assert state.get("pending_turn_trace_id") is not None
-        assert state.get("trace_count") == "1"
+        monkeypatch.setattr(_adapter, "STATE_DIR", tmp_path)
 
-    def test_cli_mode_no_initial_prompt(self, mock_resolve, mock_ensure, state, captured_spans):
-        """CLI mode with no initialPrompt does not create pending turn."""
-        inp = _cli_base({"source": "new"})
-        _handle_session_start(inp)
-        assert state.get("pending_turn_prompt") is None
+        payload = {
+            "cwd": "/some/repo",
+            "hook_event_name": "SessionStart",
+            "session_id": "sess-123",
+            "initial_prompt": "kick off",
+            "source": "new",
+            "timestamp": "2026-05-04T00:00:00Z",
+        }
+        _handle_session_start(payload)
+
+        from tracing.copilot.hooks.adapter import resolve_session
+
+        state = resolve_session(payload)
+        assert state.get("session_id") == "sess-123"
+        assert state.get("project_name") == "repo"
+        assert state.get("trace_count") == "0"
 
 
 # ---------------------------------------------------------------------------
@@ -216,72 +217,35 @@ class TestSessionStart:
 
 class TestUserPromptSubmitted:
 
-    def test_vscode_sets_trace_state(self, mock_resolve, mock_ensure, state, captured_spans):
-        """VS Code mode sets current_trace_id, span_id, start_time, prompt."""
-        inp = _vscode_base({"prompt": "explain this code"})
-        _handle_user_prompt_submitted(inp)
-        assert state.get("current_trace_id") is not None
-        assert len(state.get("current_trace_id")) == 32
-        assert state.get("current_trace_span_id") is not None
-        assert state.get("current_trace_prompt") == "explain this code"
+    def test_creates_trace_root(self, tmp_path, monkeypatch):
+        from tracing.copilot.hooks import adapter as _adapter
+
+        monkeypatch.setattr(_adapter, "STATE_DIR", tmp_path)
+
+        payload = {
+            "cwd": "/some/repo",
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "sess-abc",
+            "prompt": "what is the capital of France?",
+            "timestamp": "2026-05-04T00:00:00Z",
+        }
+        _handle_user_prompt_submitted(payload)
+
+        from tracing.copilot.hooks.adapter import resolve_session
+
+        state = resolve_session(payload)
+        assert state.get("current_trace_id") not in (None, "")
+        assert state.get("current_trace_span_id") not in (None, "")
+        assert state.get("current_trace_prompt") == "what is the capital of France?"
         assert state.get("trace_count") == "1"
+        assert state.get("tool_count") == "0"
 
-    def test_vscode_records_transcript_position(
-        self, mock_resolve, mock_ensure, state, captured_spans, transcript_file
-    ):
-        """VS Code mode records transcript line count as trace_start_line."""
-        inp = _vscode_base({"prompt": "test", "transcript_path": transcript_file})
+    def test_returns_early_without_session_id(self, mock_resolve, mock_ensure, state, captured_spans):
+        """Returns early when session_id is None."""
+        state.delete("session_id")
+        inp = {"cwd": "/tmp/project", "hook_event_name": "UserPromptSubmit", "prompt": "hello"}
         _handle_user_prompt_submitted(inp)
-        assert state.get("trace_start_line") == "2"  # 2 lines in our transcript fixture
-
-    def test_vscode_no_transcript_sets_zero(self, mock_resolve, mock_ensure, state, captured_spans):
-        """Missing transcript sets trace_start_line to 0."""
-        inp = _vscode_base({"prompt": "test"})
-        _handle_user_prompt_submitted(inp)
-        assert state.get("trace_start_line") == "0"
-
-    def test_vscode_failsafe_closes_orphan(self, mock_resolve, mock_ensure, state, captured_spans):
-        """If current_trace_id already in state, sends fail-safe LLM span."""
-        state.set("current_trace_id", "old-trace-id-00000000000000000000")
-        state.set("current_trace_span_id", "old-span-1234567")
-        state.set("current_trace_start_time", "999000")
-        state.set("current_trace_prompt", "old prompt")
-        inp = _vscode_base({"prompt": "new prompt"})
-        _handle_user_prompt_submitted(inp)
-        assert len(captured_spans) == 1
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["openinference.span.kind"]["stringValue"] == "LLM"
-        assert "fail-safe" in attrs["output.value"]["stringValue"]
-        assert state.get("current_trace_id") != "old-trace-id-00000000000000000000"
-
-    def test_cli_flushes_previous_pending_turn(self, mock_resolve, mock_ensure, state, captured_spans):
-        """CLI mode: second user_prompt_submitted flushes the first pending turn."""
-        # First prompt
-        inp1 = _cli_base({"prompt": "first prompt"})
-        _handle_user_prompt_submitted(inp1)
-        assert state.get("pending_turn_prompt") == "first prompt"
-        assert state.get("trace_count") == "1"
-
-        # Second prompt — should flush first
-        inp2 = _cli_base({"prompt": "second prompt"})
-        _handle_user_prompt_submitted(inp2)
-
-        # First turn should have been flushed as a CHAIN span
-        assert len(captured_spans) == 1
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
-        assert attrs["input.value"]["stringValue"] == "first prompt"
-
-        # Second prompt is now pending
-        assert state.get("pending_turn_prompt") == "second prompt"
-        assert state.get("trace_count") == "2"
-
-    def test_cli_first_prompt_no_flush(self, mock_resolve, mock_ensure, state, captured_spans):
-        """CLI mode: first prompt has nothing to flush."""
-        inp = _cli_base({"prompt": "only prompt"})
-        _handle_user_prompt_submitted(inp)
-        assert len(captured_spans) == 0
-        assert state.get("pending_turn_prompt") == "only prompt"
+        assert state.get("current_trace_id") is None
 
 
 # ---------------------------------------------------------------------------
@@ -875,37 +839,10 @@ class TestSubagentStop:
 
 
 class TestDeferredTurnPattern:
-
-    def test_two_prompts_flushes_first(self, mock_resolve, mock_ensure, state, captured_spans):
-        """Two user_prompt_submitted calls flush the first as a CHAIN span."""
-        _handle_user_prompt_submitted(_cli_base({"prompt": "first"}))
-        _handle_user_prompt_submitted(_cli_base({"prompt": "second"}))
-        assert len(captured_spans) == 1
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["input.value"]["stringValue"] == "first"
-        assert attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
-
-    def test_session_end_flushes_last(self, mock_resolve, mock_ensure, state, captured_spans):
-        """session_end flushes the last pending turn."""
-        _handle_user_prompt_submitted(_cli_base({"prompt": "the prompt"}))
-        assert len(captured_spans) == 0
-
-        with mock.patch("tracing.copilot.hooks.handlers.gc_stale_state_files"):
-            _handle_session_end(_cli_base({"reason": "complete"}))
-        assert len(captured_spans) == 1
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["input.value"]["stringValue"] == "the prompt"
-
-    def test_no_output_value_in_cli_chain(self, mock_resolve, mock_ensure, state, captured_spans):
-        """CLI deferred CHAIN spans have no output.value (CLI doesn't expose response)."""
-        _handle_user_prompt_submitted(_cli_base({"prompt": "first"}))
-        _handle_user_prompt_submitted(_cli_base({"prompt": "second"}))
-        attrs = _get_span_attrs(captured_spans[0])
-        assert "output.value" not in attrs
+    """Tests for deferred turn helpers (still used by _handle_session_end)."""
 
     def test_flush_pending_turn_no_op_when_empty(self, state):
         """_flush_pending_turn is no-op when no pending turn exists."""
-        # Should not raise or send anything
         with mock.patch("tracing.copilot.hooks.handlers.send_span") as send_mock:
             _flush_pending_turn(state)
         send_mock.assert_not_called()
@@ -913,11 +850,21 @@ class TestDeferredTurnPattern:
     def test_flush_pending_turn_clears_invalid(self, state):
         """_flush_pending_turn clears invalid pending turn (no trace/span id)."""
         state.set("pending_turn_prompt", "orphan")
-        # No trace_id or span_id set
         with mock.patch("tracing.copilot.hooks.handlers.send_span") as send_mock:
             _flush_pending_turn(state)
         send_mock.assert_not_called()
         assert state.get("pending_turn_prompt") is None
+
+    def test_consecutive_prompts_each_open_fresh_trace(self, mock_resolve, mock_ensure, state, captured_spans):
+        """Each user_prompt_submitted opens a fresh trace without sending spans."""
+        _handle_user_prompt_submitted({"cwd": "/tmp/project", "prompt": "first"})
+        first_trace = state.get("current_trace_id")
+        _handle_user_prompt_submitted({"cwd": "/tmp/project", "prompt": "second"})
+        second_trace = state.get("current_trace_id")
+        assert first_trace != second_trace
+        assert state.get("current_trace_prompt") == "second"
+        assert state.get("trace_count") == "2"
+        assert len(captured_spans) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1119,13 +1066,11 @@ class TestProjectNameOnAllSpans:
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["project.name"]["stringValue"] == "test-copilot-project"
 
-    def test_failsafe_span_has_project_name(self, mock_resolve, mock_ensure, state, captured_spans):
-        """Fail-safe LLM span includes project.name."""
-        state.set("current_trace_id", "old-trace-id-00000000000000000000")
-        state.set("current_trace_span_id", "old-span-1234567")
-        state.set("current_trace_start_time", "999000")
-        state.set("current_trace_prompt", "old prompt")
-        inp = _vscode_base({"prompt": "new prompt"})
+    def test_user_prompt_sets_trace_state(self, mock_resolve, mock_ensure, state, captured_spans):
+        """user_prompt_submitted sets trace state with project context."""
+        inp = {"cwd": "/tmp/project", "prompt": "new prompt"}
         _handle_user_prompt_submitted(inp)
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["project.name"]["stringValue"] == "test-copilot-project"
+        assert state.get("current_trace_id") is not None
+        assert state.get("current_trace_prompt") == "new prompt"
+        assert state.get("trace_count") == "1"
+        assert state.get("tool_count") == "0"

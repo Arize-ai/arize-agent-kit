@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """Copilot hook handlers. One exported function per hook event.
 
-Supports dual-mode operation:
-- VS Code Copilot: sessionId-based, full event set (8 events)
-- Copilot CLI: PID-based sessions, minimal event set (6 events)
-
-Each entry point reads stdin JSON, detects mode, and adapts behavior accordingly.
+Each entry point reads stdin JSON (snake_case schema), resolves session state,
+and delegates to the corresponding _handle_* implementation.
 """
 import json
 import sys
@@ -166,83 +163,35 @@ def _handle_session_start(input_json: dict) -> None:
     """Handle session start: initialize session."""
     state = resolve_session(input_json)
     ensure_session_initialized(state, input_json)
+    gc_stale_state_files()
 
     source = input_json.get("source", "")
-    if source:
-        state.set("source", source)
-
-    vscode = is_vscode_mode(input_json)
-    initial_prompt = input_json.get("initialPrompt", "")
-    if initial_prompt and not vscode:
-        # CLI: save as pending turn for deferred sending
-        _save_pending_turn(state, initial_prompt)
-
-    log(f"Session started: {state.get('session_id')} (mode={'vscode' if vscode else 'cli'})")
+    initial_prompt = input_json.get("initial_prompt", "")
+    log(f"copilot session_start: source={source!r} prompt_len={len(initial_prompt)}")
 
 
 def _handle_user_prompt_submitted(input_json: dict) -> None:
-    """Handle user prompt submission."""
+    """Handle user prompt submission: open a fresh trace."""
     state = resolve_session(input_json)
     ensure_session_initialized(state, input_json)
+    session_id = state.get("session_id")
+    if session_id is None:
+        return
 
     prompt = input_json.get("prompt", "") or ""
-    vscode = is_vscode_mode(input_json)
 
-    if vscode:
-        # VS Code mode: set up new trace (close orphaned turn first)
-        prev_trace_id = state.get("current_trace_id")
-        prev_span_id = state.get("current_trace_span_id")
-        if prev_trace_id and prev_span_id:
-            prev_start = state.get("current_trace_start_time") or str(get_timestamp_ms())
-            prev_prompt = state.get("current_trace_prompt") or ""
-            prev_count = state.get("trace_count") or "?"
-            session_id = state.get("session_id") or ""
-            project_name = state.get("project_name") or ""
-            failsafe_attrs = {
-                "session.id": session_id,
-                "openinference.span.kind": "LLM",
-                "project.name": project_name,
-                "input.value": redact_content(env.log_prompts, prev_prompt),
-                "output.value": "(Turn closed by fail-safe: Stop hook did not fire)",
-            }
-            user_id = state.get("user_id") or ""
-            if user_id:
-                failsafe_attrs["user.id"] = user_id
-            failsafe_span = build_span(
-                f"Turn {prev_count}",
-                "LLM",
-                prev_span_id,
-                prev_trace_id,
-                "",
-                prev_start,
-                str(get_timestamp_ms()),
-                failsafe_attrs,
-                SERVICE_NAME,
-                SCOPE_NAME,
-            )
-            send_span(failsafe_span)
-            log(f"Fail-safe: closed orphaned Turn {prev_count}")
+    trace_id = generate_trace_id()
+    span_id = generate_span_id()
+    now_ms = get_timestamp_ms()
 
-        state.increment("trace_count")
-        state.set("current_trace_id", generate_trace_id())
-        state.set("current_trace_span_id", generate_span_id())
-        state.set("current_trace_start_time", str(get_timestamp_ms()))
-        # Store RAW prompt in state; redact only at span build time so the
-        # redaction toggle is read at emit time, not baked into the state file.
-        state.set("current_trace_prompt", prompt)
+    state.set("current_trace_id", trace_id)
+    state.set("current_trace_span_id", span_id)
+    state.set("current_trace_start_time", str(now_ms))
+    state.set("current_trace_prompt", prompt)
+    state.increment("trace_count")
+    state.set("tool_count", "0")
 
-        # Track transcript position
-        transcript = input_json.get("transcript_path", "")
-        if transcript and Path(transcript).is_file():
-            with open(transcript) as f:
-                line_count = sum(1 for _ in f)
-            state.set("trace_start_line", str(line_count))
-        else:
-            state.set("trace_start_line", "0")
-    else:
-        # CLI mode: flush previous pending turn, save new one
-        _flush_pending_turn(state)
-        _save_pending_turn(state, prompt)
+    log(f"copilot user_prompt_submitted: prompt_len={len(prompt)}")
 
 
 def _handle_pre_tool_use(input_json: dict) -> None:
