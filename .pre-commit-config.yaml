@@ -33,18 +33,18 @@ repos:
         files: ^core/
         additional_dependencies: [types-PyYAML]
       - id: mypy
-        name: mypy (claude_code_tracing)
-        files: ^claude_code_tracing/
+        name: mypy (tracing/claude_code)
+        files: ^tracing/claude_code/
         additional_dependencies: [types-PyYAML]
       - id: mypy
-        name: mypy (codex_tracing)
-        files: ^codex_tracing/
+        name: mypy (tracing/codex)
+        files: ^tracing/codex/
         additional_dependencies: [types-PyYAML]
       - id: mypy
-        name: mypy (copilot_tracing)
-        files: ^copilot_tracing/
+        name: mypy (tracing/copilot)
+        files: ^tracing/copilot/
         additional_dependencies: [types-PyYAML]
       - id: mypy
-        name: mypy (cursor_tracing)
-        files: ^cursor_tracing/
+        name: mypy (tracing/cursor)
+        files: ^tracing/cursor/
         additional_dependencies: [types-PyYAML]

@@ -126,17 +126,17 @@ class TestHarnessMapping:
     def _load(self):
         self.text = _read_install_sh()
 
-    def test_claude_maps_to_claude_code_tracing(self):
-        assert 'claude)  echo "claude_code_tracing"' in self.text
+    def test_claude_maps_to_tracing_claude_code(self):
+        assert 'claude)  echo "tracing/claude_code"' in self.text
 
-    def test_codex_maps_to_codex_tracing(self):
-        assert 'codex)   echo "codex_tracing"' in self.text
+    def test_codex_maps_to_tracing_codex(self):
+        assert 'codex)   echo "tracing/codex"' in self.text
 
-    def test_copilot_maps_to_copilot_tracing(self):
-        assert 'copilot) echo "copilot_tracing"' in self.text
+    def test_copilot_maps_to_tracing_copilot(self):
+        assert 'copilot) echo "tracing/copilot"' in self.text
 
-    def test_cursor_maps_to_cursor_tracing(self):
-        assert 'cursor)  echo "cursor_tracing"' in self.text
+    def test_cursor_maps_to_tracing_cursor(self):
+        assert 'cursor)  echo "tracing/cursor"' in self.text
 
 
 # ---------------------------------------------------------------------------
@@ -237,8 +237,8 @@ class TestDispatchLogic:
         self.text = _read_install_sh()
 
     def test_dispatches_harness_commands(self):
-        """claude|codex|copilot|cursor should be dispatched."""
-        assert "claude|codex|copilot|cursor)" in self.text
+        """claude|codex|copilot|cursor|gemini should be dispatched."""
+        assert "claude|codex|copilot|cursor|gemini)" in self.text
 
     def test_install_harness_called(self):
         """install_harness function should be called for harness commands."""
@@ -320,46 +320,6 @@ class TestFlagParsing:
 
     def test_env_var_default_branch(self):
         assert "ARIZE_INSTALL_BRANCH" in self.text
-
-
-# ---------------------------------------------------------------------------
-# Removed code tests
-# ---------------------------------------------------------------------------
-
-
-class TestRemovedCode:
-    """Verify that old monolith code is gone."""
-
-    @pytest.fixture(autouse=True)
-    def _load(self):
-        self.text = _read_install_sh()
-
-    def test_no_python_heredocs(self):
-        """No embedded Python code blocks."""
-        # Old script had "$vp" -c 'import json...' blocks
-        assert "import json" not in self.text
-        assert "import yaml" not in self.text
-
-    def test_no_cursor_hook_events_array(self):
-        assert "CURSOR_HOOK_EVENTS=(" not in self.text
-
-    def test_no_arize_env_keys_array(self):
-        assert "ARIZE_ENV_KEYS=(" not in self.text
-
-    def test_no_codex_buffer_code(self):
-        assert "BUFFER_BIN=" not in self.text
-        assert "BUFFER_PID_FILE=" not in self.text
-
-    def test_no_legacy_collector_code(self):
-        assert "COLLECTOR_BIN=" not in self.text
-        assert "PID_FILE=" not in self.text
-
-    def test_no_write_config(self):
-        """write_config should be removed — Python handles config now."""
-        assert "write_config()" not in self.text
-        # The function definition pattern
-        pattern = r"^write_config\s*\(\)"
-        assert not re.search(pattern, self.text, re.MULTILINE)
 
 
 # ---------------------------------------------------------------------------

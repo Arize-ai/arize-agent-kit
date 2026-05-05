@@ -2,7 +2,7 @@
 # Arize Agent Kit — Thin shell router
 #
 # Handles Python discovery, repo clone/tarball, venv creation, and pip install.
-# All harness-specific logic lives in <harness>_tracing/install.py.
+# All harness-specific logic lives in tracing/<harness>/install.py.
 #
 # Usage:
 #   curl -sSL .../install.sh | bash -s -- claude [--with-skills] [--branch NAME]
@@ -37,6 +37,19 @@ tty_input() {
     local prompt="$1" reply=""
     [[ -n "$_tty_in" ]] && read -rp "$prompt" reply < "$_tty_in"
     echo "$reply"
+}
+
+# Run a command with stdin wired to the user's TTY when possible.
+# Under `curl | bash`, our own stdin is the pipe — not a terminal — so any
+# subprocess that calls input() (e.g. tracing/<harness>/install.py) would hit
+# EOFError on the very first prompt. Redirecting from _tty_in lets Python read
+# from the actual terminal. No-op in non-interactive environments without a TTY.
+run_with_tty() {
+    if [[ -n "$_tty_in" ]]; then
+        "$@" < "$_tty_in"
+    else
+        "$@"
+    fi
 }
 
 tty_read_masked_line() {
@@ -184,10 +197,11 @@ setup_venv() {
 # -- Harness name mapping ----------------------------------------------------
 harness_dir() {
     case "$1" in
-        claude)  echo "claude_code_tracing" ;;
-        codex)   echo "codex_tracing" ;;
-        copilot) echo "copilot_tracing" ;;
-        cursor)  echo "cursor_tracing" ;;
+        claude)  echo "tracing/claude_code" ;;
+        codex)   echo "tracing/codex" ;;
+        copilot) echo "tracing/copilot" ;;
+        cursor)  echo "tracing/cursor" ;;
+        gemini)  echo "tracing/gemini" ;;
         *)       return 1 ;;
     esac
 }
@@ -204,9 +218,9 @@ install_harness() {
     local install_py="${INSTALL_DIR}/${dir}/install.py"
     [[ -f "$install_py" ]] || { err "Harness install script not found: ${install_py}"; exit 1; }
     if [[ "$skills" == true ]]; then
-        "$vp" "$install_py" install --with-skills
+        run_with_tty "$vp" "$install_py" install --with-skills
     else
-        "$vp" "$install_py" install
+        run_with_tty "$vp" "$install_py" install
     fi
     info "Setup complete!"
 }
@@ -223,6 +237,7 @@ Commands:
   codex       Install and configure tracing for OpenAI Codex CLI
   copilot     Install and configure tracing for GitHub Copilot (VS Code + CLI)
   cursor      Install and configure tracing for Cursor IDE
+  gemini      Install and configure tracing for Gemini CLI
   update      Update the installed arize-agent-kit and re-register all harnesses
   uninstall <harness>   Tear down one harness
   uninstall             Full wipe: venv + repo + shared config
@@ -253,7 +268,7 @@ main() {
     done
 
     case "$cmd" in
-        claude|codex|copilot|cursor)
+        claude|codex|copilot|cursor|gemini)
             install_harness "$cmd" "$with_skills"
             ;;
         uninstall)
@@ -261,7 +276,7 @@ main() {
                 local dir; dir=$(harness_dir "$subcmd") || { err "Unknown harness: ${subcmd}"; usage; exit 1; }
                 local vp; vp=$(venv_python) || { err "Venv not found — nothing to uninstall"; exit 1; }
                 header "Uninstalling ${subcmd} tracing"
-                "$vp" "${INSTALL_DIR}/${dir}/install.py" uninstall
+                run_with_tty "$vp" "${INSTALL_DIR}/${dir}/install.py" uninstall
             else
                 local vp; vp=$(venv_python) || {
                     warn "Venv not found — removing install directory"; rm -rf "$INSTALL_DIR"
@@ -279,7 +294,7 @@ main() {
                         local dir; dir=$(harness_dir "$key") || { warn "Unknown harness: ${key} (skipping)"; continue; }
                         if [[ -f "${INSTALL_DIR}/${dir}/install.py" ]]; then
                             info "Uninstalling ${key} tracing..."
-                            "$vp" "${INSTALL_DIR}/${dir}/install.py" uninstall || warn "${key} uninstall failed (continuing)"
+                            run_with_tty "$vp" "${INSTALL_DIR}/${dir}/install.py" uninstall || warn "${key} uninstall failed (continuing)"
                         fi
                     done <<< "$harnesses"
                 fi
@@ -303,7 +318,7 @@ main() {
                 while IFS= read -r key; do
                     local dir; dir=$(harness_dir "$key") || { warn "Unknown harness: ${key} (skipping)"; continue; }
                     if [[ -f "${INSTALL_DIR}/${dir}/install.py" ]]; then
-                        info "Re-registering ${key}..."; "$vp" "${INSTALL_DIR}/${dir}/install.py" install
+                        info "Re-registering ${key}..."; run_with_tty "$vp" "${INSTALL_DIR}/${dir}/install.py" install
                     else warn "Harness directory not found: ${dir}"; fi
                 done <<< "$harnesses"
             else info "No installed harnesses found to re-register"; fi

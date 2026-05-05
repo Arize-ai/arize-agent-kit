@@ -1,4 +1,4 @@
-"""Tests for codex_tracing.codex_buffer_ctl module."""
+"""Tests for tracing.codex.codex_buffer_ctl module."""
 
 import json
 import os
@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
-from codex_tracing.codex_buffer_ctl import (
+from tracing.codex.codex_buffer_ctl import (
     _evict_stale,
     _expected_build_path,
     _health_check,
@@ -33,7 +33,7 @@ from codex_tracing.codex_buffer_ctl import (
 def _mock_ctl_sleep(monkeypatch):
     """Mock time.sleep in codex_buffer_ctl to prevent real delays in retry/poll loops."""
     sleep_calls = []
-    monkeypatch.setattr("codex_tracing.codex_buffer_ctl.time.sleep", lambda s: sleep_calls.append(s))
+    monkeypatch.setattr("tracing.codex.codex_buffer_ctl.time.sleep", lambda s: sleep_calls.append(s))
     return sleep_calls
 
 
@@ -43,7 +43,7 @@ def _mock_ctl_health(monkeypatch):
 
     Tests that need a healthy endpoint use mock_collector which patches this back.
     """
-    monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", lambda *a, **kw: False)
+    monkeypatch.setattr("tracing.codex.codex_buffer_ctl._health_check", lambda *a, **kw: False)
 
 
 @pytest.fixture(autouse=True)
@@ -52,27 +52,27 @@ def _mock_ctl_identity(monkeypatch):
 
     Tests that need identity behavior override these explicitly.
     """
-    monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_identity", lambda *a, **kw: {})
-    monkeypatch.setattr("codex_tracing.codex_buffer_ctl._listener_pid", lambda *a, **kw: None)
+    monkeypatch.setattr("tracing.codex.codex_buffer_ctl._health_identity", lambda *a, **kw: {})
+    monkeypatch.setattr("tracing.codex.codex_buffer_ctl._listener_pid", lambda *a, **kw: None)
 
 
 # ---------------------------------------------------------------------------
 # Helper fixture: monkeypatch constants in BOTH core.constants AND
-# codex_tracing.codex_buffer_ctl, because codex_buffer_ctl uses `from core.constants import`
+# tracing.codex.codex_buffer_ctl, because codex_buffer_ctl uses `from core.constants import`
 # which creates local bindings that won't see monkeypatches to core.constants.
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
 def ctl_paths(tmp_harness_dir, monkeypatch):
-    """Monkeypatch all path constants in codex_tracing.codex_buffer_ctl to use temp paths.
+    """Monkeypatch all path constants in tracing.codex.codex_buffer_ctl to use temp paths.
 
     The base tmp_harness_dir fixture patches core.constants, but codex_buffer_ctl
     has its own local bindings from `from core.constants import ...`.
     This fixture patches those too.
     """
-    import codex_tracing.codex_buffer_ctl as ctl
     import core.constants as c
+    import tracing.codex.codex_buffer_ctl as ctl
 
     monkeypatch.setattr(ctl, "CODEX_BUFFER_PID_FILE", c.CODEX_BUFFER_PID_FILE)
     monkeypatch.setattr(ctl, "PID_DIR", c.PID_DIR)
@@ -388,7 +388,7 @@ class TestBufferStart:
         # Mock identity to match expected build_path so pidfile check passes
         expected_bp = _expected_build_path()
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl._health_identity",
+            "tracing.codex.codex_buffer_ctl._health_identity",
             lambda h, p: {"pid": os.getpid(), "build_path": expected_bp},
         )
 
@@ -424,11 +424,11 @@ class TestBufferStart:
 
     def test_detects_existing_buffer_on_port(self, ctl_paths, mock_collector, monkeypatch):
         """If port has a healthy buffer with matching identity, start returns True."""
-        import codex_tracing.codex_buffer_ctl as ctl
         import core.constants as c
+        import tracing.codex.codex_buffer_ctl as ctl
 
         # Restore real _health_check for this test (overrides autouse mock)
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", _health_check)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._health_check", _health_check)
 
         config = {"harnesses": {"codex": {"collector": {"host": "127.0.0.1", "port": mock_collector["port"]}}}}
         with open(c.CONFIG_FILE, "w") as f:
@@ -443,7 +443,7 @@ class TestBufferStart:
         # Mock identity to match expected build_path
         expected_bp = str((fake_core / "codex_buffer.py").resolve())
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl._health_identity",
+            "tracing.codex.codex_buffer_ctl._health_identity",
             lambda h, p: {"pid": os.getpid(), "build_path": expected_bp},
         )
 
@@ -453,7 +453,7 @@ class TestBufferStart:
 
     def test_returns_false_when_no_buffer_runtime(self, ctl_paths, sample_config, monkeypatch):
         """If neither CODEX_BUFFER_BIN nor codex_buffer.py exist, start fails."""
-        import codex_tracing.codex_buffer_ctl as ctl
+        import tracing.codex.codex_buffer_ctl as ctl
 
         # Point CODEX_BUFFER_BIN to nonexistent path
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
@@ -468,7 +468,7 @@ class TestBufferStart:
 
     def test_start_launches_subprocess(self, ctl_paths, sample_config, monkeypatch):
         """Successful launch via codex_buffer.py calls Popen with correct args."""
-        import codex_tracing.codex_buffer_ctl as ctl
+        import tracing.codex.codex_buffer_ctl as ctl
 
         # Point CODEX_BUFFER_BIN to nonexistent so it falls through to codex_buffer.py
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
@@ -482,7 +482,7 @@ class TestBufferStart:
 
         # Mock socket to raise (port is free)
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.socket.create_connection",
+            "tracing.codex.codex_buffer_ctl.socket.create_connection",
             MagicMock(side_effect=ConnectionRefusedError),
         )
 
@@ -490,7 +490,7 @@ class TestBufferStart:
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         mock_popen = MagicMock(return_value=mock_proc)
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.subprocess.Popen", mock_popen)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.subprocess.Popen", mock_popen)
 
         # Mock _health_check: fail for identity check, succeed after launch poll
         call_count = {"n": 0}
@@ -501,7 +501,7 @@ class TestBufferStart:
             # 2nd+ call: post-launch poll -> True
             return call_count["n"] >= 2
 
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", fake_health_check)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._health_check", fake_health_check)
 
         result = buffer_start()
         assert result is True
@@ -513,7 +513,7 @@ class TestBufferStart:
 
     def test_start_uses_buffer_bin_when_available(self, ctl_paths, sample_config, monkeypatch):
         """When CODEX_BUFFER_BIN exists and is executable, it is preferred over codex_buffer.py."""
-        import codex_tracing.codex_buffer_ctl as ctl
+        import tracing.codex.codex_buffer_ctl as ctl
 
         # Create a fake CODEX_BUFFER_BIN
         buffer_bin = ctl_paths / "arize-codex-buffer"
@@ -523,7 +523,7 @@ class TestBufferStart:
 
         # Mock socket to raise (port is free)
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.socket.create_connection",
+            "tracing.codex.codex_buffer_ctl.socket.create_connection",
             MagicMock(side_effect=ConnectionRefusedError),
         )
 
@@ -531,12 +531,12 @@ class TestBufferStart:
         mock_proc = MagicMock()
         mock_proc.pid = 12345
         mock_popen = MagicMock(return_value=mock_proc)
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.subprocess.Popen", mock_popen)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.subprocess.Popen", mock_popen)
 
         # Mock _health_check: False for status + start pre-checks, True after launch
         health_calls = iter([False, False, True])
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl._health_check", lambda h, p, timeout=2.0: next(health_calls)
+            "tracing.codex.codex_buffer_ctl._health_check", lambda h, p, timeout=2.0: next(health_calls)
         )
 
         result = buffer_start()
@@ -547,7 +547,7 @@ class TestBufferStart:
 
     def test_start_returns_true_if_process_alive_but_unhealthy(self, ctl_paths, sample_config, monkeypatch):
         """If health check never passes but process is alive, returns True (benefit of the doubt)."""
-        import codex_tracing.codex_buffer_ctl as ctl
+        import tracing.codex.codex_buffer_ctl as ctl
 
         # Point CODEX_BUFFER_BIN to nonexistent so it falls through to codex_buffer.py
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
@@ -560,7 +560,7 @@ class TestBufferStart:
 
         # Mock socket (port is free)
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.socket.create_connection",
+            "tracing.codex.codex_buffer_ctl.socket.create_connection",
             MagicMock(side_effect=ConnectionRefusedError),
         )
 
@@ -568,20 +568,20 @@ class TestBufferStart:
         mock_proc = MagicMock()
         mock_proc.pid = 54321
         mock_popen = MagicMock(return_value=mock_proc)
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.subprocess.Popen", mock_popen)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.subprocess.Popen", mock_popen)
 
         # Health check always fails
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", lambda h, p, timeout=2.0: False)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._health_check", lambda h, p, timeout=2.0: False)
 
         # Process is alive
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._is_process_alive", lambda pid: pid == 54321)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._is_process_alive", lambda pid: pid == 54321)
 
         result = buffer_start()
         assert result is True
 
     def test_start_returns_false_on_popen_failure(self, ctl_paths, sample_config, monkeypatch):
         """If Popen raises OSError, buffer_start returns False."""
-        import codex_tracing.codex_buffer_ctl as ctl
+        import tracing.codex.codex_buffer_ctl as ctl
 
         # Point CODEX_BUFFER_BIN to nonexistent so it falls through to codex_buffer.py
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
@@ -594,13 +594,13 @@ class TestBufferStart:
 
         # Mock socket (port is free)
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.socket.create_connection",
+            "tracing.codex.codex_buffer_ctl.socket.create_connection",
             MagicMock(side_effect=ConnectionRefusedError),
         )
 
         # Mock Popen to raise OSError
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.subprocess.Popen",
+            "tracing.codex.codex_buffer_ctl.subprocess.Popen",
             MagicMock(side_effect=OSError("Permission denied")),
         )
 
@@ -693,8 +693,8 @@ class TestBufferStop:
         pid_file.write_text(str(os.getpid()) + "\n")
 
         # Mock os.kill to do nothing (simulate process that ignores SIGTERM)
-        with patch("codex_tracing.codex_buffer_ctl.os.kill"):
-            with patch("codex_tracing.codex_buffer_ctl._is_process_alive", return_value=True):
+        with patch("tracing.codex.codex_buffer_ctl.os.kill"):
+            with patch("tracing.codex.codex_buffer_ctl._is_process_alive", return_value=True):
                 result = buffer_stop()
 
         assert result == "stopped"
@@ -718,14 +718,14 @@ class TestBufferEnsure:
 
     def test_does_not_raise_on_start_error(self, ctl_paths):
         """ensure() swallows exceptions from buffer_start."""
-        with patch("codex_tracing.codex_buffer_ctl.buffer_start", side_effect=RuntimeError("boom")):
+        with patch("tracing.codex.codex_buffer_ctl.buffer_start", side_effect=RuntimeError("boom")):
             buffer_ensure()  # should not raise
 
-    def test_always_calls_start(self, ctl_paths):
-        """ensure() always delegates to buffer_start for identity verification."""
-        with patch("codex_tracing.codex_buffer_ctl.buffer_start") as mock_start:
+    def test_calls_start_without_evicting_stale_buffer(self, ctl_paths):
+        """ensure() delegates to buffer_start but preserves healthy in-memory buffers."""
+        with patch("tracing.codex.codex_buffer_ctl.buffer_start") as mock_start:
             buffer_ensure()
-            mock_start.assert_called_once()
+            mock_start.assert_called_once_with(evict_stale=False)
 
 
 # ---------------------------------------------------------------------------
@@ -843,7 +843,7 @@ class TestEdgeCases:
 
     def test_log_output_goes_to_stderr(self, ctl_paths, capsys):
         """_log() writes to stderr, not stdout."""
-        from codex_tracing.codex_buffer_ctl import _log
+        from tracing.codex.codex_buffer_ctl import _log
 
         _log("test message")
         captured = capsys.readouterr()
@@ -853,7 +853,7 @@ class TestEdgeCases:
 
     def test_buffer_start_with_config_but_no_runtime(self, ctl_paths, sample_config, monkeypatch):
         """Start with config but no buffer binary or codex_buffer.py fails gracefully."""
-        import codex_tracing.codex_buffer_ctl as ctl
+        import tracing.codex.codex_buffer_ctl as ctl
 
         # Point both runtime locations to nonexistent paths
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
@@ -882,7 +882,7 @@ class TestHealthIdentity:
         def fake_urlopen(url, timeout=None):
             return io.BytesIO(identity_json)
 
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.urllib.request.urlopen", fake_urlopen)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.urllib.request.urlopen", fake_urlopen)
         result = _health_identity("127.0.0.1", 4318)
         assert result["pid"] == 12345
         assert result["build_path"] == "/some/path/codex_buffer.py"
@@ -895,7 +895,7 @@ class TestHealthIdentity:
         def fake_urlopen(url, timeout=None):
             return io.BytesIO(b"not json at all")
 
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.urllib.request.urlopen", fake_urlopen)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.urllib.request.urlopen", fake_urlopen)
         result = _health_identity("127.0.0.1", 4318)
         assert result == {}
 
@@ -905,7 +905,7 @@ class TestHealthIdentity:
         def fake_urlopen(url, timeout=None):
             raise ConnectionRefusedError("refused")
 
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.urllib.request.urlopen", fake_urlopen)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.urllib.request.urlopen", fake_urlopen)
         result = _health_identity("127.0.0.1", 4318)
         assert result == {}
 
@@ -919,12 +919,12 @@ class TestListenerPid:
     def test_listener_pid_uses_health(self, monkeypatch):
         """When /health returns a valid PID, lsof is not called."""
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl._health_identity",
+            "tracing.codex.codex_buffer_ctl._health_identity",
             lambda h, p: {"pid": 12345},
         )
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._is_process_alive", lambda pid: pid == 12345)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._is_process_alive", lambda pid: pid == 12345)
         mock_run = MagicMock()
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.subprocess.run", mock_run)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.subprocess.run", mock_run)
 
         result = _listener_pid("127.0.0.1", 4318)
         assert result == 12345
@@ -933,13 +933,13 @@ class TestListenerPid:
     def test_listener_pid_falls_back_to_lsof(self, monkeypatch):
         """When /health has no PID, falls back to lsof."""
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl._health_identity",
+            "tracing.codex.codex_buffer_ctl._health_identity",
             lambda h, p: {},
         )
         mock_result = MagicMock()
         mock_result.stdout = "99887\n"
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.subprocess.run",
+            "tracing.codex.codex_buffer_ctl.subprocess.run",
             MagicMock(return_value=mock_result),
         )
 
@@ -949,11 +949,11 @@ class TestListenerPid:
     def test_listener_pid_returns_none_when_lsof_missing(self, monkeypatch):
         """When lsof is not installed, returns None."""
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl._health_identity",
+            "tracing.codex.codex_buffer_ctl._health_identity",
             lambda h, p: {},
         )
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.subprocess.run",
+            "tracing.codex.codex_buffer_ctl.subprocess.run",
             MagicMock(side_effect=FileNotFoundError("lsof not found")),
         )
 
@@ -969,8 +969,8 @@ class TestListenerPid:
 class TestBufferStatusIdentity:
     def test_status_returns_real_pid_via_lsof_when_pidfile_missing(self, ctl_paths, monkeypatch):
         """When pidfile is absent but health passes, _listener_pid provides PID."""
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", lambda *a, **kw: True)
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._listener_pid", lambda h, p: 555)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._health_check", lambda *a, **kw: True)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._listener_pid", lambda h, p: 555)
 
         status, pid, addr = buffer_status()
         assert status == "running"
@@ -987,14 +987,14 @@ class TestBufferStartIdentity:
         """If /health returns matching build_path, Popen is never called."""
 
         expected_bp = _expected_build_path()
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", lambda *a, **kw: True)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._health_check", lambda *a, **kw: True)
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl._health_identity",
+            "tracing.codex.codex_buffer_ctl._health_identity",
             lambda h, p: {"pid": 999, "build_path": expected_bp},
         )
 
         mock_popen = MagicMock()
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.subprocess.Popen", mock_popen)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.subprocess.Popen", mock_popen)
 
         result = buffer_start()
         assert result is True
@@ -1002,7 +1002,7 @@ class TestBufferStartIdentity:
 
     def test_start_evicts_when_build_path_mismatches(self, ctl_paths, sample_config, monkeypatch):
         """Mismatched build_path triggers eviction then spawn."""
-        import codex_tracing.codex_buffer_ctl as ctl
+        import tracing.codex.codex_buffer_ctl as ctl
 
         # Point CODEX_BUFFER_BIN to nonexistent so it falls through to codex_buffer.py
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
@@ -1021,22 +1021,22 @@ class TestBufferStartIdentity:
             # 2nd+ call: post-launch poll -> True
             return True
 
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", fake_health)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._health_check", fake_health)
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl._health_identity",
+            "tracing.codex.codex_buffer_ctl._health_identity",
             lambda h, p: {"pid": 12345, "build_path": "/old/worktree/codex_buffer.py"},
         )
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._listener_pid", lambda h, p: 12345)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._listener_pid", lambda h, p: 12345)
 
         kill_calls = []
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.os.kill",
+            "tracing.codex.codex_buffer_ctl.os.kill",
             lambda pid, sig: kill_calls.append((pid, sig)),
         )
 
         # Mock _evict_stale's port poll to succeed immediately
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.socket.create_connection",
+            "tracing.codex.codex_buffer_ctl.socket.create_connection",
             MagicMock(side_effect=ConnectionRefusedError),
         )
 
@@ -1044,7 +1044,7 @@ class TestBufferStartIdentity:
         mock_proc = MagicMock()
         mock_proc.pid = 99999
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.subprocess.Popen",
+            "tracing.codex.codex_buffer_ctl.subprocess.Popen",
             MagicMock(return_value=mock_proc),
         )
 
@@ -1054,7 +1054,7 @@ class TestBufferStartIdentity:
 
     def test_start_evicts_when_build_path_no_longer_exists(self, ctl_paths, sample_config, monkeypatch):
         """build_path pointing to a deleted file triggers eviction."""
-        import codex_tracing.codex_buffer_ctl as ctl
+        import tracing.codex.codex_buffer_ctl as ctl
 
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
 
@@ -1063,27 +1063,27 @@ class TestBufferStartIdentity:
         (fake_core / "codex_buffer.py").write_text("# fake\n")
         monkeypatch.setattr(ctl, "__file__", str(fake_core / "codex_buffer_ctl.py"))
 
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", lambda *a, **kw: True)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._health_check", lambda *a, **kw: True)
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl._health_identity",
+            "tracing.codex.codex_buffer_ctl._health_identity",
             lambda h, p: {"pid": 12345, "build_path": "/tmp/nonexistent/buffer.py"},
         )
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._listener_pid", lambda h, p: 12345)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._listener_pid", lambda h, p: 12345)
 
         kill_calls = []
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.os.kill",
+            "tracing.codex.codex_buffer_ctl.os.kill",
             lambda pid, sig: kill_calls.append((pid, sig)),
         )
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.socket.create_connection",
+            "tracing.codex.codex_buffer_ctl.socket.create_connection",
             MagicMock(side_effect=ConnectionRefusedError),
         )
 
         mock_proc = MagicMock()
         mock_proc.pid = 99999
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.subprocess.Popen",
+            "tracing.codex.codex_buffer_ctl.subprocess.Popen",
             MagicMock(return_value=mock_proc),
         )
 
@@ -1093,7 +1093,7 @@ class TestBufferStartIdentity:
 
     def test_start_evicts_when_identity_missing(self, ctl_paths, sample_config, monkeypatch):
         """Old buffer with no identity triggers eviction."""
-        import codex_tracing.codex_buffer_ctl as ctl
+        import tracing.codex.codex_buffer_ctl as ctl
 
         monkeypatch.setattr(ctl, "CODEX_BUFFER_BIN", Path("/nonexistent/arize-codex-buffer"))
 
@@ -1102,30 +1102,49 @@ class TestBufferStartIdentity:
         (fake_core / "codex_buffer.py").write_text("# fake\n")
         monkeypatch.setattr(ctl, "__file__", str(fake_core / "codex_buffer_ctl.py"))
 
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_check", lambda *a, **kw: True)
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_identity", lambda h, p: {})
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._listener_pid", lambda h, p: 12345)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._health_check", lambda *a, **kw: True)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._health_identity", lambda h, p: {})
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._listener_pid", lambda h, p: 12345)
 
         kill_calls = []
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.os.kill",
+            "tracing.codex.codex_buffer_ctl.os.kill",
             lambda pid, sig: kill_calls.append((pid, sig)),
         )
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.socket.create_connection",
+            "tracing.codex.codex_buffer_ctl.socket.create_connection",
             MagicMock(side_effect=ConnectionRefusedError),
         )
 
         mock_proc = MagicMock()
         mock_proc.pid = 99999
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.subprocess.Popen",
+            "tracing.codex.codex_buffer_ctl.subprocess.Popen",
             MagicMock(return_value=mock_proc),
         )
 
         result = buffer_start()
         assert result is True
         assert any(pid == 12345 and sig == signal.SIGTERM for pid, sig in kill_calls)
+
+    def test_start_without_evict_stale_preserves_healthy_mismatched_buffer(self, ctl_paths, sample_config, monkeypatch):
+        """Hook-time start preserves a healthy listener even when build_path differs."""
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._health_check", lambda *a, **kw: True)
+        monkeypatch.setattr(
+            "tracing.codex.codex_buffer_ctl._health_identity",
+            lambda h, p: {"pid": 12345, "build_path": "/old/worktree/codex_buffer.py"},
+        )
+
+        mock_evict = MagicMock()
+        mock_popen = MagicMock()
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._evict_stale", mock_evict)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.subprocess.Popen", mock_popen)
+
+        result = buffer_start(evict_stale=False)
+
+        assert result is True
+        mock_evict.assert_not_called()
+        mock_popen.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -1137,22 +1156,22 @@ class TestBufferStopIdentity:
     def test_stop_force_kills_unknown_listener(self, ctl_paths, monkeypatch):
         """With --force, unknown listener is killed."""
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl._listener_pid",
+            "tracing.codex.codex_buffer_ctl._listener_pid",
             lambda h, p: 12345,
         )
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl._health_identity",
+            "tracing.codex.codex_buffer_ctl._health_identity",
             lambda h, p: {"build_path": "/some/foreign/codex_buffer.py"},
         )
         # Make the foreign build_path "exist"
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.os.path.isfile", lambda p: True)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.os.path.isfile", lambda p: True)
 
         kill_calls = []
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.os.kill",
+            "tracing.codex.codex_buffer_ctl.os.kill",
             lambda pid, sig: kill_calls.append((pid, sig)),
         )
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._is_process_alive", lambda pid: False)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._is_process_alive", lambda pid: False)
 
         result = buffer_stop(force=True)
         assert result == "stopped"
@@ -1161,19 +1180,19 @@ class TestBufferStopIdentity:
     def test_stop_refuses_unknown_without_force(self, ctl_paths, monkeypatch):
         """Without --force, unknown listener is refused."""
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl._listener_pid",
+            "tracing.codex.codex_buffer_ctl._listener_pid",
             lambda h, p: 12345,
         )
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl._health_identity",
+            "tracing.codex.codex_buffer_ctl._health_identity",
             lambda h, p: {"build_path": "/some/foreign/codex_buffer.py"},
         )
         # Make the foreign build_path "exist"
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.os.path.isfile", lambda p: True)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.os.path.isfile", lambda p: True)
 
         kill_calls = []
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.os.kill",
+            "tracing.codex.codex_buffer_ctl.os.kill",
             lambda pid, sig: kill_calls.append((pid, sig)),
         )
 
@@ -1184,20 +1203,20 @@ class TestBufferStopIdentity:
     def test_stop_kills_when_build_path_file_deleted(self, ctl_paths, monkeypatch):
         """Listener whose build_path no longer exists is killed without --force."""
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl._listener_pid",
+            "tracing.codex.codex_buffer_ctl._listener_pid",
             lambda h, p: 12345,
         )
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl._health_identity",
+            "tracing.codex.codex_buffer_ctl._health_identity",
             lambda h, p: {"build_path": "/tmp/gone.py"},
         )
 
         kill_calls = []
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.os.kill",
+            "tracing.codex.codex_buffer_ctl.os.kill",
             lambda pid, sig: kill_calls.append((pid, sig)),
         )
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._is_process_alive", lambda pid: False)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._is_process_alive", lambda pid: False)
 
         result = buffer_stop(force=False)
         assert result == "stopped"
@@ -1218,7 +1237,7 @@ class TestCLIIdentity:
             stop_calls.append(force)
             return "stopped"
 
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.buffer_stop", mock_stop)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.buffer_stop", mock_stop)
 
         with patch("sys.argv", ["arize-codex-buffer", "stop", "--force"]):
             main()
@@ -1226,7 +1245,7 @@ class TestCLIIdentity:
 
     def test_cli_stop_exits_nonzero_on_refused(self, ctl_paths, monkeypatch):
         """buffer_stop returning 'refused' causes non-zero exit."""
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.buffer_stop", lambda force=False: "refused")
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.buffer_stop", lambda force=False: "refused")
 
         with patch("sys.argv", ["arize-codex-buffer", "stop"]):
             with pytest.raises(SystemExit) as exc_info:
@@ -1243,7 +1262,7 @@ class TestEvictStaleSafety:
     def test_evict_refuses_pid_zero(self, monkeypatch):
         """PID 0 is never killed."""
         kill_calls = []
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.os.kill", lambda p, s: kill_calls.append((p, s)))
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.os.kill", lambda p, s: kill_calls.append((p, s)))
         result = _evict_stale(0, "127.0.0.1", 4318, "test")
         assert result is False
         assert len(kill_calls) == 0
@@ -1251,7 +1270,7 @@ class TestEvictStaleSafety:
     def test_evict_refuses_pid_one(self, monkeypatch):
         """PID 1 (init) is never killed."""
         kill_calls = []
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.os.kill", lambda p, s: kill_calls.append((p, s)))
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.os.kill", lambda p, s: kill_calls.append((p, s)))
         result = _evict_stale(1, "127.0.0.1", 4318, "test")
         assert result is False
         assert len(kill_calls) == 0
@@ -1259,7 +1278,7 @@ class TestEvictStaleSafety:
     def test_evict_refuses_negative_pid(self, monkeypatch):
         """Negative PIDs are never killed."""
         kill_calls = []
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.os.kill", lambda p, s: kill_calls.append((p, s)))
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.os.kill", lambda p, s: kill_calls.append((p, s)))
         result = _evict_stale(-5, "127.0.0.1", 4318, "test")
         assert result is False
         assert len(kill_calls) == 0
@@ -1267,7 +1286,7 @@ class TestEvictStaleSafety:
     def test_evict_refuses_own_pid(self, monkeypatch):
         """Current process PID is never killed."""
         kill_calls = []
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.os.kill", lambda p, s: kill_calls.append((p, s)))
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.os.kill", lambda p, s: kill_calls.append((p, s)))
         result = _evict_stale(os.getpid(), "127.0.0.1", 4318, "test")
         assert result is False
         assert len(kill_calls) == 0
@@ -1275,7 +1294,7 @@ class TestEvictStaleSafety:
     def test_evict_treats_process_lookup_error_as_success(self, monkeypatch):
         """If the process dies between check and kill, that counts as success."""
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.os.kill",
+            "tracing.codex.codex_buffer_ctl.os.kill",
             MagicMock(side_effect=ProcessLookupError),
         )
         result = _evict_stale(9999, "127.0.0.1", 4318, "already gone")
@@ -1288,7 +1307,7 @@ class TestEvictStaleSafety:
         def fake_kill(pid, sig):
             kill_calls.append((pid, sig))
 
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.os.kill", fake_kill)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.os.kill", fake_kill)
 
         # Port stays open during SIGTERM polling, then closes after SIGKILL
         call_count = {"n": 0}
@@ -1302,7 +1321,7 @@ class TestEvictStaleSafety:
             # After SIGKILL: port freed
             raise ConnectionRefusedError
 
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl.socket.create_connection", fake_connect)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl.socket.create_connection", fake_connect)
 
         result = _evict_stale(9999, "127.0.0.1", 4318, "stubborn process")
         assert result is True
@@ -1318,18 +1337,18 @@ class TestEvictStaleSafety:
 class TestBufferStopEdgeCases:
     def test_stop_no_pidfile_no_listener_returns_stopped(self, ctl_paths, monkeypatch):
         """With no pidfile and no listener, stop returns 'stopped'."""
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._listener_pid", lambda h, p: None)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._listener_pid", lambda h, p: None)
         result = buffer_stop()
         assert result == "stopped"
 
     def test_stop_refuses_when_no_identity_without_force(self, ctl_paths, monkeypatch):
         """Listener with no identity (empty dict) is refused without --force."""
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._listener_pid", lambda h, p: 12345)
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._health_identity", lambda h, p: {})
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._listener_pid", lambda h, p: 12345)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._health_identity", lambda h, p: {})
 
         kill_calls = []
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.os.kill",
+            "tracing.codex.codex_buffer_ctl.os.kill",
             lambda pid, sig: kill_calls.append((pid, sig)),
         )
 
@@ -1341,18 +1360,18 @@ class TestBufferStopEdgeCases:
         """Listener whose build_path matches ours is killed without --force."""
 
         expected_bp = _expected_build_path()
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._listener_pid", lambda h, p: 12345)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._listener_pid", lambda h, p: 12345)
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl._health_identity",
+            "tracing.codex.codex_buffer_ctl._health_identity",
             lambda h, p: {"build_path": expected_bp},
         )
 
         kill_calls = []
         monkeypatch.setattr(
-            "codex_tracing.codex_buffer_ctl.os.kill",
+            "tracing.codex.codex_buffer_ctl.os.kill",
             lambda pid, sig: kill_calls.append((pid, sig)),
         )
-        monkeypatch.setattr("codex_tracing.codex_buffer_ctl._is_process_alive", lambda pid: False)
+        monkeypatch.setattr("tracing.codex.codex_buffer_ctl._is_process_alive", lambda pid: False)
 
         result = buffer_stop(force=False)
         assert result == "stopped"

@@ -6,6 +6,7 @@ key-value state backed by YAML files), and OTLP span building functions.
 Replaces the jq-based state functions in common.sh lines 46-109 and
 build_span/build_multi_span from common.sh lines 277-317 / codex common.sh lines 110-145.
 """
+import functools
 import json as _json
 import os
 import shutil
@@ -39,7 +40,12 @@ class _Env:
 
     @property
     def user_id(self) -> str:
-        return os.environ.get("ARIZE_USER_ID", "")
+        # env var > config.yaml top-level `user_id` > ""
+        raw = os.environ.get("ARIZE_USER_ID")
+        if raw is not None:
+            return raw
+        val = self._top_level_config.get("user_id")
+        return str(val) if val else ""
 
     @property
     def verbose(self) -> bool:
@@ -51,7 +57,16 @@ class _Env:
 
     @property
     def log_file(self) -> str:
-        return os.environ.get("ARIZE_LOG_FILE", "/tmp/arize-agent-kit.log")
+        # Each harness adapter sets ARIZE_LOG_FILE to its per-harness path under
+        # ~/.arize/harness/logs/ at import time; the env var also acts as the
+        # explicit user override. Fall back to the shared kit log only when no
+        # adapter has run (e.g. ad-hoc imports of core.common).
+        override = os.environ.get("ARIZE_LOG_FILE")
+        if override:
+            return override
+        from core.constants import LOG_DIR
+
+        return str(LOG_DIR / "agent-kit.log")
 
     @property
     def phoenix_endpoint(self) -> str:
@@ -65,8 +80,64 @@ class _Env:
     def space_id(self) -> str:
         return os.environ.get("ARIZE_SPACE_ID", "")
 
+    @functools.cached_property
+    def _top_level_config(self) -> dict:
+        """Full top-level config.yaml mapping. Loaded once per process."""
+        try:
+            from core.config import load_config
+
+            data = load_config()
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    @functools.cached_property
+    def _logging_config(self) -> dict:
+        """Top-level `logging:` block from config.yaml. Loaded once per process."""
+        try:
+            from core.config import load_config
+
+            block = load_config().get("logging")
+            return block if isinstance(block, dict) else {}
+        except Exception:
+            return {}
+
+    def _resolve_log_flag(self, env_key: str, config_key: str, default: bool) -> bool:
+        """env var > config.yaml `logging.<key>` > default."""
+        raw = os.environ.get(env_key)
+        if raw is not None:
+            return raw.lower() == "true"
+        val = self._logging_config.get(config_key)
+        if isinstance(val, bool):
+            return val
+        return default
+
+    @property
+    def log_prompts(self) -> bool:
+        return self._resolve_log_flag("ARIZE_LOG_PROMPTS", "prompts", True)
+
+    @property
+    def log_tool_details(self) -> bool:
+        return self._resolve_log_flag("ARIZE_LOG_TOOL_DETAILS", "tool_details", True)
+
+    @property
+    def log_tool_content(self) -> bool:
+        return self._resolve_log_flag("ARIZE_LOG_TOOL_CONTENT", "tool_content", True)
+
 
 env = _Env()
+
+
+def redact_content(allowed: bool, content: str) -> str:
+    """Return content if logging is enabled, else a length-only placeholder.
+
+    Used to keep size/debugging signal while stripping sensitive payloads
+    (prompts, tool arguments, tool output) from exported spans.
+    """
+    text = content or ""
+    if allowed:
+        return text
+    return f"<redacted ({len(text)} chars)>"
 
 
 # ---------------------------------------------------------------------------
@@ -280,8 +351,11 @@ def _extract_span_name(span_dict: dict) -> str:
 def send_span(span_dict: dict) -> bool:
     """Send a span payload directly to the configured backend.
 
-    Resolves per-harness credentials from config.yaml, falling back to global
-    backend config and then environment variables.
+    Backend (target/endpoint/api_key/space_id/project_name) is resolved per
+    harness from ``~/.arize/harness/config.yaml`` via ``resolve_backend()``.
+    There is no fallback to a global backend block or to environment variables;
+    if the per-harness entry is missing or incomplete, the span is dropped and
+    an error is logged.
 
     Never raises. Returns True on success, False on failure.
     """

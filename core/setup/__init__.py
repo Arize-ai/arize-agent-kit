@@ -276,6 +276,43 @@ def prompt_project_name(default: str) -> str:
     return name if name else default
 
 
+def prompt_content_logging() -> dict:
+    """Prompt for content logging settings. Returns the dict to write under `logging:`.
+
+    All three default to True to match the kit's existing capture-everything
+    behavior. Users opt out per category.
+    """
+    print("")
+    if sys.stdout.isatty() and os.name != "nt":
+        print("\033[1;33mSecurity:\033[0m Traces can contain sensitive data — credentials, PII, file contents.")
+    else:
+        print("Security: Traces can contain sensitive data — credentials, PII, file contents.")
+    print("All content is logged by default. Opt out per category to match your security needs.")
+    print("")
+
+    log_prompts = input("  Log user prompts? [Y/n]: ").strip().lower()
+    log_tool_details = input("  Log what tools were asked to do (commands, file paths, URLs)? [Y/n]: ").strip().lower()
+    log_tool_content = input("  Log what tools returned (file contents, command output)? [Y/n]: ").strip().lower()
+
+    return {
+        "prompts": log_prompts not in ("n", "no"),
+        "tool_details": log_tool_details not in ("n", "no"),
+        "tool_content": log_tool_content not in ("n", "no"),
+    }
+
+
+def write_logging_config(logging_block: dict, config_path: str | None = None) -> None:
+    """Merge a logging block into the top-level `logging:` key in config.yaml."""
+    config = load_config(config_path)
+    if not config:
+        config = {}
+    set_value(config, "logging", logging_block)
+    if dry_run():
+        info("would write logging block to config.yaml")
+        return
+    save_config(config, config_path)
+
+
 def prompt_user_id() -> str:
     """Optional user ID prompt. Returns "" if skipped."""
     print("")
@@ -466,37 +503,17 @@ def list_installed_harnesses() -> list[str]:
 
 
 def harness_dir(harness: str) -> Path:
-    """Return the absolute path of <install-dir>/<harness>_tracing/.
+    """Return the absolute path of <install-dir>/tracing/<harness>/.
 
-    Prefers ~/.arize/harness/<harness>_tracing, falls back to
-    ~/.arize/harness/plugins/<harness>_tracing (legacy plugin layout).
-    Also checks the old hyphenated names for backwards compatibility.
+    Maps a harness alias (e.g. ``claude-code``) to its directory name
+    (``claude_code``) under ``~/.arize/harness/tracing/``.
     """
-    dir_name = f"{harness.replace('-', '_')}_tracing"
-    primary = INSTALL_DIR / dir_name
-    if primary.is_dir():
-        return primary
-
-    legacy = INSTALL_DIR / "plugins" / dir_name
-    if legacy.is_dir():
-        return legacy
-
-    # Backwards compat: check old hyphenated layout
-    old_name = f"{harness}-tracing"
-    old_primary = INSTALL_DIR / old_name
-    if old_primary.is_dir():
-        return old_primary
-
-    old_legacy = INSTALL_DIR / "plugins" / old_name
-    if old_legacy.is_dir():
-        return old_legacy
-
-    # Default to primary even if it doesn't exist yet
-    return primary
+    sub_name = harness.replace("-", "_")
+    return INSTALL_DIR / "tracing" / sub_name
 
 
 def symlink_skills(harness: str, target_dir: Path | None = None) -> None:
-    """Symlink <install-dir>/<harness>_tracing/skills/* into target_dir/.agents/skills/.
+    """Symlink <install-dir>/tracing/<harness>/skills/* into target_dir/.agents/skills/.
 
     target_dir defaults to the current working directory. Idempotent (skip
     existing links pointing at the right target). Does nothing if the harness

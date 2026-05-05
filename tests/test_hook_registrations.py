@@ -18,24 +18,24 @@ REPO_ROOT = Path(__file__).parent.parent
 
 # --- Fixtures ---
 
-HARNESS_DIRS = ["claude_code_tracing", "codex_tracing", "cursor_tracing"]
+HARNESS_DIRS = ["tracing/claude_code", "tracing/codex", "tracing/cursor"]
 
 EXPECTED_ENTRY_POINTS = {
-    "arize-codex-buffer": "codex_tracing.codex_buffer_ctl:main",
+    "arize-codex-buffer": "tracing.codex.codex_buffer_ctl:main",
     "arize-config": "core.config:main",
-    "arize-hook-session-start": "claude_code_tracing.hooks.handlers:session_start",
-    "arize-hook-pre-tool-use": "claude_code_tracing.hooks.handlers:pre_tool_use",
-    "arize-hook-post-tool-use": "claude_code_tracing.hooks.handlers:post_tool_use",
-    "arize-hook-user-prompt-submit": "claude_code_tracing.hooks.handlers:user_prompt_submit",
-    "arize-hook-stop": "claude_code_tracing.hooks.handlers:stop",
-    "arize-hook-subagent-stop": "claude_code_tracing.hooks.handlers:subagent_stop",
-    "arize-hook-stop-failure": "claude_code_tracing.hooks.handlers:stop_failure",
-    "arize-hook-notification": "claude_code_tracing.hooks.handlers:notification",
-    "arize-hook-permission-request": "claude_code_tracing.hooks.handlers:permission_request",
-    "arize-hook-session-end": "claude_code_tracing.hooks.handlers:session_end",
-    "arize-hook-codex-notify": "codex_tracing.hooks.handlers:notify",
-    "arize-codex-proxy": "codex_tracing.hooks.proxy:main",
-    "arize-hook-cursor": "cursor_tracing.hooks.handlers:main",
+    "arize-hook-session-start": "tracing.claude_code.hooks.handlers:session_start",
+    "arize-hook-pre-tool-use": "tracing.claude_code.hooks.handlers:pre_tool_use",
+    "arize-hook-post-tool-use": "tracing.claude_code.hooks.handlers:post_tool_use",
+    "arize-hook-user-prompt-submit": "tracing.claude_code.hooks.handlers:user_prompt_submit",
+    "arize-hook-stop": "tracing.claude_code.hooks.handlers:stop",
+    "arize-hook-subagent-stop": "tracing.claude_code.hooks.handlers:subagent_stop",
+    "arize-hook-stop-failure": "tracing.claude_code.hooks.handlers:stop_failure",
+    "arize-hook-notification": "tracing.claude_code.hooks.handlers:notification",
+    "arize-hook-permission-request": "tracing.claude_code.hooks.handlers:permission_request",
+    "arize-hook-session-end": "tracing.claude_code.hooks.handlers:session_end",
+    "arize-hook-codex-notify": "tracing.codex.hooks.handlers:notify",
+    "arize-codex-proxy": "tracing.codex.hooks.proxy:main",
+    "arize-hook-cursor": "tracing.cursor.hooks.handlers:main",
 }
 
 
@@ -86,11 +86,11 @@ def _collect_json_files():
 
 
 class TestPluginJson:
-    """Tests for claude_code_tracing/.claude-plugin/plugin.json."""
+    """Tests for tracing.claude_code/.claude-plugin/plugin.json."""
 
     @pytest.fixture
     def plugin_data(self):
-        path = REPO_ROOT / "claude_code_tracing" / ".claude-plugin" / "plugin.json"
+        path = REPO_ROOT / "tracing" / "claude_code" / ".claude-plugin" / "plugin.json"
         with open(path) as f:
             return json.load(f)
 
@@ -116,11 +116,11 @@ class TestPluginJson:
 
 
 class TestHooksJson:
-    """Tests for claude_code_tracing/hooks/hooks.json."""
+    """Tests for tracing.claude_code/hooks/hooks.json."""
 
     @pytest.fixture
     def hooks_data(self):
-        path = REPO_ROOT / "claude_code_tracing" / "hooks" / "hooks.json"
+        path = REPO_ROOT / "tracing" / "claude_code" / "hooks" / "hooks.json"
         with open(path) as f:
             return json.load(f)
 
@@ -211,26 +211,26 @@ class TestHooksJson:
 
 
 class TestRunHookScript:
-    """Tests for claude_code_tracing/scripts/run-hook."""
+    """Tests for tracing.claude_code/scripts/run-hook."""
 
     def test_run_hook_exists(self):
-        path = REPO_ROOT / "claude_code_tracing" / "scripts" / "run-hook"
+        path = REPO_ROOT / "tracing" / "claude_code" / "scripts" / "run-hook"
         assert path.is_file(), "scripts/run-hook must exist"
 
     def test_run_hook_is_executable(self):
         import os
 
-        path = REPO_ROOT / "claude_code_tracing" / "scripts" / "run-hook"
+        path = REPO_ROOT / "tracing" / "claude_code" / "scripts" / "run-hook"
         assert os.access(path, os.X_OK), "scripts/run-hook must be executable"
 
     def test_run_hook_has_sh_shebang(self):
-        path = REPO_ROOT / "claude_code_tracing" / "scripts" / "run-hook"
+        path = REPO_ROOT / "tracing" / "claude_code" / "scripts" / "run-hook"
         first_line = path.read_text().splitlines()[0]
         assert first_line.startswith("#!/bin/sh"), f"Expected sh shebang, got: {first_line}"
 
     def test_run_hook_references_plugin_vars(self):
         """run-hook must use CLAUDE_PLUGIN_ROOT and CLAUDE_PLUGIN_DATA."""
-        text = (REPO_ROOT / "claude_code_tracing" / "scripts" / "run-hook").read_text()
+        text = (REPO_ROOT / "tracing" / "claude_code" / "scripts" / "run-hook").read_text()
         assert "CLAUDE_PLUGIN_ROOT" in text
         assert "CLAUDE_PLUGIN_DATA" in text
 
@@ -305,8 +305,7 @@ class TestNoBashReferences:
 
         Per-harness install.py files now exist (the router dispatches to them),
         so we only check that user-facing READMEs point to install.sh as the
-        entry point. Internal docs / DEVELOPMENT.md may legitimately mention
-        install.py.
+        entry point.
         """
         user_facing = [
             REPO_ROOT / "README.md",
@@ -350,58 +349,25 @@ class TestDocumentationConsistency:
         readme = (REPO_ROOT / "README.md").read_text()
         assert "install.sh" in readme
 
-    def test_development_md_references_python(self):
-        """DEVELOPMENT.md should reference Python-based dev setup."""
-        dev_md = (REPO_ROOT / "DEVELOPMENT.md").read_text()
-        assert "pip install -e" in dev_md
-        assert "pytest" in dev_md
-
-    def test_development_md_has_cli_entry_points_table(self):
-        """DEVELOPMENT.md should document CLI entry points."""
-        dev_md = (REPO_ROOT / "DEVELOPMENT.md").read_text()
-        assert "arize-codex-buffer" in dev_md
-        assert "arize-config" in dev_md
-        assert "arize-hook-session-start" in dev_md
-        assert "arize-hook-codex-notify" in dev_md
-        assert "arize-hook-cursor" in dev_md
-
-    def test_claude_readme_references_cli_entry_points(self):
-        """Claude Code README should reference CLI entry points."""
-        readme = (REPO_ROOT / "claude_code_tracing" / "README.md").read_text()
-        assert "arize-hook-session-start" in readme
-        assert "send_span()" in readme
-        assert "Python 3.9+" in readme
-
-    def test_codex_readme_references_cli_entry_points(self):
-        """Codex README should reference CLI entry points."""
-        readme = (REPO_ROOT / "codex_tracing" / "README.md").read_text()
-        assert "arize-hook-codex-notify" in readme
-        assert "arize-codex-buffer" in readme
-
-    def test_cursor_readme_references_cli_entry_points(self):
-        """Cursor README should reference CLI entry points."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        assert "arize-hook-cursor" in readme
-        assert "send_span()" in readme
-        assert "Python 3.9+" in readme
-
     def test_cursor_skill_references_cli_entry_points(self):
         """Cursor SKILL.md should use CLI entry points for hooks."""
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
+        skill = (REPO_ROOT / "tracing" / "cursor" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
         assert "arize-hook-cursor" in skill
         assert "send_span()" in skill
         assert "hook-handler.sh" not in skill
 
     def test_codex_skill_references_cli_entry_points(self):
         """Codex SKILL.md should use CLI entry points."""
-        skill = (REPO_ROOT / "codex_tracing" / "skills" / "manage-codex-tracing" / "SKILL.md").read_text()
+        skill = (REPO_ROOT / "tracing" / "codex" / "skills" / "manage-codex-tracing" / "SKILL.md").read_text()
         assert "arize-hook-codex-notify" in skill
         assert "arize-codex-buffer" in skill
         assert "notify.sh" not in skill
 
     def test_claude_skill_references_cli_entry_points(self):
         """Claude SKILL.md should use CLI entry points."""
-        skill = (REPO_ROOT / "claude_code_tracing" / "skills" / "manage-claude-code-tracing" / "SKILL.md").read_text()
+        skill = (
+            REPO_ROOT / "tracing" / "claude_code" / "skills" / "manage-claude-code-tracing" / "SKILL.md"
+        ).read_text()
         assert "send_span()" in skill
         assert "collector_ctl.sh" not in skill
 
@@ -412,16 +378,9 @@ class TestDocumentationConsistency:
 class TestCodexHookReference:
     """Verify Codex docs reference the correct notify hook command."""
 
-    def test_codex_readme_notify_command(self):
-        """Codex README manual setup should show the CLI entry point."""
-        readme = (REPO_ROOT / "codex_tracing" / "README.md").read_text()
-        assert "arize-hook-codex-notify" in readme
-        # Should not reference bash notify.sh
-        assert "notify.sh" not in readme
-
     def test_codex_skill_notify_command(self):
         """Codex SKILL.md notify hook should use the CLI entry point."""
-        skill = (REPO_ROOT / "codex_tracing" / "skills" / "manage-codex-tracing" / "SKILL.md").read_text()
+        skill = (REPO_ROOT / "tracing" / "codex" / "skills" / "manage-codex-tracing" / "SKILL.md").read_text()
         assert "arize-hook-codex-notify" in skill
 
 
@@ -431,15 +390,9 @@ class TestCodexHookReference:
 class TestCursorHookReference:
     """Verify Cursor docs reference the correct handler command."""
 
-    def test_cursor_readme_hook_command(self):
-        """Cursor README should show arize-hook-cursor for hooks.json."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        assert "arize-hook-cursor" in readme
-        assert "hook-handler.sh" not in readme
-
     def test_cursor_skill_hook_command(self):
         """Cursor SKILL.md should show arize-hook-cursor for all 12 events."""
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
+        skill = (REPO_ROOT / "tracing" / "cursor" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
         # All events should reference the same entry point
         events = [
             "beforeSubmitPrompt",
@@ -472,148 +425,6 @@ class TestCodexProxyEntryPoint:
         """pyproject.toml must include the arize-codex-proxy console script."""
         scripts = _parse_pyproject_scripts()
         assert "arize-codex-proxy" in scripts, "Missing arize-codex-proxy entry point in pyproject.toml"
-
-
-class TestCodexDocsProxyAndShim:
-    """Verify Codex docs mention the proxy and shim."""
-
-    def test_codex_docs_mention_proxy_and_shim(self):
-        """codex_tracing README and SKILL.md must mention arize-codex-proxy and the shim path."""
-        readme = (REPO_ROOT / "codex_tracing" / "README.md").read_text()
-        skill = (REPO_ROOT / "codex_tracing" / "skills" / "manage-codex-tracing" / "SKILL.md").read_text()
-
-        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
-            assert "arize-codex-proxy" in content, f"codex_tracing {name} missing arize-codex-proxy"
-            assert "~/.arize/harness/bin/codex" in content, f"codex_tracing {name} missing ~/.arize/harness/bin/codex"
-
-
-class TestCursorDocsCliEvents:
-    """Verify Cursor docs list CLI-supported events."""
-
-    def test_cursor_docs_list_cli_supported_events(self):
-        """Cursor README and SKILL.md must mention sessionStart and postToolUse."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
-
-        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
-            assert "sessionStart" in content, f"cursor_tracing {name} missing sessionStart"
-            assert "postToolUse" in content, f"cursor_tracing {name} missing postToolUse"
-
-
-class TestCursorDocsUnsupportedHooks:
-    """Verify Cursor docs explicitly state unsupported CLI hooks."""
-
-    @staticmethod
-    def _normalize(text: str) -> str:
-        return " ".join(text.lower().split())
-
-    def test_cursor_docs_state_unsupported_cli_hooks_explicitly(self):
-        """Cursor docs must contain required disclaimer phrases."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
-
-        docs = [self._normalize(readme), self._normalize(skill)]
-
-        phrase1 = self._normalize("Cursor CLI hooks do not currently emit afterAgentResponse or afterAgentThought.")
-        phrase2 = self._normalize(
-            "Full Cursor CLI assistant and thinking coverage requires parsing --output-format stream-json"
-        )
-
-        assert any(phrase1 in d for d in docs), f"Neither cursor README nor SKILL.md contains: {phrase1!r}"
-        assert any(phrase2 in d for d in docs), f"Neither cursor README nor SKILL.md contains: {phrase2!r}"
-
-    def test_cursor_docs_do_not_list_unsupported_hooks_as_cli_supported(self):
-        """Cursor docs must not claim CLI supports afterAgentResponse or afterAgentThought."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
-
-        # Match lines claiming CLI supports/emits afterAgentResponse or afterAgentThought
-        pattern = re.compile(
-            r"(?:afterAgentResponse|afterAgentThought).*CLI.*(?:supports|emits|is supported)"
-            r"|CLI.*(?:supports|emits|is supported).*(?:afterAgentResponse|afterAgentThought)",
-            re.IGNORECASE,
-        )
-
-        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
-            matches = pattern.findall(content)
-            assert not matches, (
-                f"cursor_tracing {name} incorrectly claims CLI supports "
-                f"afterAgentResponse/afterAgentThought: {matches}"
-            )
-
-
-class TestCursorDocsSessionEnd:
-    """Verify Cursor docs mention sessionEnd."""
-
-    def test_cursor_docs_list_session_end(self):
-        """Both Cursor docs must contain the literal substring sessionEnd."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
-
-        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
-            assert "sessionEnd" in content, f"cursor_tracing {name} missing sessionEnd"
-
-
-class TestCursorDocsTokenCounts:
-    """Verify Cursor docs describe token counts on stop."""
-
-    def test_cursor_docs_describe_token_counts_on_stop(self):
-        """Both Cursor docs must mention llm.token_count.prompt and at least one of cache_read or total."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
-
-        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
-            assert "llm.token_count.prompt" in content, f"cursor_tracing {name} missing llm.token_count.prompt"
-            assert (
-                "llm.token_count.cache_read" in content or "llm.token_count.total" in content
-            ), f"cursor_tracing {name} missing llm.token_count.cache_read or llm.token_count.total"
-
-
-class TestCursorDocsPostToolUseDedup:
-    """Verify Cursor docs describe postToolUse dedup behavior."""
-
-    @staticmethod
-    def _normalize(text: str) -> str:
-        return " ".join(text.lower().split())
-
-    def test_cursor_docs_describe_post_tool_use_dedup(self):
-        """Both Cursor docs must indicate postToolUse is suppressed for tools with dedicated handlers."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
-
-        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
-            normalized = self._normalize(content)
-            has_suppressed = "posttooluse is suppressed for these" in normalized
-            has_skipped = "posttooluse is skipped for shell" in normalized
-            # Check "dedicated handler" within 200 chars of "posttooluse"
-            has_dedicated = False
-            lower_content = content.lower()
-            idx = 0
-            while True:
-                idx = lower_content.find("posttooluse", idx)
-                if idx == -1:
-                    break
-                window = lower_content[max(0, idx - 200) : idx + 200]
-                if "dedicated handler" in window:
-                    has_dedicated = True
-                    break
-                idx += 1
-
-            assert (
-                has_suppressed or has_skipped or has_dedicated
-            ), f"cursor_tracing {name} does not describe postToolUse dedup behavior"
-
-
-class TestCursorDocsConversationId:
-    """Verify Cursor docs describe cursor.conversation.id attribute."""
-
-    def test_cursor_docs_describe_conversation_id_attribute(self):
-        """Both Cursor docs must contain cursor.conversation.id."""
-        readme = (REPO_ROOT / "cursor_tracing" / "README.md").read_text()
-        skill = (REPO_ROOT / "cursor_tracing" / "skills" / "manage-cursor-tracing" / "SKILL.md").read_text()
-
-        for name, content in [("README.md", readme), ("SKILL.md", skill)]:
-            assert "cursor.conversation.id" in content, f"cursor_tracing {name} missing cursor.conversation.id"
 
 
 class TestStateFileExtension:

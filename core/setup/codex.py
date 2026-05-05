@@ -4,7 +4,7 @@
 Writes config.yaml, ~/.codex/arize-env.sh, and ~/.codex/config.toml.
 
 The ``arize-setup-codex`` entry point calls ``main()`` here, which runs the
-legacy interactive wizard.  The new ``codex_tracing/install.py`` module
+legacy interactive wizard.  The new ``tracing/codex/install.py`` module
 provides the decomposed ``install()`` / ``uninstall()`` API used by the
 shell router.  ``install()`` and ``uninstall()`` below delegate to it.
 """
@@ -13,18 +13,18 @@ import os
 import sys
 from pathlib import Path
 
-from codex_tracing import install as _install_mod
 from core.config import get_value, load_config, save_config, set_value
 from core.setup import err, info, print_color, prompt_backend, prompt_project_name, prompt_user_id, write_config
+from tracing.codex import install as _install_mod
 
 
 def install(with_skills: bool = False) -> None:
-    """Delegate to codex_tracing/install.py install()."""
+    """Delegate to tracing/codex/install.py install()."""
     _install_mod.install(with_skills=with_skills)
 
 
 def uninstall() -> None:
-    """Delegate to codex_tracing/install.py uninstall()."""
+    """Delegate to tracing/codex/install.py uninstall()."""
     _install_mod.uninstall()
 
 

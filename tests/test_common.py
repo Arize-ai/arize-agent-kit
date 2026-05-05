@@ -643,6 +643,62 @@ class TestEnvConfigProperties:
         assert env.dry_run is False
 
 
+class TestLoggingFlagPrecedence:
+    """env var > config.yaml `logging:` > default for log_prompts/tool_details/tool_content."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh_env(self, monkeypatch):
+        # Clear any inherited env values so each test starts from a clean slate.
+        for key in ("ARIZE_LOG_PROMPTS", "ARIZE_LOG_TOOL_DETAILS", "ARIZE_LOG_TOOL_CONTENT"):
+            monkeypatch.delenv(key, raising=False)
+        # Reset the cached_property between cases.
+        from core.common import env as _env
+
+        _env.__dict__.pop("_logging_config", None)
+        yield
+        _env.__dict__.pop("_logging_config", None)
+
+    def _patch_config(self, monkeypatch, block):
+        """Patch core.config.load_config so _Env._logging_config returns *block*."""
+        import core.common
+
+        monkeypatch.setattr(
+            "core.config.load_config",
+            lambda config_path=None: {"logging": block} if block is not None else {},
+        )
+        # Drop the cached value so the next access re-reads.
+        core.common.env.__dict__.pop("_logging_config", None)
+
+    def test_default_true_when_nothing_set(self, monkeypatch):
+        self._patch_config(monkeypatch, None)
+        assert env.log_prompts is True
+        assert env.log_tool_details is True
+        assert env.log_tool_content is True
+
+    def test_config_overrides_default(self, monkeypatch):
+        self._patch_config(monkeypatch, {"prompts": False, "tool_details": False, "tool_content": False})
+        assert env.log_prompts is False
+        assert env.log_tool_details is False
+        assert env.log_tool_content is False
+
+    def test_env_overrides_config(self, monkeypatch):
+        self._patch_config(monkeypatch, {"prompts": False})
+        monkeypatch.setenv("ARIZE_LOG_PROMPTS", "true")
+        assert env.log_prompts is True
+
+    def test_env_overrides_default(self, monkeypatch):
+        self._patch_config(monkeypatch, None)
+        monkeypatch.setenv("ARIZE_LOG_TOOL_DETAILS", "false")
+        assert env.log_tool_details is False
+
+    def test_partial_config_falls_through_to_default(self, monkeypatch):
+        # Only `prompts` configured; the other two flags use the True default.
+        self._patch_config(monkeypatch, {"prompts": False})
+        assert env.log_prompts is False
+        assert env.log_tool_details is True
+        assert env.log_tool_content is True
+
+
 # ── send_span tests ──────────────────────────────────────────────────────
 
 
