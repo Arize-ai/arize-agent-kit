@@ -22,14 +22,6 @@ STATE_DIR = STATE_BASE_DIR / _HARNESS["state_subdir"]  # ~/.arize/harness/state/
 os.environ.setdefault("ARIZE_LOG_FILE", str(_HARNESS["default_log_file"]))
 
 
-def is_vscode_mode(input_json: dict) -> bool:
-    """Detect VS Code Copilot by presence of sessionId or hookEventName.
-
-    VS Code Copilot hooks always include these base fields. Copilot CLI does not.
-    """
-    return bool(input_json.get("sessionId") or input_json.get("hookEventName"))
-
-
 def _get_grandparent_pid() -> str:
     """Get the grandparent PID for session key derivation.
 

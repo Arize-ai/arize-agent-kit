@@ -8,7 +8,6 @@ import json
 import sys
 
 from core.common import (
-    StateManager,
     build_span,
     debug_dump,
     env,
@@ -26,7 +25,6 @@ from tracing.copilot.hooks.adapter import (
     check_requirements,
     ensure_session_initialized,
     gc_stale_state_files,
-    is_vscode_mode,
     resolve_session,
 )
 from tracing.copilot.hooks.transcript import parse_transcript
@@ -52,13 +50,12 @@ def _read_stdin(event: str) -> dict:
     return data
 
 
-def _print_response(input_json: dict, event: str) -> None:
+def _print_response(event: str) -> None:
     """Print the hook's stdout response.
 
     PreToolUse must emit a permission decision; all other events emit a
-    `{"continue": true}` marker so the agent does not block.
+    ``{"continue": true}`` marker so the agent does not block.
     """
-    del input_json  # signature kept for compatibility with existing callers
     if event == "PreToolUse":
         print(
             json.dumps(
@@ -72,86 +69,6 @@ def _print_response(input_json: dict, event: str) -> None:
         )
     else:
         print(json.dumps({"continue": True}))
-
-
-def _flush_pending_turn(state: StateManager) -> None:
-    """CLI mode only: if a pending_turn exists in state, build and send
-    the root CHAIN span, then clear it.
-
-    The root span has input.value (prompt) but no output.value
-    (CLI doesn't expose agent response).
-    """
-    prompt = state.get("pending_turn_prompt")
-    if prompt is None:
-        return
-
-    trace_id = state.get("pending_turn_trace_id")
-    span_id = state.get("pending_turn_span_id")
-    start_time = state.get("pending_turn_start_time")
-    trace_count = state.get("pending_turn_trace_count")
-
-    if not trace_id or not span_id:
-        # Clean up invalid pending turn
-        _clear_pending_turn(state)
-        return
-
-    session_id = state.get("session_id") or ""
-    project_name = state.get("project_name") or ""
-    user_id = state.get("user_id") or ""
-
-    attrs = {
-        "session.id": session_id,
-        "openinference.span.kind": "CHAIN",
-        "project.name": project_name,
-        "input.value": redact_content(env.log_prompts, prompt),
-    }
-    if user_id:
-        attrs["user.id"] = user_id
-
-    span = build_span(
-        f"Turn {trace_count}",
-        "CHAIN",
-        span_id,
-        trace_id,
-        "",
-        start_time or str(get_timestamp_ms()),
-        str(get_timestamp_ms()),
-        attrs,
-        SERVICE_NAME,
-        SCOPE_NAME,
-    )
-    send_span(span)
-
-    _clear_pending_turn(state)
-
-
-def _clear_pending_turn(state: StateManager) -> None:
-    """Remove all pending_turn keys from state."""
-    for key in (
-        "pending_turn_prompt",
-        "pending_turn_trace_id",
-        "pending_turn_span_id",
-        "pending_turn_start_time",
-        "pending_turn_trace_count",
-    ):
-        state.delete(key)
-
-
-def _save_pending_turn(state: StateManager, prompt: str) -> None:
-    """CLI mode: save a new prompt as a pending turn for deferred sending.
-
-    Stores the RAW prompt; redaction happens at span build time.
-    """
-    state.increment("trace_count")
-    trace_count = state.get("trace_count") or "1"
-    state.set("pending_turn_prompt", prompt)
-    state.set("pending_turn_trace_id", generate_trace_id())
-    state.set("pending_turn_span_id", generate_span_id())
-    state.set("pending_turn_start_time", str(get_timestamp_ms()))
-    state.set("pending_turn_trace_count", trace_count)
-    # Set current trace context for child spans (tool spans, etc.)
-    state.set("current_trace_id", state.get("pending_turn_trace_id") or "")
-    state.set("current_trace_span_id", state.get("pending_turn_span_id") or "")
 
 
 # ---------------------------------------------------------------------------
@@ -377,105 +294,6 @@ def _handle_stop(input_json: dict) -> None:
     state.delete("current_trace_prompt")
 
 
-def _handle_error_occurred(input_json: dict) -> None:
-    """Handle error: build and send an error CHAIN span."""
-    state = resolve_session(input_json)
-    session_id = state.get("session_id")
-    if session_id is None:
-        return
-
-    trace_id = state.get("current_trace_id")
-    parent_span_id = state.get("current_trace_span_id")
-
-    # Try both field patterns (VS Code may vary, CLI has nested error object)
-    error_obj = input_json.get("error", {})
-    if isinstance(error_obj, dict):
-        error_message = error_obj.get("message", "")
-        error_name = error_obj.get("name", "")
-        error_stack = error_obj.get("stack", "")
-    else:
-        error_message = str(error_obj)
-        error_name = ""
-        error_stack = ""
-
-    # Fallback: check top-level fields
-    if not error_message:
-        error_message = input_json.get("message", "") or input_json.get("error_message", "")
-    if not error_name:
-        error_name = input_json.get("name", "") or input_json.get("error_name", "")
-    if not error_stack:
-        error_stack = input_json.get("stack", "") or input_json.get("error_stack", "")
-
-    user_id = state.get("user_id") or ""
-    project_name = state.get("project_name") or ""
-    attrs = {
-        "session.id": session_id,
-        "openinference.span.kind": "CHAIN",
-        "project.name": project_name,
-        "error.message": error_message,
-        "error.name": error_name,
-    }
-    if error_stack:
-        attrs["error.stack"] = error_stack
-    if error_message:
-        attrs["input.value"] = error_message
-    if user_id:
-        attrs["user.id"] = user_id
-
-    now = str(get_timestamp_ms())
-    span = build_span(
-        f"Error: {error_name or 'unknown'}",
-        "CHAIN",
-        generate_span_id(),
-        trace_id or generate_trace_id(),
-        parent_span_id or "",
-        now,
-        now,
-        attrs,
-        SERVICE_NAME,
-        SCOPE_NAME,
-    )
-    send_span(span)
-
-
-def _handle_session_end(input_json: dict) -> None:
-    """Handle session end: flush pending turn (CLI), log summary, clean up."""
-    state = resolve_session(input_json)
-    session_id = state.get("session_id")
-    if session_id is None:
-        return
-
-    vscode = is_vscode_mode(input_json)
-
-    # CLI mode: flush any pending turn as root span
-    if not vscode:
-        _flush_pending_turn(state)
-
-    reason = input_json.get("reason", "")
-    trace_count = state.get("trace_count") or "0"
-    tool_count = state.get("tool_count") or "0"
-
-    error(f"Session complete: {trace_count} traces, {tool_count} tools (reason={reason})")
-    error(f"View in Arize/Phoenix: session.id = {session_id}")
-
-    # Clean up state file and lock
-    if state.state_file is not None:
-        state.state_file.unlink(missing_ok=True)
-    if state._lock_path is not None:
-        if state._lock_path.is_dir():
-            try:
-                state._lock_path.rmdir()
-            except OSError:
-                pass
-        elif state._lock_path.is_file():
-            try:
-                state._lock_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-
-    gc_stale_state_files()
-
-
 def _handle_subagent_stop(input_json: dict) -> None:
     """Handle subagent_stop: build and send CHAIN span for subagent."""
     state = resolve_session(input_json)
@@ -529,7 +347,6 @@ def _handle_subagent_stop(input_json: dict) -> None:
 
 def session_start():
     """Entry point for arize-hook-copilot-session-start."""
-    input_json = {}
     try:
         input_json = _read_stdin("session_start")
         if check_requirements():
@@ -537,12 +354,11 @@ def session_start():
     except Exception as e:
         error(f"copilot session_start hook failed: {e}")
     finally:
-        _print_response(input_json, "SessionStart")
+        _print_response("SessionStart")
 
 
 def user_prompt_submitted():
     """Entry point for arize-hook-copilot-user-prompt."""
-    input_json = {}
     try:
         input_json = _read_stdin("user_prompt_submitted")
         if check_requirements():
@@ -550,12 +366,11 @@ def user_prompt_submitted():
     except Exception as e:
         error(f"copilot user_prompt_submitted hook failed: {e}")
     finally:
-        _print_response(input_json, "UserPromptSubmit")
+        _print_response("UserPromptSubmit")
 
 
 def pre_tool_use():
     """Entry point for arize-hook-copilot-pre-tool."""
-    input_json = {}
     try:
         input_json = _read_stdin("pre_tool_use")
         if check_requirements():
@@ -563,12 +378,11 @@ def pre_tool_use():
     except Exception as e:
         error(f"copilot pre_tool_use hook failed: {e}")
     finally:
-        _print_response(input_json, "PreToolUse")
+        _print_response("PreToolUse")
 
 
 def post_tool_use():
     """Entry point for arize-hook-copilot-post-tool."""
-    input_json = {}
     try:
         input_json = _read_stdin("post_tool_use")
         if check_requirements():
@@ -576,12 +390,11 @@ def post_tool_use():
     except Exception as e:
         error(f"copilot post_tool_use hook failed: {e}")
     finally:
-        _print_response(input_json, "PostToolUse")
+        _print_response("PostToolUse")
 
 
 def stop():
     """Entry point for arize-hook-copilot-stop."""
-    input_json = {}
     try:
         input_json = _read_stdin("stop")
         if check_requirements():
@@ -589,38 +402,11 @@ def stop():
     except Exception as e:
         error(f"copilot stop hook failed: {e}")
     finally:
-        _print_response(input_json, "Stop")
-
-
-def error_occurred():
-    """Entry point for arize-hook-copilot-error."""
-    input_json = {}
-    try:
-        input_json = _read_stdin("error_occurred")
-        if check_requirements():
-            _handle_error_occurred(input_json)
-    except Exception as e:
-        error(f"copilot error_occurred hook failed: {e}")
-    finally:
-        _print_response(input_json, "ErrorOccurred")
-
-
-def session_end():
-    """Entry point for arize-hook-copilot-session-end."""
-    input_json = {}
-    try:
-        input_json = _read_stdin("session_end")
-        if check_requirements():
-            _handle_session_end(input_json)
-    except Exception as e:
-        error(f"copilot session_end hook failed: {e}")
-    finally:
-        _print_response(input_json, "SessionEnd")
+        _print_response("Stop")
 
 
 def subagent_stop():
     """Entry point for arize-hook-copilot-subagent-stop."""
-    input_json = {}
     try:
         input_json = _read_stdin("subagent_stop")
         if check_requirements():
@@ -628,4 +414,4 @@ def subagent_stop():
     except Exception as e:
         error(f"copilot subagent_stop hook failed: {e}")
     finally:
-        _print_response(input_json, "SubagentStop")
+        _print_response("SubagentStop")

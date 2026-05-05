@@ -30,31 +30,6 @@ def disable_env_vars(monkeypatch):
     monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
 
 
-# ── is_vscode_mode tests (kept — function still present) ─────────────────────
-
-
-class TestIsVscodeMode:
-    def test_true_with_session_id(self):
-        """Returns True when sessionId is present."""
-        assert adapter.is_vscode_mode({"sessionId": "abc-123"}) is True
-
-    def test_true_with_hook_event_name(self):
-        """Returns True when hookEventName is present."""
-        assert adapter.is_vscode_mode({"hookEventName": "PreToolUse"}) is True
-
-    def test_true_with_both(self):
-        """Returns True when both fields present."""
-        assert adapter.is_vscode_mode({"sessionId": "abc", "hookEventName": "Stop"}) is True
-
-    def test_false_when_absent(self):
-        """Returns False when neither field present (CLI mode)."""
-        assert adapter.is_vscode_mode({"prompt": "hello"}) is False
-
-    def test_false_with_empty_values(self):
-        """Returns False when fields are empty strings."""
-        assert adapter.is_vscode_mode({"sessionId": "", "hookEventName": ""}) is False
-
-
 # ── resolve_session tests ────────────────────────────────────────────────────
 
 

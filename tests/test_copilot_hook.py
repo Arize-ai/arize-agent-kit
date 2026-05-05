@@ -2,7 +2,7 @@
 """Tests for tracing.copilot.hooks.handlers — Copilot hook handlers.
 
 Tests cover response printing, session/prompt/tool/stop handlers,
-deferred turn helpers, and all CLI entry points.
+and all CLI entry points.
 """
 
 import io
@@ -14,22 +14,15 @@ import pytest
 
 from core.common import StateManager
 from tracing.copilot.hooks.handlers import (
-    _clear_pending_turn,
-    _flush_pending_turn,
-    _handle_error_occurred,
     _handle_post_tool_use,
     _handle_pre_tool_use,
-    _handle_session_end,
     _handle_session_start,
     _handle_subagent_stop,
     _handle_user_prompt_submitted,
     _print_response,
     _read_stdin,
-    _save_pending_turn,
-    error_occurred,
     post_tool_use,
     pre_tool_use,
-    session_end,
     session_start,
     stop,
     subagent_stop,
@@ -39,22 +32,6 @@ from tracing.copilot.hooks.handlers import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _vscode_base(extra=None):
-    """Return a base VS Code mode payload with sessionId and hookEventName."""
-    d = {"sessionId": "sess-vscode-1", "hookEventName": "TestEvent", "cwd": "/tmp/project"}
-    if extra:
-        d.update(extra)
-    return d
-
-
-def _cli_base(extra=None):
-    """Return a base CLI mode payload (no sessionId, no hookEventName)."""
-    d = {"cwd": "/tmp/project"}
-    if extra:
-        d.update(extra)
-    return d
 
 
 def _get_span_attrs(span_payload):
@@ -150,8 +127,7 @@ class TestReadStdin:
 class TestPrintResponse:
 
     def test_pre_tool_use_emits_permission_decision(self, capsys):
-
-        _print_response({}, "PreToolUse")
+        _print_response("PreToolUse")
         out = capsys.readouterr().out.strip()
         payload = json.loads(out)
         assert payload == {
@@ -172,8 +148,7 @@ class TestPrintResponse:
         ],
     )
     def test_non_pre_tool_use_emits_continue(self, event, capsys):
-
-        _print_response({}, event)
+        _print_response(event)
         out = capsys.readouterr().out.strip()
         payload = json.loads(out)
         assert payload == {"continue": True}
@@ -579,148 +554,6 @@ class TestHandleStop:
 
 
 # ---------------------------------------------------------------------------
-# error_occurred tests
-# ---------------------------------------------------------------------------
-
-
-class TestErrorOccurred:
-
-    def test_cli_nested_error_object(self, mock_resolve, state, captured_spans):
-        """CLI mode extracts error from nested object."""
-        state.set("current_trace_id", "t" * 32)
-        state.set("current_trace_span_id", "s" * 16)
-        inp = _cli_base(
-            {
-                "error": {"message": "Something failed", "name": "TypeError", "stack": "at line 42"},
-            }
-        )
-        _handle_error_occurred(inp)
-        assert len(captured_spans) == 1
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
-        assert attrs["error.message"]["stringValue"] == "Something failed"
-        assert attrs["error.name"]["stringValue"] == "TypeError"
-        assert attrs["error.stack"]["stringValue"] == "at line 42"
-
-    def test_vscode_error(self, mock_resolve, state, captured_spans):
-        """VS Code error with nested error object."""
-        state.set("current_trace_id", "t" * 32)
-        inp = _vscode_base(
-            {
-                "error": {"message": "Oops", "name": "RuntimeError"},
-            }
-        )
-        _handle_error_occurred(inp)
-        assert len(captured_spans) == 1
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["error.message"]["stringValue"] == "Oops"
-        assert attrs["error.name"]["stringValue"] == "RuntimeError"
-
-    def test_fallback_top_level_fields(self, mock_resolve, state, captured_spans):
-        """Falls back to top-level fields when error object is missing."""
-        state.set("current_trace_id", "t" * 32)
-        inp = _cli_base({"message": "top-level msg", "name": "top-level name"})
-        _handle_error_occurred(inp)
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["error.message"]["stringValue"] == "top-level msg"
-        assert attrs["error.name"]["stringValue"] == "top-level name"
-
-    def test_no_session_id_returns_early(self, state, captured_spans):
-        """No session_id → no span sent."""
-        state.delete("session_id")
-        with mock.patch("tracing.copilot.hooks.handlers.resolve_session", return_value=state):
-            _handle_error_occurred(_cli_base({"error": {"message": "fail"}}))
-        assert len(captured_spans) == 0
-
-    def test_generates_trace_id_if_missing(self, mock_resolve, state, captured_spans):
-        """Generates trace_id if not set in state."""
-        # No current_trace_id set
-        inp = _cli_base({"error": {"message": "oops", "name": "Error"}})
-        _handle_error_occurred(inp)
-        assert len(captured_spans) == 1
-        span = _get_span(captured_spans[0])
-        assert len(span["traceId"]) == 32  # generated
-
-
-# ---------------------------------------------------------------------------
-# session_end tests
-# ---------------------------------------------------------------------------
-
-
-class TestSessionEnd:
-
-    def test_cli_flushes_pending_turn(self, mock_resolve, state, captured_spans):
-        """CLI session_end flushes any pending turn."""
-        state.set("pending_turn_prompt", "last prompt")
-        state.set("pending_turn_trace_id", "t" * 32)
-        state.set("pending_turn_span_id", "s" * 16)
-        state.set("pending_turn_start_time", "1000")
-        state.set("pending_turn_trace_count", "3")
-        with mock.patch("tracing.copilot.hooks.handlers.gc_stale_state_files"):
-            inp = _cli_base({"reason": "complete"})
-            _handle_session_end(inp)
-        # Pending turn was flushed
-        assert len(captured_spans) == 1
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
-        assert attrs["input.value"]["stringValue"] == "last prompt"
-
-    def test_vscode_does_not_flush_pending_turn(self, mock_resolve, state, captured_spans):
-        """VS Code session_end does NOT flush pending turns."""
-        state.set("pending_turn_prompt", "should not flush")
-        state.set("pending_turn_trace_id", "t" * 32)
-        state.set("pending_turn_span_id", "s" * 16)
-        with mock.patch("tracing.copilot.hooks.handlers.gc_stale_state_files"):
-            inp = _vscode_base({"reason": "complete"})
-            _handle_session_end(inp)
-        assert len(captured_spans) == 0
-
-    def test_logs_session_summary(self, mock_resolve, state):
-        """Logs session summary via error()."""
-        state.set("trace_count", "10")
-        state.set("tool_count", "25")
-        with (
-            mock.patch("tracing.copilot.hooks.handlers.error") as err_mock,
-            mock.patch("tracing.copilot.hooks.handlers.gc_stale_state_files"),
-        ):
-            _handle_session_end(_cli_base({"reason": "complete"}))
-        calls = [c[0][0] for c in err_mock.call_args_list]
-        assert any("10 traces" in c for c in calls)
-        assert any("25 tools" in c for c in calls)
-
-    def test_removes_state_file(self, mock_resolve, state, tmp_path):
-        """Removes state file."""
-        assert state.state_file.exists()
-        with (
-            mock.patch("tracing.copilot.hooks.handlers.error"),
-            mock.patch("tracing.copilot.hooks.handlers.gc_stale_state_files"),
-        ):
-            _handle_session_end(_cli_base({"reason": "complete"}))
-        assert not state.state_file.exists()
-
-    def test_calls_gc(self, mock_resolve, state):
-        """Calls gc_stale_state_files."""
-        with (
-            mock.patch("tracing.copilot.hooks.handlers.error"),
-            mock.patch("tracing.copilot.hooks.handlers.gc_stale_state_files") as gc_mock,
-        ):
-            _handle_session_end(_cli_base())
-        gc_mock.assert_called_once()
-
-    def test_no_session_id_returns_early(self, state):
-        """Returns early when session_id is None."""
-        state.delete("session_id")
-        with (
-            mock.patch("tracing.copilot.hooks.handlers.resolve_session", return_value=state),
-            mock.patch("tracing.copilot.hooks.handlers.error") as err_mock,
-            mock.patch("tracing.copilot.hooks.handlers.gc_stale_state_files") as gc_mock,
-        ):
-            _handle_session_end(_cli_base())
-        err_mock.assert_not_called()
-        gc_mock.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
 # subagent_stop tests
 # ---------------------------------------------------------------------------
 
@@ -766,26 +599,11 @@ class TestHandleSubagentStop:
 
 
 # ---------------------------------------------------------------------------
-# CLI deferred turn pattern integration tests
+# Consecutive prompts open fresh traces
 # ---------------------------------------------------------------------------
 
 
-class TestDeferredTurnPattern:
-    """Tests for deferred turn helpers (still used by _handle_session_end)."""
-
-    def test_flush_pending_turn_no_op_when_empty(self, state):
-        """_flush_pending_turn is no-op when no pending turn exists."""
-        with mock.patch("tracing.copilot.hooks.handlers.send_span") as send_mock:
-            _flush_pending_turn(state)
-        send_mock.assert_not_called()
-
-    def test_flush_pending_turn_clears_invalid(self, state):
-        """_flush_pending_turn clears invalid pending turn (no trace/span id)."""
-        state.set("pending_turn_prompt", "orphan")
-        with mock.patch("tracing.copilot.hooks.handlers.send_span") as send_mock:
-            _flush_pending_turn(state)
-        send_mock.assert_not_called()
-        assert state.get("pending_turn_prompt") is None
+class TestConsecutivePrompts:
 
     def test_consecutive_prompts_each_open_fresh_trace(self, mock_resolve, mock_ensure, state, captured_spans):
         """Each user_prompt_submitted opens a fresh trace without sending spans."""
@@ -797,39 +615,6 @@ class TestDeferredTurnPattern:
         assert state.get("current_trace_prompt") == "second"
         assert state.get("trace_count") == "2"
         assert len(captured_spans) == 0
-
-
-# ---------------------------------------------------------------------------
-# _save_pending_turn and _clear_pending_turn tests
-# ---------------------------------------------------------------------------
-
-
-class TestPendingTurnHelpers:
-
-    def test_save_pending_turn(self, state):
-        """_save_pending_turn sets all pending turn keys."""
-        _save_pending_turn(state, "hello world")
-        assert state.get("pending_turn_prompt") == "hello world"
-        assert state.get("pending_turn_trace_id") is not None
-        assert len(state.get("pending_turn_trace_id")) == 32
-        assert state.get("pending_turn_span_id") is not None
-        assert len(state.get("pending_turn_span_id")) == 16
-        assert state.get("pending_turn_start_time") is not None
-        assert state.get("pending_turn_trace_count") is not None
-        assert state.get("trace_count") == "1"
-        # current trace context set
-        assert state.get("current_trace_id") == state.get("pending_turn_trace_id")
-        assert state.get("current_trace_span_id") == state.get("pending_turn_span_id")
-
-    def test_clear_pending_turn(self, state):
-        """_clear_pending_turn removes all pending turn keys."""
-        _save_pending_turn(state, "test")
-        _clear_pending_turn(state)
-        assert state.get("pending_turn_prompt") is None
-        assert state.get("pending_turn_trace_id") is None
-        assert state.get("pending_turn_span_id") is None
-        assert state.get("pending_turn_start_time") is None
-        assert state.get("pending_turn_trace_count") is None
 
 
 # ---------------------------------------------------------------------------
@@ -865,7 +650,7 @@ class TestErrorHandling:
 
 
 # ---------------------------------------------------------------------------
-# Entry point tests (all 8 CLI wrappers)
+# Entry point tests (all 6 CLI wrappers)
 # ---------------------------------------------------------------------------
 
 ENTRY_POINTS = [
@@ -874,8 +659,6 @@ ENTRY_POINTS = [
     ("pre_tool_use", pre_tool_use, "_handle_pre_tool_use", "PreToolUse"),
     ("post_tool_use", post_tool_use, "_handle_post_tool_use", "PostToolUse"),
     ("stop", stop, "_handle_stop", "Stop"),
-    ("error_occurred", error_occurred, "_handle_error_occurred", "ErrorOccurred"),
-    ("session_end", session_end, "_handle_session_end", "SessionEnd"),
     ("subagent_stop", subagent_stop, "_handle_subagent_stop", "SubagentStop"),
 ]
 
@@ -885,7 +668,7 @@ class TestEntryPoints:
     @pytest.mark.parametrize("name,entry_fn,handler_name,event", ENTRY_POINTS)
     def test_happy_path_calls_handler(self, name, entry_fn, handler_name, event):
         """Entry point calls the corresponding _handle_* with parsed stdin JSON."""
-        input_data = {"sessionId": "s1", "hookEventName": event}
+        input_data = {"session_id": "s1", "hook_event_name": event}
         with (
             mock.patch("tracing.copilot.hooks.handlers.check_requirements", return_value=True),
             mock.patch("tracing.copilot.hooks.handlers._read_stdin", return_value=input_data),
@@ -906,7 +689,7 @@ class TestEntryPoints:
         ):
             entry_fn()
         handler_mock.assert_not_called()
-        pr_mock.assert_called_once_with({}, event)
+        pr_mock.assert_called_once_with(event)
 
     @pytest.mark.parametrize("name,entry_fn,handler_name,event", ENTRY_POINTS)
     def test_exception_caught_and_logged(self, name, entry_fn, handler_name, event, capsys):
@@ -920,12 +703,12 @@ class TestEntryPoints:
             entry_fn()  # should not raise
         captured = capsys.readouterr()
         assert "test-boom" in captured.err
-        pr_mock.assert_called_once_with({}, event)
+        pr_mock.assert_called_once_with(event)
 
     @pytest.mark.parametrize("name,entry_fn,handler_name,event", ENTRY_POINTS)
     def test_prints_response(self, name, entry_fn, handler_name, event):
         """Entry point calls _print_response with correct event name."""
-        input_data = {"sessionId": "s1", "hookEventName": event}
+        input_data = {"session_id": "s1", "hook_event_name": event}
         with (
             mock.patch("tracing.copilot.hooks.handlers.check_requirements", return_value=True),
             mock.patch("tracing.copilot.hooks.handlers._read_stdin", return_value=input_data),
@@ -933,7 +716,7 @@ class TestEntryPoints:
             mock.patch("tracing.copilot.hooks.handlers._print_response") as pr_mock,
         ):
             entry_fn()
-        pr_mock.assert_called_once_with(input_data, event)
+        pr_mock.assert_called_once_with(event)
 
     def test_pre_tool_use_prints_permission_on_exception(self, capsys):
         """pre_tool_use MUST print permission response even when handler crashes."""
@@ -944,8 +727,8 @@ class TestEntryPoints:
         ):
             pre_tool_use()
         out = capsys.readouterr().out.strip()
-        # CLI mode (empty input_json) → flat permission response
-        assert json.loads(out) == {"permissionDecision": "allow"}
+        payload = json.loads(out)
+        assert payload["hookSpecificOutput"]["permissionDecision"] == "allow"
 
     def test_pre_tool_use_prints_permission_when_disabled(self, capsys):
         """pre_tool_use MUST print permission response even when tracing disabled."""
@@ -955,7 +738,8 @@ class TestEntryPoints:
         ):
             pre_tool_use()
         out = capsys.readouterr().out.strip()
-        assert json.loads(out) == {"permissionDecision": "allow"}
+        payload = json.loads(out)
+        assert payload["hookSpecificOutput"]["permissionDecision"] == "allow"
 
 
 # ---------------------------------------------------------------------------
@@ -981,17 +765,9 @@ class TestProjectNameOnAllSpans:
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["project.name"]["stringValue"] == "test-copilot-project"
 
-    def test_error_span_has_project_name(self, mock_resolve, state, captured_spans):
-        """Error CHAIN spans include project.name."""
-        state.set("current_trace_id", "t" * 32)
-        inp = _cli_base({"error": {"message": "fail", "name": "Err"}})
-        _handle_error_occurred(inp)
-        attrs = _get_span_attrs(captured_spans[0])
-        assert attrs["project.name"]["stringValue"] == "test-copilot-project"
-
     def test_subagent_span_has_project_name(self, mock_resolve, state, captured_spans):
         """Subagent CHAIN spans include project.name."""
-        inp = _vscode_base({"agent_type": "test-agent", "agent_id": "a1"})
+        inp = {"session_id": "sess-1", "hook_event_name": "SubagentStop", "agent_type": "test-agent", "agent_id": "a1"}
         _handle_subagent_stop(inp)
         attrs = _get_span_attrs(captured_spans[0])
         assert attrs["project.name"]["stringValue"] == "test-copilot-project"
