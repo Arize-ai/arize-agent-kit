@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-REM Arize Agent Kit — Windows installer router
+REM Arize Harness Tracing — Windows installer router
 REM
 REM Usage:
 REM   install.bat <harness> [--with-skills] [--branch NAME]
@@ -211,7 +211,7 @@ goto :eof
 REM --- Usage ---
 :usage
 echo.
-echo   Arize Agent Kit Installer
+echo   Arize Harness Tracing Installer
 echo.
 echo   Usage: install.bat ^<command^> [flags]
 echo.

@@ -152,7 +152,7 @@ class TestUsageOutput:
         self.text = _read_install_sh()
 
     def test_title(self):
-        assert "Arize Agent Kit Installer" in self.text
+        assert "Arize Harness Tracing Installer" in self.text
 
     @pytest.mark.parametrize(
         "cmd",
@@ -191,7 +191,7 @@ class TestSmokeTests:
     def test_help_exits_zero(self):
         result = self._run("--help")
         assert result.returncode == 0
-        assert "Arize Agent Kit Installer" in result.stdout
+        assert "Arize Harness Tracing Installer" in result.stdout
 
     def test_help_flag_h(self):
         result = self._run("-h")

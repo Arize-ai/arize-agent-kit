@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Config helper for Arize Agent Kit.
+Config helper for Arize Harness Tracing.
 
 Reads and writes ~/.arize/harness/config.yaml.
 Used by shell scripts (via CLI subcommands) and Python modules (via import).

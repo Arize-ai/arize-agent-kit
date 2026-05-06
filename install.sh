@@ -1,5 +1,5 @@
 #!/bin/bash
-# Arize Agent Kit — Thin shell router
+# Arize Harness Tracing — Thin shell router
 #
 # Handles Python discovery, repo clone/tarball, venv creation, and pip install.
 # All harness-specific logic lives in tracing/<harness>/install.py.
@@ -161,7 +161,7 @@ _fix_macos_ssl_certs() {
     sc="${site_dir}/sitecustomize.py"
 
     cat > "$sc" <<'PYEOF'
-# Arize Agent Kit: point Python's SSL stack at certifi's CA bundle on macOS.
+# Arize Harness Tracing: point Python's SSL stack at certifi's CA bundle on macOS.
 # This runs automatically at interpreter startup, before any hook code.
 import os as _os
 try:
@@ -228,7 +228,7 @@ install_harness() {
 usage() {
     cat <<'EOF'
 
-Arize Agent Kit Installer
+Arize Harness Tracing Installer
 
 Usage: install.sh <command> [flags]
 
