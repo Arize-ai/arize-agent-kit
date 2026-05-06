@@ -84,6 +84,11 @@ class TestClaudeCode:
 
         monkeypatch.setattr(cc, "SETTINGS_FILE", settings_file)
 
+        # Also patch the install module's own binding of SETTINGS_FILE
+        import tracing.claude_code.install as inst
+
+        monkeypatch.setattr(inst, "SETTINGS_FILE", settings_file)
+
         # Patch setup module paths
         import core.setup as setup
 
@@ -94,6 +99,11 @@ class TestClaudeCode:
         monkeypatch.setattr(setup, "RUN_DIR", tmp_harness_dir / "run")
         monkeypatch.setattr(setup, "LOG_DIR", tmp_harness_dir / "logs")
         monkeypatch.setattr(setup, "STATE_DIR", tmp_harness_dir / "state")
+
+        # Patch CONFIG_FILE in core.config so load_config/save_config use temp path
+        import core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "CONFIG_FILE", str(tmp_harness_dir / "config.yaml"))
 
         # Create plugin dir so harness_dir() resolves
         (tmp_harness_dir / "tracing" / "claude_code").mkdir(parents=True, exist_ok=True)
@@ -165,6 +175,15 @@ class TestCodex:
         monkeypatch.setattr(setup, "LOG_DIR", tmp_harness_dir / "logs")
         monkeypatch.setattr(setup, "STATE_DIR", tmp_harness_dir / "state")
 
+        # Patch CONFIG_FILE in core.config so load_config/save_config use temp path
+        import core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "CONFIG_FILE", str(tmp_harness_dir / "config.yaml"))
+
+        # Also patch module-level bindings in the codex install module
+        monkeypatch.setattr(inst, "CONFIG_FILE", tmp_harness_dir / "config.yaml")
+        monkeypatch.setattr(inst, "BIN_DIR", tmp_harness_dir / "bin")
+
         # Mock buffer service so we don't actually start processes
         monkeypatch.setattr(inst, "buffer_start", lambda: True)
         monkeypatch.setattr(inst, "buffer_stop", lambda: None)
@@ -222,6 +241,7 @@ class TestCursor:
         import tracing.cursor.install as inst
 
         monkeypatch.setattr(inst, "HOOKS_FILE", hooks_file)
+        monkeypatch.setattr(inst, "INSTALL_DIR", tmp_harness_dir)
 
         import core.setup as setup
 
@@ -232,6 +252,11 @@ class TestCursor:
         monkeypatch.setattr(setup, "RUN_DIR", tmp_harness_dir / "run")
         monkeypatch.setattr(setup, "LOG_DIR", tmp_harness_dir / "logs")
         monkeypatch.setattr(setup, "STATE_DIR", tmp_harness_dir / "state")
+
+        # Patch CONFIG_FILE in core.config so load_config/save_config use temp path
+        import core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "CONFIG_FILE", str(tmp_harness_dir / "config.yaml"))
 
     def test_phoenix_install_uninstall(self):
         from tracing.cursor.install import install_noninteractive, uninstall_noninteractive
@@ -287,6 +312,11 @@ class TestCopilot:
         monkeypatch.setattr(setup, "RUN_DIR", tmp_harness_dir / "run")
         monkeypatch.setattr(setup, "LOG_DIR", tmp_harness_dir / "logs")
         monkeypatch.setattr(setup, "STATE_DIR", tmp_harness_dir / "state")
+
+        # Patch CONFIG_FILE in core.config so load_config/save_config use temp path
+        import core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "CONFIG_FILE", str(tmp_harness_dir / "config.yaml"))
 
     def test_phoenix_install_uninstall(self):
         from tracing.copilot.install import install_noninteractive, uninstall_noninteractive
@@ -345,6 +375,11 @@ class TestGemini:
         monkeypatch.setattr(setup, "RUN_DIR", tmp_harness_dir / "run")
         monkeypatch.setattr(setup, "LOG_DIR", tmp_harness_dir / "logs")
         monkeypatch.setattr(setup, "STATE_DIR", tmp_harness_dir / "state")
+
+        # Patch CONFIG_FILE in core.config so load_config/save_config use temp path
+        import core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "CONFIG_FILE", str(tmp_harness_dir / "config.yaml"))
 
     def test_phoenix_install_uninstall(self):
         from tracing.gemini.install import install_noninteractive, uninstall_noninteractive
