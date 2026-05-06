@@ -265,3 +265,58 @@ def test_harness_order(config_dir):
     result = load_status()
     names = [h["name"] for h in result["harnesses"]]
     assert names == list(HARNESS_KEYS)
+
+
+# ---- edge cases for defensive code paths ----
+
+
+def test_non_dict_harness_entry(config_dir):
+    """A harness entry that isn't a dict → treated as unconfigured."""
+    _write_yaml(
+        config_dir,
+        {
+            "harnesses": {
+                "claude-code": True,
+                "codex": "not-a-dict",
+                "cursor": 42,
+            },
+        },
+    )
+    result = load_status()
+    assert result["success"] is True
+    by_name = {h["name"]: h for h in result["harnesses"]}
+
+    for name in ("claude-code", "codex", "cursor"):
+        assert by_name[name]["configured"] is False
+        assert by_name[name]["backend"] is None
+        assert by_name[name]["project_name"] is None
+        assert by_name[name]["scope"] is None
+
+
+def test_arize_backend_missing_space_id(config_dir):
+    """Arize backend without space_id → configured=True but backend=None."""
+    _write_yaml(
+        config_dir,
+        {
+            "harnesses": {
+                "cursor": {
+                    "project_name": "p",
+                    "target": "arize",
+                    "endpoint": "https://otlp.arize.com",
+                    "api_key": "k",
+                    # no space_id
+                },
+            },
+        },
+    )
+    result = load_status()
+    h = {h["name"]: h for h in result["harnesses"]}["cursor"]
+    assert h["configured"] is True
+    assert h["backend"] is None
+
+
+def test_numeric_user_id(config_dir):
+    """Numeric user_id in config is stringified."""
+    _write_yaml(config_dir, {"user_id": 12345})
+    result = load_status()
+    assert result["user_id"] == "12345"
