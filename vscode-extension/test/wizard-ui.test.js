@@ -9,7 +9,23 @@ const HARNESS_KEYS = ["claude-code", "codex", "cursor", "copilot", "gemini"];
 
 let postMessageCalls;
 
+// Track message listeners so we can clean up between tests.
+// Each eval of wizard.js adds a new "message" listener; without cleanup,
+// duplicate listeners accumulate and cause inflated DOM mutations.
+let _messageListeners = [];
+const _origAddEventListener = window.addEventListener.bind(window);
+
 function setupWizard() {
+  // Remove any message listeners left by a prior test
+  _messageListeners.forEach((fn) => window.removeEventListener("message", fn));
+  _messageListeners = [];
+
+  // Intercept addEventListener to track message handlers
+  window.addEventListener = function (type, fn, opts) {
+    if (type === "message") _messageListeners.push(fn);
+    return _origAddEventListener(type, fn, opts);
+  };
+
   // Reset DOM
   document.body.innerHTML = '<div id="wizard-root"></div>';
   postMessageCalls = [];
@@ -220,6 +236,180 @@ describe("Wizard UI", () => {
 
     // Install button should be gone
     expect(getInstallButton()).toBeNull();
+  });
+
+  test("receiving result with failure shows failure banner", () => {
+    clickElement(getHarnessCards()[0]);
+    clickElement(getNextButton());
+
+    setInputValue("field-endpoint", "otlp.arize.com:443");
+    setInputValue("field-api_key", "k");
+    setInputValue("field-space_id", "s");
+    clickElement(getNextButton());
+    clickElement(getNextButton());
+
+    clickElement(getInstallButton());
+
+    dispatchMessage({
+      type: "result",
+      payload: { success: false, error: "timeout", harness: "claude-code", logs: [] },
+    });
+
+    const banner = document.querySelector(".result-banner.failure");
+    expect(banner).not.toBeNull();
+    expect(banner.textContent).toContain("timeout");
+  });
+
+  test("cancel button emits cancel message", () => {
+    // Navigate to step 4
+    clickElement(getHarnessCards()[0]);
+    clickElement(getNextButton());
+
+    setInputValue("field-endpoint", "otlp.arize.com:443");
+    setInputValue("field-api_key", "k");
+    setInputValue("field-space_id", "s");
+    clickElement(getNextButton());
+    clickElement(getNextButton());
+
+    const cancelBtn = Array.from(document.querySelectorAll(".btn-secondary")).find(
+      (b) => b.textContent === "Cancel"
+    );
+    expect(cancelBtn).not.toBeNull();
+    clickElement(cancelBtn);
+
+    const cancelMsg = postMessageCalls.find((m) => m.type === "cancel");
+    expect(cancelMsg).toBeDefined();
+  });
+
+  test("prefill message pre-selects harness and fills fields", () => {
+    dispatchMessage({
+      type: "prefill",
+      harness: "cursor",
+      request: {
+        project_name: "my-proj",
+        user_id: "user-42",
+        backend: { target: "phoenix", endpoint: "http://localhost:9999", api_key: "pk" },
+        logging: { prompts: false, tool_details: true, tool_content: false },
+      },
+    });
+
+    // Harness should be pre-selected
+    const selected = document.querySelector(".harness-card.selected");
+    expect(selected).not.toBeNull();
+    expect(selected.getAttribute("data-harness")).toBe("cursor");
+
+    // Navigate to step 2 — endpoint should be prefilled
+    clickElement(getNextButton());
+    const endpointField = document.getElementById("field-endpoint");
+    expect(endpointField.value).toBe("http://localhost:9999");
+
+    // Backend should be phoenix — no space_id
+    expect(document.getElementById("field-space_id")).toBeNull();
+  });
+
+  test("uninstall button appears only when prefill provides a harness", () => {
+    // Without prefill — no uninstall button on step 4
+    clickElement(getHarnessCards()[2]); // cursor
+    clickElement(getNextButton());
+
+    // Switch to phoenix so no space_id needed
+    clickElement(document.querySelector('[data-backend="phoenix"]'));
+    setInputValue("field-endpoint", "http://localhost:6006");
+    clickElement(getNextButton());
+    clickElement(getNextButton());
+
+    let uninstallBtn = Array.from(document.querySelectorAll(".btn-danger")).find(
+      (b) => b.textContent === "Uninstall"
+    );
+    expect(uninstallBtn).toBeUndefined();
+  });
+
+  test("uninstall button emits uninstall message when prefilled", () => {
+    dispatchMessage({ type: "prefill", harness: "copilot" });
+
+    // Navigate through to step 4
+    clickElement(getNextButton()); // to step 2
+
+    // Switch to phoenix for simpler validation
+    clickElement(document.querySelector('[data-backend="phoenix"]'));
+    setInputValue("field-endpoint", "http://localhost:6006");
+    clickElement(getNextButton()); // to step 3
+    clickElement(getNextButton()); // to step 4
+
+    const uninstallBtn = Array.from(document.querySelectorAll(".btn-danger")).find(
+      (b) => b.textContent === "Uninstall"
+    );
+    expect(uninstallBtn).not.toBeUndefined();
+    clickElement(uninstallBtn);
+
+    const uninstallMsg = postMessageCalls.find((m) => m.type === "uninstall");
+    expect(uninstallMsg).toBeDefined();
+    expect(uninstallMsg.harness).toBe("copilot");
+  });
+
+  test("step 2 requires api_key and space_id for arize backend", () => {
+    clickElement(getHarnessCards()[0]);
+    clickElement(getNextButton());
+
+    // Only fill endpoint — Next should be disabled
+    setInputValue("field-endpoint", "otlp.arize.com:443");
+    let nextBtn = getNextButton();
+    expect(nextBtn.disabled).toBe(true);
+
+    // Fill api_key but not space_id — still disabled
+    setInputValue("field-api_key", "key");
+    // Need to re-render to pick up validation; the input handler updates state
+    // but doesn't re-render, so Next button stays as-is in current implementation.
+    // The validation runs on render, so let's check after clicking back and forward.
+    // Actually the Next button disabled state is set at render time, so let's check
+    // the current state by trying to go back and forward.
+
+    // Fill space_id too
+    setInputValue("field-space_id", "space");
+    // Navigate back and forward to trigger re-render
+    const backBtn = Array.from(document.querySelectorAll(".btn-secondary")).find(
+      (b) => b.textContent === "Back"
+    );
+    clickElement(backBtn);
+    clickElement(getNextButton()); // back to step 2
+
+    nextBtn = getNextButton();
+    expect(nextBtn.disabled).toBe(false);
+  });
+
+  test("phoenix backend makes api_key optional", () => {
+    clickElement(getHarnessCards()[0]);
+    clickElement(getNextButton());
+
+    clickElement(document.querySelector('[data-backend="phoenix"]'));
+    setInputValue("field-endpoint", "http://localhost:6006");
+    // Don't fill api_key — should still allow Next
+    const nextBtn = getNextButton();
+    expect(nextBtn.disabled).toBe(false);
+  });
+
+  test("step indicator shows correct active/completed dots", () => {
+    // Step 0 — first dot active
+    let dots = document.querySelectorAll(".wizard-step-dot");
+    expect(dots[0].classList.contains("active")).toBe(true);
+    expect(dots[1].classList.contains("active")).toBe(false);
+
+    // Go to step 1
+    clickElement(getHarnessCards()[0]);
+    clickElement(getNextButton());
+
+    dots = document.querySelectorAll(".wizard-step-dot");
+    expect(dots[0].classList.contains("completed")).toBe(true);
+    expect(dots[1].classList.contains("active")).toBe(true);
+  });
+
+  test("ready message is sent on initialization", () => {
+    // beforeEach already checks this, but let's be explicit
+    // postMessageCalls was cleared in beforeEach after checking ready
+    // The original check in beforeEach confirms ready was sent
+    // Re-setup to test from scratch
+    setupWizard();
+    expect(postMessageCalls[0]).toEqual({ type: "ready" });
   });
 });
 
