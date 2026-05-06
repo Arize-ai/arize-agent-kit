@@ -11,9 +11,9 @@
 
 set -euo pipefail
 
-REPO_URL="https://github.com/Arize-ai/arize-agent-kit.git"
+REPO_URL="https://github.com/Arize-ai/arize-harness-tracing.git"
 INSTALL_BRANCH="${ARIZE_INSTALL_BRANCH:-main}"
-TARBALL_URL="https://github.com/Arize-ai/arize-agent-kit/archive/refs/heads/${INSTALL_BRANCH}.tar.gz"
+TARBALL_URL="https://github.com/Arize-ai/arize-harness-tracing/archive/refs/heads/${INSTALL_BRANCH}.tar.gz"
 INSTALL_DIR="${HOME}/.arize/harness"
 VENV_DIR="${INSTALL_DIR}/venv"
 
@@ -117,7 +117,7 @@ git_sync_harness_repo() {
 
 install_repo_tarball() {
     local tarball_url="${1:-$TARBALL_URL}"
-    info "Downloading arize-agent-kit tarball..."
+    info "Downloading arize-harness-tracing tarball..."
     local tmp_tar; tmp_tar="$(mktemp)"
     if command_exists curl; then curl -sSfL "$tarball_url" -o "$tmp_tar"
     elif command_exists wget; then wget -qO "$tmp_tar" "$tarball_url"
@@ -186,8 +186,8 @@ setup_venv() {
         }
     fi
     local pip; pip=$(venv_pip) || { err "pip not found in venv"; return 1; }
-    info "Installing arize-agent-kit into venv..."
-    "$pip" install --quiet "$INSTALL_DIR" 2>/dev/null || { err "Failed to install arize-agent-kit package"; return 1; }
+    info "Installing arize-harness-tracing into venv..."
+    "$pip" install --quiet "$INSTALL_DIR" 2>/dev/null || { err "Failed to install arize-harness-tracing package"; return 1; }
 
     [[ "$(uname)" == "Darwin" ]] && _fix_macos_ssl_certs "$pip"
 
@@ -238,7 +238,7 @@ Commands:
   copilot     Install and configure tracing for GitHub Copilot (VS Code + CLI)
   cursor      Install and configure tracing for Cursor IDE
   gemini      Install and configure tracing for Gemini CLI
-  update      Update the installed arize-agent-kit and re-register all harnesses
+  update      Update the installed arize-harness-tracing and re-register all harnesses
   uninstall <harness>   Tear down one harness
   uninstall             Full wipe: venv + repo + shared config
 
@@ -260,7 +260,7 @@ main() {
             --branch)
                 i=$((i + 1))
                 INSTALL_BRANCH="${args[$i]:-main}"
-                TARBALL_URL="https://github.com/Arize-ai/arize-agent-kit/archive/refs/heads/${INSTALL_BRANCH}.tar.gz"
+                TARBALL_URL="https://github.com/Arize-ai/arize-harness-tracing/archive/refs/heads/${INSTALL_BRANCH}.tar.gz"
                 ;;
             *) [[ -z "$subcmd" ]] && subcmd="${args[$i]}" ;;
         esac
@@ -302,14 +302,14 @@ main() {
             fi
             ;;
         update)
-            header "Updating arize-agent-kit"
+            header "Updating arize-harness-tracing"
             if [[ -d "${INSTALL_DIR}/.git" ]]; then
                 info "Pulling latest changes..."
                 git -C "$INSTALL_DIR" pull --ff-only 2>/dev/null || {
                     warn "git pull failed — falling back to tarball re-extract"; install_repo_tarball; }
             else install_repo_tarball; fi
             local pip; pip=$(venv_pip) || { err "Venv not found — run install first"; exit 1; }
-            info "Reinstalling arize-agent-kit..."
+            info "Reinstalling arize-harness-tracing..."
             "$pip" install --quiet -U "$INSTALL_DIR" 2>/dev/null || { err "Failed to reinstall package"; exit 1; }
             local vp; vp=$(venv_python) || { err "venv python not found"; exit 1; }
             local harnesses

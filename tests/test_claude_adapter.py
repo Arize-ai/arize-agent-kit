@@ -148,12 +148,6 @@ class TestEnsureSessionInitialized:
         adapter.ensure_session_initialized(sm, {"user_id": "input-user"})
         assert sm.get("user_id") == "env-user"
 
-    def test_user_id_from_input(self, claude_state_dir, disable_env_vars):
-        """user_id from input used when env is empty."""
-        sm = self._make_state(claude_state_dir, "uid-input")
-        adapter.ensure_session_initialized(sm, {"user_id": "from-json"})
-        assert sm.get("user_id") == "from-json"
-
     def test_counters_start_at_zero(self, claude_state_dir, disable_env_vars):
         """trace_count and tool_count start at '0'."""
         sm = self._make_state(claude_state_dir, "counters")

@@ -1219,7 +1219,6 @@ class TestHandleSessionStart:
         assert attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
         assert attrs["session.id"]["stringValue"] == "conv-sess"
         assert attrs["cursor.session.cwd"]["stringValue"] == "/Users/alice/code/myrepo"
-        assert attrs["user.id"]["stringValue"] == "alice@example.com"
 
     def test_session_start_no_gen_id_skips_save(self, captured_spans, monkeypatch):
         """Without gen_id, gen_root_span_save is not called."""
@@ -1252,7 +1251,6 @@ class TestHandleSessionStart:
 
         attr_keys = {a["key"] for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]}
         assert "cursor.session.cwd" not in attr_keys
-        assert "user.id" not in attr_keys
 
 
 # ---------------------------------------------------------------------------

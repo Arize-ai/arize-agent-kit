@@ -21,7 +21,7 @@ Claude Code CLI and the Claude Agent SDK share the same plugin, hooks, and confi
 **macOS / Linux:**
 
 ```bash
-INSTALL_URL="https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh"
+INSTALL_URL="https://raw.githubusercontent.com/Arize-ai/arize-harness-tracing/main/install.sh"
 
 curl -sSL "$INSTALL_URL" | bash -s -- claude    # Claude Code / Agent SDK
 curl -sSL "$INSTALL_URL" | bash -s -- codex     # OpenAI Codex
@@ -40,7 +40,7 @@ curl -sSL "$INSTALL_URL" | bash -s -- uninstall           # Remove all installed
 **Windows:**
 
 ```powershell
-$INSTALL_URL = "https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.bat"
+$INSTALL_URL = "https://raw.githubusercontent.com/Arize-ai/arize-harness-tracing/main/install.bat"
 iwr -useb $INSTALL_URL -OutFile $env:TEMP\install.bat
 
 & $env:TEMP\install.bat claude    # Claude Code / Agent SDK
@@ -60,8 +60,8 @@ iwr -useb $INSTALL_URL -OutFile $env:TEMP\install.bat
 ### Local Copy
 
 ```bash
-git clone https://github.com/Arize-ai/arize-agent-kit.git
-cd arize-agent-kit
+git clone https://github.com/Arize-ai/arize-harness-tracing.git
+cd arize-harness-tracing
 ```
 
 **macOS / Linux**

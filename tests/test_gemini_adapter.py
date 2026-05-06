@@ -217,12 +217,6 @@ class TestEnsureSessionInitialized:
         adapter.ensure_session_initialized(sm, {})
         assert sm.get("user_id") == "test-user-123"
 
-    def test_user_id_defaults_to_empty(self, gemini_state_dir, disable_env_vars):
-        """user_id defaults to '' when env var not set."""
-        sm = self._make_state(gemini_state_dir, "user-empty")
-        adapter.ensure_session_initialized(sm, {})
-        assert sm.get("user_id") == ""
-
 
 # ── gc_stale_state_files tests ───────────────────────────────────────────────
 

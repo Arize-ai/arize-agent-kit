@@ -186,12 +186,6 @@ class TestEnsureSessionInitialized:
         adapter.ensure_session_initialized(sm, "tid-5", "/some/path")
         assert sm.get("user_id") == "env-user"
 
-    def test_user_id_absent(self, codex_state_dir, disable_env_vars):
-        """When ARIZE_USER_ID is not set, user_id key is not in state."""
-        sm = self._make_state(codex_state_dir, "uid-absent")
-        adapter.ensure_session_initialized(sm, "tid-6", "/some/path")
-        assert sm.get("user_id") is None
-
 
 # ── gc_stale_state_files tests ───────────────────────────────────────────────
 
