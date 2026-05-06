@@ -17,22 +17,26 @@ jest.mock("child_process", () => ({
 
 const mockExistsSync = jest.fn();
 const mockReadFileSync = jest.fn();
+const mockWriteFile = jest.fn();
 jest.mock("fs", () => ({
   existsSync: mockExistsSync,
   readFileSync: mockReadFileSync,
+  promises: {
+    writeFile: mockWriteFile,
+  },
 }));
 
 import { EventEmitter } from "events";
 import { findPython, findBridgeBinary } from "../python";
-import { ensureBridge, BootstrapResult, EnsureBridgeOptions, _resetForTesting } from "../bootstrap";
+import { ensureBridge, BootstrapResult, EnsureBridgeOptions, _resetForTesting, SITECUSTOMIZE_PY } from "../bootstrap";
 
 const mockFindPython = findPython as jest.MockedFunction<typeof findPython>;
 const mockFindBridgeBinary = findBridgeBinary as jest.MockedFunction<typeof findBridgeBinary>;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-/** Create a fake ChildProcess that completes with a given code and stderr. */
-function fakeSpawn(exitCode: number, stderr = "") {
+/** Create a fake ChildProcess that completes with a given code, stderr, and optional stdout. */
+function fakeSpawn(exitCode: number, stderr = "", stdout = "") {
   const child = new EventEmitter() as any;
   child.stdout = new EventEmitter();
   child.stderr = new EventEmitter();
@@ -43,6 +47,9 @@ function fakeSpawn(exitCode: number, stderr = "") {
 
   // Schedule the events asynchronously so callers can wire up listeners.
   setImmediate(() => {
+    if (stdout) {
+      child.stdout.emit("data", Buffer.from(stdout));
+    }
     if (stderr) {
       child.stderr.emit("data", Buffer.from(stderr));
     }
@@ -72,6 +79,7 @@ beforeEach(() => {
   mockReadFileSync.mockImplementation(() => {
     throw new Error("ENOENT");
   });
+  mockWriteFile.mockResolvedValue(undefined);
 });
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -428,6 +436,114 @@ describe("ensureBridge", () => {
       ok: false,
       error: "pip_install_failed",
       errorMessage: "Error: spawn EPERM",
+    });
+  });
+
+  // ── macOS SSL certifi fix tests ─────────────────────────────────────
+
+  describe("macOS SSL certifi fix", () => {
+    const ORIGINAL_PLATFORM = process.platform;
+
+    beforeEach(() => {
+      Object.defineProperty(process, "platform", { value: "darwin" });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(process, "platform", { value: ORIGINAL_PLATFORM });
+    });
+
+    /** Set up mocks so ensureBridge reaches step 7 (SSL fix). */
+    function setupToReachSSLFix() {
+      mockFindPython.mockResolvedValueOnce("/usr/bin/python3");
+      mockExistsSync.mockImplementation((p: string) => {
+        if (typeof p === "string" && p.includes("venv")) return true;
+        if (typeof p === "string" && p.includes("pip")) return true;
+        if (typeof p === "string" && p.includes(".whl")) return true;
+        return false;
+      });
+      mockReadFileSync.mockReturnValueOnce(WHEEL_JSON);
+    }
+
+    it("installs certifi, looks up paths, and writes sitecustomize.py on darwin", async () => {
+      setupToReachSSLFix();
+
+      // Step 6: pip install wheel succeeds
+      fakeSpawn(0);
+      // Step 7a: pip install certifi succeeds
+      fakeSpawn(0);
+      // Step 7b: certifi.where() returns bundle path
+      fakeSpawn(0, "", "/path/to/certifi/cacert.pem\n");
+      // Step 7c: site.getsitepackages() returns site-packages dir
+      fakeSpawn(0, "", "/path/to/site-packages\n");
+
+      mockFindBridgeBinary
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce("/home/user/.arize/harness/venv/bin/arize-vscode-bridge");
+
+      const result = await ensureBridge(defaultOpts());
+
+      expect(result.ok).toBe(true);
+
+      // Verify spawn calls: wheel install, certifi install, certifi.where(), site.getsitepackages()
+      expect(mockSpawn).toHaveBeenCalledTimes(4);
+
+      // certifi install
+      const certifiInstallCall = mockSpawn.mock.calls[1];
+      expect(certifiInstallCall[1]).toEqual(["install", "--quiet", "certifi"]);
+
+      // certifi.where()
+      const certifiWhereCall = mockSpawn.mock.calls[2];
+      expect(certifiWhereCall[1]).toEqual(["-c", "import certifi; print(certifi.where())"]);
+
+      // site.getsitepackages()
+      const sitePackagesCall = mockSpawn.mock.calls[3];
+      expect(sitePackagesCall[1]).toEqual(["-c", "import site; print(site.getsitepackages()[0])"]);
+
+      // writeFile called with correct path and exact content
+      expect(mockWriteFile).toHaveBeenCalledTimes(1);
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        "/path/to/site-packages/sitecustomize.py",
+        SITECUSTOMIZE_PY,
+      );
+    });
+
+    it("returns ssl_fix_failed when certifi install exits non-zero", async () => {
+      setupToReachSSLFix();
+
+      // Step 6: pip install wheel succeeds
+      fakeSpawn(0);
+      // Step 7a: pip install certifi fails
+      fakeSpawn(1, "  No matching distribution found  \n");
+
+      mockFindBridgeBinary.mockResolvedValueOnce(null);
+
+      const result = await ensureBridge(defaultOpts());
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe("ssl_fix_failed");
+      expect(result.errorMessage).toContain("certifi install failed");
+      expect(result.errorMessage).toContain("No matching distribution found");
+      expect(mockWriteFile).not.toHaveBeenCalled();
+    });
+
+    it("skips SSL fix on non-darwin platforms", async () => {
+      Object.defineProperty(process, "platform", { value: "linux" });
+
+      setupToReachSSLFix();
+
+      // Step 6: pip install wheel succeeds (only spawn needed)
+      fakeSpawn(0);
+
+      mockFindBridgeBinary
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce("/home/user/.arize/harness/venv/bin/arize-vscode-bridge");
+
+      const result = await ensureBridge(defaultOpts());
+
+      expect(result.ok).toBe(true);
+      // Only one spawn: the wheel install. No certifi spawns.
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      expect(mockWriteFile).not.toHaveBeenCalled();
     });
   });
 });

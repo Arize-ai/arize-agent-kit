@@ -5,6 +5,7 @@
 
 import { spawn, ChildProcess } from "child_process";
 import { existsSync, readFileSync } from "fs";
+import * as fs from "fs";
 import { join } from "path";
 import { homedir, platform } from "os";
 import { findPython, findBridgeBinary } from "./python";
@@ -40,7 +41,7 @@ export interface EnsureBridgeOptions {
   extensionPath: string;
 }
 
-// ── macOS certifi stub ───────────────────────────────────────────────
+// ── macOS certifi fix ───────────────────────────────────────────────
 
 interface MacOSCertifiFixOptions {
   venvDir: string;
@@ -50,14 +51,92 @@ interface MacOSCertifiFixOptions {
 
 export type MacOSCertifiFixResult = { ok: true } | { ok: false; reason: string };
 
+/** Contents written to sitecustomize.py — exported so tests can byte-compare. */
+export const SITECUSTOMIZE_PY = `# Arize Harness Tracing: point Python's SSL stack at certifi's CA bundle on macOS.
+# This runs automatically at interpreter startup, before any hook code.
+import os as _os
+try:
+    import certifi as _certifi
+    _bundle = _certifi.where()
+    _os.environ.setdefault("SSL_CERT_FILE", _bundle)
+    _os.environ.setdefault("REQUESTS_CA_BUNDLE", _bundle)
+except ImportError:
+    pass
+`;
+
 /**
- * Stub. Implemented by the macos-ssl-fix task. Until then it is a
- * no-op that always succeeds, so the bootstrap pipeline is testable
- * end-to-end on macOS without certifi.
+ * Ensure Python's SSL stack uses certifi's CA bundle on macOS.
+ * Ports _fix_macos_ssl_certs from install.sh:147-176.
  */
 export async function applyMacOSCertifiFix(
-  _opts: MacOSCertifiFixOptions,
+  opts: MacOSCertifiFixOptions,
 ): Promise<MacOSCertifiFixResult> {
+  const { venvDir, onLog, signal } = opts;
+  const venvPip = join(venvDir, "bin", "pip");
+  const venvPython = join(venvDir, "bin", "python");
+
+  // Step 1: Install certifi
+  try {
+    const pipResult = await runProcess(venvPip, ["install", "--quiet", "certifi"], onLog, signal);
+    if (pipResult.code !== 0) {
+      return { ok: false, reason: `certifi install failed: ${pipResult.stderr}` };
+    }
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw err;
+    }
+    return { ok: false, reason: `certifi install failed: ${String(err)}` };
+  }
+
+  // Step 2: Get certifi bundle path
+  let bundlePath: string;
+  try {
+    const certResult = await runProcessWithStdout(
+      venvPython, ["-c", "import certifi; print(certifi.where())"], onLog, signal,
+    );
+    if (certResult.code !== 0) {
+      return { ok: false, reason: "certifi.where() lookup failed" };
+    }
+    const firstLine = certResult.stdout.split("\n").map(l => l.trim()).find(l => l.length > 0);
+    if (!firstLine) {
+      return { ok: false, reason: "certifi.where() lookup failed" };
+    }
+    bundlePath = firstLine;
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw err;
+    }
+    return { ok: false, reason: "certifi.where() lookup failed" };
+  }
+
+  // Step 3: Get site-packages dir
+  let sitePackagesDir: string;
+  try {
+    const siteResult = await runProcessWithStdout(
+      venvPython, ["-c", "import site; print(site.getsitepackages()[0])"], onLog, signal,
+    );
+    if (siteResult.code !== 0) {
+      return { ok: false, reason: "site-packages lookup failed" };
+    }
+    const firstLine = siteResult.stdout.split("\n").map(l => l.trim()).find(l => l.length > 0);
+    if (!firstLine) {
+      return { ok: false, reason: "site-packages lookup failed" };
+    }
+    sitePackagesDir = firstLine;
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw err;
+    }
+    return { ok: false, reason: "site-packages lookup failed" };
+  }
+
+  // Step 4: Write sitecustomize.py
+  try {
+    await fs.promises.writeFile(join(sitePackagesDir, "sitecustomize.py"), SITECUSTOMIZE_PY);
+  } catch (err: unknown) {
+    return { ok: false, reason: `Failed to write sitecustomize.py: ${String(err)}` };
+  }
+
   return { ok: true };
 }
 
@@ -123,6 +202,58 @@ function runProcess(
     child.on("close", (code) => {
       signal?.removeEventListener("abort", onAbort);
       resolve({ code: code ?? 1, stderr: stderr.trim() });
+    });
+  });
+}
+
+/**
+ * Like runProcess but also collects stdout. Used by applyMacOSCertifiFix
+ * to capture certifi.where() and site.getsitepackages() output.
+ */
+function runProcessWithStdout(
+  cmd: string,
+  args: string[],
+  onLog?: (level: "info" | "error", message: string) => void,
+  signal?: AbortSignal,
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("The operation was aborted.", "AbortError"));
+      return;
+    }
+
+    const child: ChildProcess = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      const text = chunk.toString();
+      stdout += text;
+      onLog?.("info", text);
+    });
+
+    child.stderr?.on("data", (chunk: Buffer) => {
+      const text = chunk.toString();
+      stderr += text;
+      onLog?.("error", text);
+    });
+
+    const onAbort = () => {
+      child.kill("SIGTERM");
+      reject(new DOMException("The operation was aborted.", "AbortError"));
+    };
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    child.on("error", (err) => {
+      signal?.removeEventListener("abort", onAbort);
+      reject(err);
+    });
+
+    child.on("close", (code) => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve({ code: code ?? 1, stdout: stdout.trim(), stderr: stderr.trim() });
     });
   });
 }
