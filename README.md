@@ -137,6 +137,10 @@ All configuration lives in `~/.arize/harness/config.yaml`, written by the instal
 
 Each harness owns its full backend configuration directly — there is no shared global backend block. This allows different harnesses to use different backends or credentials.
 
+## VS Code extension (optional)
+
+A VS Code extension provides a guided setup wizard, sidebar status view, and per-harness reconfigure/uninstall controls. See [`vscode-extension/README.md`](vscode-extension/README.md) for installation and usage details.
+
 ## Links
 
 - [Arize AX](https://arize.com)
