@@ -5,6 +5,7 @@ import { StatusBarManager, registerStatusBarMenuCommand } from "./statusBar";
 import { WizardPanel } from "./wizard";
 import { createBridgeInstaller } from "./installer";
 import { ensureBridge } from "./bootstrap";
+import { teardownAll } from "./teardown";
 import { HARNESS_KEYS } from "./types";
 import type { HarnessKey } from "./types";
 
@@ -124,6 +125,55 @@ export function activate(ctx: vscode.ExtensionContext): void {
   );
 
   // arize.statusBarMenu already registered in step 7
+
+  ctx.subscriptions.push(
+    vscode.commands.registerCommand("arize.uninstallAll", async () => {
+      const choice = await vscode.window.showWarningMessage(
+        "Uninstall Arize tracing from all configured tools and delete the local Python venv?",
+        {
+          modal: true,
+          detail:
+            "This removes tracing hooks/configs from claude-code, codex, cursor, copilot, and gemini wherever they are configured, then deletes ~/.arize/harness/venv.",
+        },
+        "Uninstall",
+      );
+      if (choice !== "Uninstall") return;
+
+      const result = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Uninstalling Arize tracing",
+          cancellable: true,
+        },
+        async (_progress, token) => {
+          const ctrl = new AbortController();
+          token.onCancellationRequested(() => ctrl.abort());
+          return teardownAll({
+            onLog: (level, msg) =>
+              outputChannel.appendLine(`[${level}] ${msg}`),
+            signal: ctrl.signal,
+          });
+        },
+      );
+
+      await controller.refresh();
+      await statusBar.refresh();
+
+      if (result.ok) {
+        const action = await vscode.window.showInformationMessage(
+          "Arize tracing fully removed.",
+          "Show details",
+        );
+        if (action === "Show details") outputChannel.show();
+      } else {
+        const action = await vscode.window.showInformationMessage(
+          "Arize tracing partially removed. See output for details.",
+          "Show details",
+        );
+        if (action === "Show details") outputChannel.show();
+      }
+    }),
+  );
 
   // 9. Controller event subscriptions
   ctx.subscriptions.push(

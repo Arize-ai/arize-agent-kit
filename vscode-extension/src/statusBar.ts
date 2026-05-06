@@ -179,6 +179,7 @@ export class StatusBarManager implements vscode.Disposable {
 
 interface QuickPickActionItem extends vscode.QuickPickItem {
   _action: () => void;
+  kind?: vscode.QuickPickItemKind;
 }
 
 export function registerStatusBarMenuCommand(
@@ -269,6 +270,20 @@ function buildMenuItems(
       label: `Uninstall ${h.name}`,
       _action: () =>
         vscode.commands.executeCommand("arize.uninstall", h.name),
+    });
+  }
+
+  // Append "Uninstall all" when at least one harness is configured.
+  if (status.state === DerivedState.Configured) {
+    items.push({
+      label: "",
+      kind: vscode.QuickPickItemKind.Separator,
+      _action: () => {},
+    });
+    items.push({
+      label: "$(trash) Uninstall all tracing (remove venv)",
+      _action: () =>
+        vscode.commands.executeCommand("arize.uninstallAll"),
     });
   }
 

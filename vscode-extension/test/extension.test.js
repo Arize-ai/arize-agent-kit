@@ -68,6 +68,14 @@ jest.mock("../src/bootstrap", () => ({
   ensureBridge: jest.fn().mockResolvedValue({ ok: true, bridgePath: "/x" }),
 }));
 
+jest.mock("../src/teardown", () => ({
+  teardownAll: jest.fn().mockResolvedValue({
+    ok: true,
+    harnesses: [],
+    venvRemoved: true,
+  }),
+}));
+
 const vscode = require("vscode");
 const { activate, deactivate, _resetForTesting } = require("../src/extension");
 const { SidebarProvider } = require("../src/sidebar");
@@ -75,6 +83,7 @@ const { SidebarController } = require("../src/sidebarState");
 const { StatusBarManager, registerStatusBarMenuCommand } = require("../src/statusBar");
 const { WizardPanel } = require("../src/wizard");
 const { ensureBridge } = require("../src/bootstrap");
+const { teardownAll } = require("../src/teardown");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -88,6 +97,7 @@ const EXPECTED_COMMANDS = [
   "arize.startCodexBuffer",
   "arize.stopCodexBuffer",
   "arize.statusBarMenu",
+  "arize.uninstallAll",
 ];
 
 function makeCtx() {
@@ -123,7 +133,7 @@ describe("activate(ctx)", () => {
     activate(ctx);
   });
 
-  test("registers exactly the 7 commands declared in package.json", () => {
+  test("registers exactly the 8 commands declared in package.json", () => {
     const registeredIds = Object.keys(commandHandlers);
     expect(registeredIds.sort()).toEqual(EXPECTED_COMMANDS.sort());
   });
@@ -255,5 +265,62 @@ describe("activate(ctx) bootstrap integration", () => {
     expect(controllerInstance.refresh).toHaveBeenCalled();
     const statusBarInstance = StatusBarManager.mock.results[0].value;
     expect(statusBarInstance.refresh).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Teardown command tests
+// ---------------------------------------------------------------------------
+
+describe("arize.uninstallAll command", () => {
+  /** @type {ReturnType<typeof makeCtx>} */
+  let ctx;
+  /** @type {Record<string, (...args: unknown[]) => unknown>} */
+  let commandHandlers;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    _resetForTesting();
+    ctx = makeCtx();
+
+    commandHandlers = {};
+    vscode.commands.registerCommand.mockImplementation((id, handler) => {
+      commandHandlers[id] = handler;
+      return { dispose: jest.fn() };
+    });
+
+    activate(ctx);
+  });
+
+  test("the command arize.uninstallAll is registered", () => {
+    expect(commandHandlers["arize.uninstallAll"]).toBeDefined();
+  });
+
+  test("shows a modal warning message when invoked", async () => {
+    vscode.window.showWarningMessage.mockResolvedValueOnce(undefined);
+
+    await commandHandlers["arize.uninstallAll"]();
+
+    expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ modal: true }),
+      "Uninstall",
+    );
+  });
+
+  test("when user confirms Uninstall, teardownAll is called once", async () => {
+    vscode.window.showWarningMessage.mockResolvedValueOnce("Uninstall");
+
+    await commandHandlers["arize.uninstallAll"]();
+
+    expect(teardownAll).toHaveBeenCalledTimes(1);
+  });
+
+  test("when user cancels the modal, teardownAll is not called", async () => {
+    vscode.window.showWarningMessage.mockResolvedValueOnce(undefined);
+
+    await commandHandlers["arize.uninstallAll"]();
+
+    expect(teardownAll).not.toHaveBeenCalled();
   });
 });

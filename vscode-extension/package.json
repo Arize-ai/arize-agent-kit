@@ -20,7 +20,8 @@
       { "command": "arize.refreshStatus", "title": "Arize: Refresh Status" },
       { "command": "arize.startCodexBuffer", "title": "Arize: Start Codex Buffer" },
       { "command": "arize.stopCodexBuffer", "title": "Arize: Stop Codex Buffer" },
-      { "command": "arize.statusBarMenu", "title": "Arize: Status Menu" }
+      { "command": "arize.statusBarMenu", "title": "Arize: Status Menu" },
+      { "command": "arize.uninstallAll", "title": "Arize: Uninstall All Tracing" }
     ],
     "viewsContainers": {
       "activitybar": [

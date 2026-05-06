@@ -23,8 +23,14 @@ export enum ProgressLocation {
   Notification = 15,
 }
 
+export enum QuickPickItemKind {
+  Separator = -1,
+  Default = 0,
+}
+
 export const window = {
-  showInformationMessage: jest.fn((_msg: string) => Promise.resolve(undefined)),
+  showInformationMessage: jest.fn((_msg: string, ..._rest: unknown[]) => Promise.resolve(undefined)),
+  showWarningMessage: jest.fn((_msg: string, ..._rest: unknown[]) => Promise.resolve(undefined)),
   showQuickPick: jest.fn((_items: unknown[], _opts?: unknown) => Promise.resolve(undefined)),
   createOutputChannel: jest.fn((_name: string) => ({
     appendLine: jest.fn(),
