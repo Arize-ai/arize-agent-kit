@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-REM Arize Agent Kit — Windows installer router
+REM Arize Harness Tracing — Windows installer router
 REM
 REM Usage:
 REM   install.bat <harness> [--with-skills] [--branch NAME]
@@ -8,10 +8,10 @@ REM   install.bat uninstall [harness]
 REM   install.bat update
 
 REM --- Constants ---
-set "REPO_URL=https://github.com/Arize-ai/arize-agent-kit.git"
+set "REPO_URL=https://github.com/Arize-ai/arize-harness-tracing.git"
 if not defined ARIZE_INSTALL_BRANCH set "ARIZE_INSTALL_BRANCH=main"
 set "INSTALL_BRANCH=%ARIZE_INSTALL_BRANCH%"
-set "TARBALL_URL=https://github.com/Arize-ai/arize-agent-kit/archive/refs/heads/%INSTALL_BRANCH%.tar.gz"
+set "TARBALL_URL=https://github.com/Arize-ai/arize-harness-tracing/archive/refs/heads/%INSTALL_BRANCH%.tar.gz"
 set "INSTALL_DIR=%USERPROFILE%\.arize\harness"
 set "VENV_DIR=%INSTALL_DIR%\venv"
 set "VENV_PYTHON=%VENV_DIR%\Scripts\python.exe"
@@ -27,7 +27,7 @@ if /i "%~1"=="-h"        goto :usage
 if /i "%~1"=="--help"    goto :usage
 if /i "%~1"=="help"      goto :usage
 if /i "%~1"=="--with-skills" ( set "WITH_SKILLS=--with-skills" & shift & goto :parse_args )
-if /i "%~1"=="--branch" ( set "INSTALL_BRANCH=%~2" & set "TARBALL_URL=https://github.com/Arize-ai/arize-agent-kit/archive/refs/heads/%~2.tar.gz" & shift & shift & goto :parse_args )
+if /i "%~1"=="--branch" ( set "INSTALL_BRANCH=%~2" & set "TARBALL_URL=https://github.com/Arize-ai/arize-harness-tracing/archive/refs/heads/%~2.tar.gz" & shift & shift & goto :parse_args )
 for %%C in (claude codex copilot cursor gemini) do if /i "%~1"=="%%C" ( set "COMMAND=%%C" & shift & goto :parse_args )
 if /i "%~1"=="update" ( set "COMMAND=update" & shift & goto :parse_args )
 if /i "%~1"=="uninstall" (
@@ -113,7 +113,7 @@ if not "%UNINSTALL_HARNESS%"=="" (
     exit /b !ERRORLEVEL!
 )
 REM Full wipe
-echo [arize] Uninstalling arize-agent-kit
+echo [arize] Uninstalling arize-harness-tracing
 if exist "%VENV_PYTHON%" (
     for /f "usebackq delims=" %%H in (`"%VENV_PYTHON%" -c "from core.setup import list_installed_harnesses; [print(h) for h in list_installed_harnesses()]" 2^>nul`) do (
         call :resolve_dir "%%H"
@@ -156,7 +156,7 @@ if exist "%INSTALL_DIR%\.git" (
 )
 if exist "%INSTALL_DIR%" if not exist "%INSTALL_DIR%\.git" ( rmdir /s /q "%INSTALL_DIR%" 2>nul )
 where git >nul 2>&1 && (
-    echo [arize] Cloning arize-agent-kit...
+    echo [arize] Cloning arize-harness-tracing...
     git clone --depth 1 --branch "%INSTALL_BRANCH%" "%REPO_URL%" "%INSTALL_DIR%" >nul 2>&1 && goto :eof
     echo [arize] git clone failed — falling back to tarball
 )
@@ -190,7 +190,7 @@ echo [arize] Creating venv...
 %FOUND_PYTHON% -m venv "%VENV_DIR%" >nul 2>&1
 if !ERRORLEVEL! neq 0 ( echo [arize] Failed to create venv >&2 & exit /b 1 )
 if not exist "%VENV_PIP%" ( echo [arize] pip not found in venv >&2 & exit /b 1 )
-echo [arize] Installing arize-agent-kit...
+echo [arize] Installing arize-harness-tracing...
 "%VENV_PIP%" install --quiet "%INSTALL_DIR%" >nul 2>&1
 if !ERRORLEVEL! neq 0 ( echo [arize] pip install failed >&2 & exit /b 1 )
 echo [arize] Venv ready at %VENV_DIR%
@@ -211,7 +211,7 @@ goto :eof
 REM --- Usage ---
 :usage
 echo.
-echo   Arize Agent Kit Installer
+echo   Arize Harness Tracing Installer
 echo.
 echo   Usage: install.bat ^<command^> [flags]
 echo.

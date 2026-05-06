@@ -166,19 +166,19 @@ class TestGeminiReadmeRemoteSetup:
 
     def test_curl_install_command(self):
         assert (
-            "curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- gemini"
+            "curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-harness-tracing/main/install.sh | bash -s -- gemini"
             in self.text
         )
 
     def test_curl_uninstall_command(self):
         assert (
-            "curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- uninstall gemini"
+            "curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-harness-tracing/main/install.sh | bash -s -- uninstall gemini"
             in self.text
         )
 
     def test_windows_iwr_command(self):
         assert (
-            "iwr -useb https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.bat -OutFile $env:TEMP\\install.bat"
+            "iwr -useb https://raw.githubusercontent.com/Arize-ai/arize-harness-tracing/main/install.bat -OutFile $env:TEMP\\install.bat"
             in self.text
         )
 
@@ -203,10 +203,10 @@ class TestGeminiReadmeLocalSetup:
         self.text = README_PATH.read_text()
 
     def test_git_clone_command(self):
-        assert "git clone https://github.com/Arize-ai/arize-agent-kit.git" in self.text
+        assert "git clone https://github.com/Arize-ai/arize-harness-tracing.git" in self.text
 
     def test_cd_command(self):
-        assert "cd arize-agent-kit" in self.text
+        assert "cd arize-harness-tracing" in self.text
 
     def test_local_install_command(self):
         assert "./install.sh gemini" in self.text

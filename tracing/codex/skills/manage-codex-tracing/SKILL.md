@@ -142,7 +142,7 @@ This section configures:
 Ask the user: **"Where is the codex-tracing directory located?"**
 
 Common locations:
-- If cloned: `./arize-agent-kit/codex-tracing`
+- If cloned: `./arize-harness-tracing/codex-tracing`
 - If installed via the curl installer: `~/.arize/harness/codex-tracing`
 
 Store this as `INTEGRATION_PATH` for the notify hook config.

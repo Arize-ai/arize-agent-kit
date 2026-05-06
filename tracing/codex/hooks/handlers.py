@@ -455,6 +455,7 @@ def _enrich_tokens_from_event_attrs(ea: dict, attrs: dict) -> None:
                     pass
         return None
 
+    model_name = _pick(ea, "model", "llm.model_name", "model_name")
     prompt = _pick(ea, "prompt_tokens", "input_tokens", "input_token_count", "usage.prompt_tokens")
     completion = _pick(ea, "completion_tokens", "output_tokens", "output_token_count", "usage.completion_tokens")
     total = _pick(ea, "total_tokens", "usage.total_tokens")
@@ -468,6 +469,8 @@ def _enrich_tokens_from_event_attrs(ea: dict, attrs: dict) -> None:
         attrs["llm.token_count.completion"] = completion
     if total is not None:
         attrs["llm.token_count.total"] = total
+    if model_name is not None:
+        attrs["llm.model_name"] = model_name
 
 
 def _safe_int(val) -> int:

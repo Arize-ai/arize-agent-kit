@@ -158,16 +158,16 @@ class TestClaudeReadmeMarketplace:
         self.text = README_PATH.read_text()
 
     def test_marketplace_add_command(self):
-        assert "claude plugin marketplace add Arize-ai/arize-agent-kit" in self.text
+        assert "claude plugin marketplace add Arize-ai/arize-harness-tracing" in self.text
 
     def test_plugin_install_command(self):
-        assert "claude plugin install claude-code-tracing@arize-agent-kit" in self.text
+        assert "claude plugin install claude-code-tracing@arize-harness-tracing" in self.text
 
     def test_plugin_uninstall_command(self):
-        assert "claude plugin uninstall claude-code-tracing@arize-agent-kit" in self.text
+        assert "claude plugin uninstall claude-code-tracing@arize-harness-tracing" in self.text
 
     def test_marketplace_remove_command(self):
-        assert "claude plugin marketplace remove Arize-ai/arize-agent-kit" in self.text
+        assert "claude plugin marketplace remove Arize-ai/arize-harness-tracing" in self.text
 
     def test_env_json_example(self):
         assert '"ARIZE_PROJECT_NAME"' in self.text
@@ -192,19 +192,19 @@ class TestClaudeReadmeRemoteSetup:
 
     def test_curl_install_command(self):
         assert (
-            "curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- claude"
+            "curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-harness-tracing/main/install.sh | bash -s -- claude"
             in self.text
         )
 
     def test_curl_uninstall_command(self):
         assert (
-            "curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.sh | bash -s -- uninstall claude"
+            "curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-harness-tracing/main/install.sh | bash -s -- uninstall claude"
             in self.text
         )
 
     def test_windows_iwr_command(self):
         assert (
-            "iwr -useb https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/install.bat -OutFile $env:TEMP\\install.bat"
+            "iwr -useb https://raw.githubusercontent.com/Arize-ai/arize-harness-tracing/main/install.bat -OutFile $env:TEMP\\install.bat"
             in self.text
         )
 
@@ -229,10 +229,10 @@ class TestClaudeReadmeLocalSetup:
         self.text = README_PATH.read_text()
 
     def test_git_clone_command(self):
-        assert "git clone https://github.com/Arize-ai/arize-agent-kit.git" in self.text
+        assert "git clone https://github.com/Arize-ai/arize-harness-tracing.git" in self.text
 
     def test_cd_command(self):
-        assert "cd arize-agent-kit" in self.text
+        assert "cd arize-harness-tracing" in self.text
 
     def test_local_install_command(self):
         assert "./install.sh claude" in self.text
