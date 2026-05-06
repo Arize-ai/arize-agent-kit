@@ -24,7 +24,7 @@ jest.mock("fs", () => ({
 
 import { EventEmitter } from "events";
 import { findPython, findBridgeBinary } from "../python";
-import { ensureBridge, BootstrapResult, EnsureBridgeOptions } from "../bootstrap";
+import { ensureBridge, BootstrapResult, EnsureBridgeOptions, _resetForTesting } from "../bootstrap";
 
 const mockFindPython = findPython as jest.MockedFunction<typeof findPython>;
 const mockFindBridgeBinary = findBridgeBinary as jest.MockedFunction<typeof findBridgeBinary>;
@@ -65,6 +65,7 @@ const WHEEL_JSON = JSON.stringify({ filename: "arize_harness_tracing-0.1.0-py3-n
 
 beforeEach(() => {
   jest.clearAllMocks();
+  _resetForTesting();
   mockFindBridgeBinary.mockResolvedValue(null);
   mockFindPython.mockResolvedValue(null);
   mockExistsSync.mockReturnValue(false);
@@ -271,8 +272,8 @@ describe("ensureBridge", () => {
 
   it("abort signal kills child process and throws AbortError", async () => {
     mockFindPython.mockResolvedValueOnce("/usr/bin/python3");
+    // venvDir doesn't exist, so venv creation spawn is triggered
     mockExistsSync.mockReturnValue(false);
-    mockReadFileSync.mockReturnValueOnce(WHEEL_JSON);
 
     const ac = new AbortController();
 
@@ -373,5 +374,60 @@ describe("ensureBridge", () => {
         { level: "error", message: "WARNING: something" },
       ]),
     );
+  });
+
+  it("returns venv_create_failed when spawn emits an error event (e.g. ENOENT)", async () => {
+    mockFindPython.mockResolvedValueOnce("/usr/bin/python3");
+    // venvDir doesn't exist, triggers venv creation
+    mockExistsSync.mockReturnValue(false);
+
+    const child = new EventEmitter() as any;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = jest.fn();
+    child.stdin = null;
+    mockSpawn.mockReturnValueOnce(child);
+
+    const promise = ensureBridge(defaultOpts());
+
+    await new Promise((r) => setImmediate(r));
+    child.emit("error", new Error("spawn ENOENT"));
+
+    const result = await promise;
+    expect(result).toEqual({
+      ok: false,
+      error: "venv_create_failed",
+      errorMessage: "Error: spawn ENOENT",
+    });
+  });
+
+  it("returns pip_install_failed when pip spawn emits an error event", async () => {
+    mockFindPython.mockResolvedValueOnce("/usr/bin/python3");
+    mockExistsSync.mockImplementation((p: string) => {
+      if (typeof p === "string" && p.includes("venv")) return true;
+      if (typeof p === "string" && p.includes("pip")) return true;
+      if (typeof p === "string" && p.includes(".whl")) return true;
+      return false;
+    });
+    mockReadFileSync.mockReturnValueOnce(WHEEL_JSON);
+
+    const child = new EventEmitter() as any;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = jest.fn();
+    child.stdin = null;
+    mockSpawn.mockReturnValueOnce(child);
+
+    const promise = ensureBridge(defaultOpts());
+
+    await new Promise((r) => setImmediate(r));
+    child.emit("error", new Error("spawn EPERM"));
+
+    const result = await promise;
+    expect(result).toEqual({
+      ok: false,
+      error: "pip_install_failed",
+      errorMessage: "Error: spawn EPERM",
+    });
   });
 });

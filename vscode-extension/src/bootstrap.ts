@@ -65,6 +65,11 @@ export async function applyMacOSCertifiFix(
 
 let _inflight: Promise<BootstrapResult> | null = null;
 
+/** Reset concurrency state between tests. */
+export function _resetForTesting(): void {
+  _inflight = null;
+}
+
 // ── Internal helpers ─────────────────────────────────────────────────
 
 interface WheelJson {
@@ -168,7 +173,7 @@ async function doEnsureBridge(opts: EnsureBridgeOptions): Promise<BootstrapResul
       if (err instanceof DOMException && err.name === "AbortError") {
         throw err;
       }
-      throw err;
+      return { ok: false, error: "venv_create_failed", errorMessage: String(err) };
     }
   }
 
@@ -208,7 +213,7 @@ async function doEnsureBridge(opts: EnsureBridgeOptions): Promise<BootstrapResul
     if (err instanceof DOMException && err.name === "AbortError") {
       throw err;
     }
-    throw err;
+    return { ok: false, error: "pip_install_failed", errorMessage: String(err) };
   }
 
   // Step 7: macOS SSL cert fix
