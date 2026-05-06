@@ -11,6 +11,11 @@ import type { HarnessKey } from "./types";
 // Lazy module-scoped output channel singleton
 let _outputChannel: vscode.OutputChannel | undefined;
 
+/** Reset module-scoped state between tests. */
+export function _resetForTesting(): void {
+  _outputChannel = undefined;
+}
+
 function promptForHarness(): Thenable<HarnessKey | undefined> {
   return vscode.window.showQuickPick([...HARNESS_KEYS], {
     placeHolder: "Select a harness",

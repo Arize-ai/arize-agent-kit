@@ -69,7 +69,7 @@ jest.mock("../src/bootstrap", () => ({
 }));
 
 const vscode = require("vscode");
-const { activate, deactivate } = require("../src/extension");
+const { activate, deactivate, _resetForTesting } = require("../src/extension");
 const { SidebarProvider } = require("../src/sidebar");
 const { SidebarController } = require("../src/sidebarState");
 const { StatusBarManager, registerStatusBarMenuCommand } = require("../src/statusBar");
@@ -110,6 +110,7 @@ describe("activate(ctx)", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    _resetForTesting();
     ctx = makeCtx();
 
     // Track command registrations
@@ -203,6 +204,7 @@ describe("activate(ctx) bootstrap integration", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    _resetForTesting();
     ctx = makeCtx();
 
     // Default: registerCommand just returns disposable
