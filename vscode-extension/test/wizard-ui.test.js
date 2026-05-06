@@ -358,21 +358,11 @@ describe("Wizard UI", () => {
 
     // Fill api_key but not space_id — still disabled
     setInputValue("field-api_key", "key");
-    // Need to re-render to pick up validation; the input handler updates state
-    // but doesn't re-render, so Next button stays as-is in current implementation.
-    // The validation runs on render, so let's check after clicking back and forward.
-    // Actually the Next button disabled state is set at render time, so let's check
-    // the current state by trying to go back and forward.
+    nextBtn = getNextButton();
+    expect(nextBtn.disabled).toBe(true);
 
-    // Fill space_id too
+    // Fill space_id — now Next should be enabled
     setInputValue("field-space_id", "space");
-    // Navigate back and forward to trigger re-render
-    const backBtn = Array.from(document.querySelectorAll(".btn-secondary")).find(
-      (b) => b.textContent === "Back"
-    );
-    clickElement(backBtn);
-    clickElement(getNextButton()); // back to step 2
-
     nextBtn = getNextButton();
     expect(nextBtn.disabled).toBe(false);
   });
@@ -403,6 +393,50 @@ describe("Wizard UI", () => {
     expect(dots[1].classList.contains("active")).toBe(true);
   });
 
+  test("log lines are preserved after result re-render", () => {
+    // Navigate to step 4 and install
+    clickElement(getHarnessCards()[0]);
+    clickElement(getNextButton());
+
+    setInputValue("field-endpoint", "otlp.arize.com:443");
+    setInputValue("field-api_key", "k");
+    setInputValue("field-space_id", "s");
+    clickElement(getNextButton());
+    clickElement(getNextButton());
+    clickElement(getInstallButton());
+
+    // Send log lines
+    dispatchMessage({ type: "log", level: "info", message: "Step 1 done" });
+    dispatchMessage({ type: "log", level: "error", message: "Step 2 failed" });
+
+    // Send result — triggers re-render
+    dispatchMessage({
+      type: "result",
+      payload: { success: false, error: "Step 2 failed", harness: "claude-code", logs: [] },
+    });
+
+    // Log lines should still be present in the new DOM
+    const logEl = document.getElementById("wizard-log");
+    const children = logEl.querySelectorAll(".log");
+    expect(children.length).toBe(2);
+    expect(children[0].textContent).toBe("Step 1 done");
+    expect(children[1].textContent).toBe("Step 2 failed");
+  });
+
+  test("step 3 with_skills defaults to off", () => {
+    clickElement(getHarnessCards()[0]);
+    clickElement(getNextButton());
+
+    setInputValue("field-endpoint", "otlp.arize.com:443");
+    setInputValue("field-api_key", "k");
+    setInputValue("field-space_id", "s");
+    clickElement(getNextButton());
+
+    const withSkills = document.getElementById("field-with_skills");
+    expect(withSkills).not.toBeNull();
+    expect(withSkills.checked).toBe(false);
+  });
+
   test("ready message is sent on initialization", () => {
     // beforeEach already checks this, but let's be explicit
     // postMessageCalls was cleared in beforeEach after checking ready
@@ -418,11 +452,6 @@ describe("Wizard UI", () => {
 function setInputValue(id, value) {
   const input = document.getElementById(id);
   if (!input) throw new Error("Input #" + id + " not found");
-  // Set native value and fire input event
-  const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    "value"
-  ).set;
-  nativeInputValueSetter.call(input, value);
+  input.value = value;
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }

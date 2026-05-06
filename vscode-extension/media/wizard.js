@@ -428,6 +428,7 @@
       value: value || "",
       onInput: function (e) {
         onChange(e.target.value);
+        revalidate();
       },
     });
     var children = [
@@ -454,6 +455,15 @@
       cb,
       h("label", { htmlFor: "field-" + name }, label),
     ]);
+  }
+
+  function revalidate() {
+    var nextBtn = document.querySelector(".wizard-nav .btn-primary");
+    if (!nextBtn || nextBtn.textContent !== "Next") return;
+    var valid = false;
+    if (state.step === 1) valid = step2Valid();
+    else valid = true;
+    nextBtn.disabled = !valid;
   }
 
   function renderNav(showBack, canNext) {
@@ -520,7 +530,16 @@
         state.installing = false;
         state.resultPayload = msg.payload || { success: false, error: "No payload" };
         render();
-        // Re-append any buffered log lines to the new DOM
+        // Re-append buffered log lines to the new DOM
+        var logEl = document.getElementById("wizard-log");
+        if (logEl) {
+          logBuffer.forEach(function (entry) {
+            var line = document.createElement("div");
+            line.className = "log log-" + entry.level;
+            line.textContent = entry.message;
+            logEl.appendChild(line);
+          });
+        }
         break;
     }
   }
