@@ -4,8 +4,12 @@ import { SidebarController } from "./sidebarState";
 import { StatusBarManager, registerStatusBarMenuCommand } from "./statusBar";
 import { WizardPanel } from "./wizard";
 import { createBridgeInstaller } from "./installer";
+import { ensureBridge } from "./bootstrap";
 import { HARNESS_KEYS } from "./types";
 import type { HarnessKey } from "./types";
+
+// Lazy module-scoped output channel singleton
+let _outputChannel: vscode.OutputChannel | undefined;
 
 function promptForHarness(): Thenable<HarnessKey | undefined> {
   return vscode.window.showQuickPick([...HARNESS_KEYS], {
@@ -14,6 +18,12 @@ function promptForHarness(): Thenable<HarnessKey | undefined> {
 }
 
 export function activate(ctx: vscode.ExtensionContext): void {
+  // 0. Output channel (lazy singleton, reusable across modules)
+  if (!_outputChannel) {
+    _outputChannel = vscode.window.createOutputChannel("Arize Tracing");
+  }
+  ctx.subscriptions.push(_outputChannel);
+
   // 1. Sidebar provider
   const sidebar = new SidebarProvider(ctx.extensionUri);
   ctx.subscriptions.push(sidebar);
@@ -35,12 +45,35 @@ export function activate(ctx: vscode.ExtensionContext): void {
   const controller = new SidebarController(sidebar);
   ctx.subscriptions.push(controller);
   controller.attach();
-  void controller.refresh();
 
-  // 6. Status bar menu command
+  // 6. Bootstrap — ensureBridge then refresh
+  const outputChannel = _outputChannel;
+  void vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "Setting up Arize tracing",
+      cancellable: true,
+    },
+    async (_progress, token) => {
+      const ctrl = new AbortController();
+      token.onCancellationRequested(() => ctrl.abort());
+      const result = await ensureBridge({
+        extensionPath: ctx.extensionPath,
+        onLog: (level, msg) => outputChannel.appendLine(`[${level}] ${msg}`),
+        signal: ctrl.signal,
+      });
+      if (!result.ok) {
+        controller.surfaceError(result.error!, result.errorMessage ?? "Bootstrap failed.");
+      }
+      await controller.refresh();
+      await statusBar.refresh();
+    },
+  );
+
+  // 7. Status bar menu command
   registerStatusBarMenuCommand(ctx, statusBar);
 
-  // 7. Commands
+  // 8. Commands
   ctx.subscriptions.push(
     vscode.commands.registerCommand("arize.setup", () =>
       WizardPanel.open(ctx.extensionUri, installer),
@@ -85,9 +118,9 @@ export function activate(ctx: vscode.ExtensionContext): void {
     ),
   );
 
-  // arize.statusBarMenu already registered in step 6
+  // arize.statusBarMenu already registered in step 7
 
-  // 8. Controller event subscriptions
+  // 9. Controller event subscriptions
   ctx.subscriptions.push(
     controller.onOpenSetup(() => {
       vscode.commands.executeCommand("arize.setup");

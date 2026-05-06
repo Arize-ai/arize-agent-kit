@@ -22,6 +22,7 @@ jest.mock("../src/sidebarState", () => {
     SidebarController: jest.fn().mockImplementation(() => ({
       attach: jest.fn(),
       refresh: jest.fn().mockResolvedValue(undefined),
+      surfaceError: jest.fn(),
       handleAction: jest.fn().mockResolvedValue(undefined),
       startCodexBuffer: jest.fn().mockResolvedValue(undefined),
       stopCodexBuffer: jest.fn().mockResolvedValue(undefined),
@@ -63,12 +64,17 @@ jest.mock("../src/installer", () => {
 
 jest.mock("../src/bridge", () => ({}));
 
+jest.mock("../src/bootstrap", () => ({
+  ensureBridge: jest.fn().mockResolvedValue({ ok: true, bridgePath: "/x" }),
+}));
+
 const vscode = require("vscode");
 const { activate, deactivate } = require("../src/extension");
 const { SidebarProvider } = require("../src/sidebar");
 const { SidebarController } = require("../src/sidebarState");
 const { StatusBarManager, registerStatusBarMenuCommand } = require("../src/statusBar");
 const { WizardPanel } = require("../src/wizard");
+const { ensureBridge } = require("../src/bootstrap");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -87,6 +93,7 @@ const EXPECTED_COMMANDS = [
 function makeCtx() {
   return {
     extensionUri: { scheme: "file", path: "/mock/ext" },
+    extensionPath: "/mock/ext",
     subscriptions: [],
   };
 }
@@ -127,11 +134,13 @@ describe("activate(ctx)", () => {
     );
   });
 
-  test("controller.attach() and controller.refresh() are called in order", () => {
+  test("controller.attach() and controller.refresh() are called in order", async () => {
     const controllerInstance = SidebarController.mock.results[0].value;
+    expect(controllerInstance.attach).toHaveBeenCalled();
+    // refresh is called inside the withProgress callback (async)
+    await vscode.window.withProgress.mock.results[0].value;
     const attachOrder = controllerInstance.attach.mock.invocationCallOrder[0];
     const refreshOrder = controllerInstance.refresh.mock.invocationCallOrder[0];
-    expect(controllerInstance.attach).toHaveBeenCalled();
     expect(controllerInstance.refresh).toHaveBeenCalled();
     expect(attachOrder).toBeLessThan(refreshOrder);
   });
@@ -174,5 +183,71 @@ describe("activate(ctx)", () => {
 
   test("deactivate() does not throw", () => {
     expect(() => deactivate()).not.toThrow();
+  });
+
+  test("the 'Arize Tracing' OutputChannel is created and pushed to ctx.subscriptions", () => {
+    expect(vscode.window.createOutputChannel).toHaveBeenCalledWith("Arize Tracing");
+    // Should be among the subscriptions (first item pushed)
+    const outputChannel = vscode.window.createOutputChannel.mock.results[0].value;
+    expect(ctx.subscriptions).toContain(outputChannel);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bootstrap integration tests
+// ---------------------------------------------------------------------------
+
+describe("activate(ctx) bootstrap integration", () => {
+  /** @type {ReturnType<typeof makeCtx>} */
+  let ctx;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    ctx = makeCtx();
+
+    // Default: registerCommand just returns disposable
+    vscode.commands.registerCommand.mockImplementation((_id, _handler) => {
+      return { dispose: jest.fn() };
+    });
+  });
+
+  test("calls ensureBridge exactly once with extensionPath from ctx", async () => {
+    ensureBridge.mockResolvedValue({ ok: true, bridgePath: "/x" });
+    activate(ctx);
+    // withProgress runs the callback synchronously in our mock, returning a promise
+    await vscode.window.withProgress.mock.results[0].value;
+
+    expect(ensureBridge).toHaveBeenCalledTimes(1);
+    expect(ensureBridge).toHaveBeenCalledWith(
+      expect.objectContaining({ extensionPath: ctx.extensionPath }),
+    );
+  });
+
+  test("on success, controller.refresh() is called and surfaceError is not", async () => {
+    ensureBridge.mockResolvedValue({ ok: true, bridgePath: "/x" });
+    activate(ctx);
+    await vscode.window.withProgress.mock.results[0].value;
+
+    const controllerInstance = SidebarController.mock.results[0].value;
+    expect(controllerInstance.refresh).toHaveBeenCalled();
+    expect(controllerInstance.surfaceError).not.toHaveBeenCalled();
+  });
+
+  test("on failure, surfaceError is called with error code and message, then refresh is called", async () => {
+    ensureBridge.mockResolvedValue({
+      ok: false,
+      error: "python_not_found",
+      errorMessage: "Python >= 3.9 not found on PATH.",
+    });
+    activate(ctx);
+    await vscode.window.withProgress.mock.results[0].value;
+
+    const controllerInstance = SidebarController.mock.results[0].value;
+    expect(controllerInstance.surfaceError).toHaveBeenCalledTimes(1);
+    expect(controllerInstance.surfaceError).toHaveBeenCalledWith(
+      "python_not_found",
+      "Python >= 3.9 not found on PATH.",
+    );
+    expect(controllerInstance.refresh).toHaveBeenCalled();
   });
 });
