@@ -75,6 +75,18 @@ beforeEach(() => {
   nextChild = undefined;
 });
 
+/**
+ * Yield ticks until cp.spawn has been invoked. runBridge awaits
+ * findBridgeBinary() before spawning, so tests must wait for that microtask
+ * to resolve before pushing data into the fake child's streams — otherwise
+ * 'close' events fire before listeners are attached and the promise hangs.
+ */
+async function awaitSpawn() {
+  for (let i = 0; i < 50 && cp.spawn.mock.calls.length === 0; i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // bridge.ts tests
 // ═══════════════════════════════════════════════════════════════════════
@@ -102,6 +114,7 @@ describe("bridge client", () => {
     nextChild = child;
 
     const p = getStatus();
+    await awaitSpawn();
 
     const payload = {
       success: true,
@@ -149,6 +162,7 @@ describe("bridge client", () => {
       },
       { onLog }
     );
+    await awaitSpawn();
 
     pushLines(
       child.stdout,
@@ -191,6 +205,7 @@ describe("bridge client", () => {
     nextChild = child;
 
     const p = uninstall("cursor");
+    await awaitSpawn();
 
     pushLines(
       child.stdout,
@@ -218,6 +233,7 @@ describe("bridge client", () => {
     const onLog = (level, message) => logs.push({ level, message });
 
     const p = codexBufferStatus({ onLog });
+    await awaitSpawn();
 
     pushLines(
       child.stdout,
@@ -243,6 +259,7 @@ describe("bridge client", () => {
     nextChild = child;
 
     const p = getStatus();
+    await awaitSpawn();
 
     child.stderr.push("unrecognized arguments: --bad");
     child.stdout.push(null);
@@ -259,6 +276,7 @@ describe("bridge client", () => {
     nextChild = child;
 
     const p = getStatus();
+    await awaitSpawn();
 
     pushLines(
       child.stdout,
@@ -305,6 +323,7 @@ describe("bridge client", () => {
     nextChild = child;
 
     const p = codexBufferStart();
+    await awaitSpawn();
     pushLines(
       child.stdout,
       JSON.stringify({
@@ -325,6 +344,7 @@ describe("bridge client", () => {
     nextChild = child;
 
     const p = codexBufferStop();
+    await awaitSpawn();
     pushLines(
       child.stdout,
       JSON.stringify({

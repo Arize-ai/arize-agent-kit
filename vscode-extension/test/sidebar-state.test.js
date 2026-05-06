@@ -4,9 +4,6 @@
 /** @typedef {import("../src/sidebar").SidebarViewState} SidebarViewState */
 /** @typedef {import("../src/sidebar").SidebarAction} SidebarAction */
 
-jest.mock("vscode");
-
-const bridge = require("../src/bridge");
 jest.mock("../src/bridge", () => ({
   getStatus: jest.fn(),
   uninstall: jest.fn(),
@@ -15,6 +12,7 @@ jest.mock("../src/bridge", () => ({
   codexBufferStop: jest.fn(),
 }));
 
+const bridge = require("../src/bridge");
 const vscode = require("vscode");
 const { SidebarController } = require("../src/sidebarState");
 

@@ -67,12 +67,24 @@ export const window = {
   })),
 };
 
+interface MockUri {
+  scheme: string;
+  path: string;
+  toString: () => string;
+}
+
+function makeUri(scheme: string, path: string): MockUri {
+  return {
+    scheme,
+    path,
+    toString: () => `${scheme}://${path}`,
+  };
+}
+
 export const Uri = {
-  file: jest.fn((path: string) => ({ scheme: "file", path })),
-  joinPath: jest.fn((base: { path: string }, ...segments: string[]) => ({
-    scheme: "file",
-    path: base.path + "/" + segments.join("/"),
-  })),
+  file: jest.fn((path: string) => makeUri("file", path)),
+  joinPath: jest.fn((base: { path: string }, ...segments: string[]) =>
+    makeUri("file", base.path + "/" + segments.join("/"))),
 };
 
 export class EventEmitter {
