@@ -118,7 +118,7 @@ export async function teardownAll(opts: TeardownOptions): Promise<TeardownResult
   let venvRemoved: boolean;
   let venvError: string | undefined;
 
-  if (opts.removeVenv !== false) {
+  if (opts.removeVenv !== false && !opts.signal?.aborted) {
     const existed = fs.existsSync(venvDir);
     if (!existed) {
       venvRemoved = true;
@@ -140,9 +140,13 @@ export async function teardownAll(opts: TeardownOptions): Promise<TeardownResult
         opts.onLog?.("error", `Failed to remove venv: ${venvError}`);
       }
     }
-  } else {
+  } else if (opts.removeVenv === false) {
     // removeVenv === false: report prior on-disk state without removing.
     venvRemoved = !fs.existsSync(venvDir);
+  } else {
+    // Signal was aborted: skip venv removal, report prior on-disk state.
+    venvRemoved = !fs.existsSync(venvDir);
+    opts.onLog?.("info", "Cancelled; skipping venv removal.");
   }
 
   // Step 5: Compute ok.

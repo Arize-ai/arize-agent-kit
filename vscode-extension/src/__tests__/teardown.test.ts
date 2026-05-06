@@ -205,16 +205,23 @@ describe("teardownAll", () => {
         // This should still be called since signal check happens at loop start.
         return successResult("codex");
       });
-    mockExistsSync.mockReturnValue(false);
+    mockExistsSync.mockReturnValue(true); // venv exists but should not be removed due to abort
 
     const result = await teardownAll({ signal: ac.signal });
 
+    // Verify signal was passed to bridge.uninstall
+    expect(mockUninstall).toHaveBeenCalledWith(
+      "claude-code",
+      expect.objectContaining({ signal: ac.signal }),
+    );
     // claude-code was uninstalled before abort
     expect(result.harnesses[0].state).toBe("uninstalled");
     // codex should be skipped because signal was aborted before its iteration
     expect(result.harnesses[1].state).toBe("skipped");
+    // Venv removal should be skipped due to abort — venv still exists
+    expect(mockRm).not.toHaveBeenCalled();
+    expect(result.venvRemoved).toBe(false); // venv exists but not removed
     // Result should not throw.
-    expect(result.venvRemoved).toBe(true); // venv didn't exist
   });
 
   it("when venv removal fails, venvRemoved is false and venvError is populated", async () => {
