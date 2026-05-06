@@ -7,12 +7,27 @@ export const commands = {
   registerCommand: jest.fn((_id: string, _cb: (...args: unknown[]) => unknown) => ({
     dispose: jest.fn(),
   })),
+  executeCommand: jest.fn((_id: string, ..._args: unknown[]) => Promise.resolve()),
 };
 
 export const ViewColumn = { One: 1, Two: 2, Three: 3 };
 
+export enum StatusBarAlignment {
+  Left = 1,
+  Right = 2,
+}
+
 export const window = {
   showInformationMessage: jest.fn((_msg: string) => Promise.resolve(undefined)),
+  showQuickPick: jest.fn((_items: unknown[], _opts?: unknown) => Promise.resolve(undefined)),
+  createStatusBarItem: jest.fn((_alignment?: number, _priority?: number) => ({
+    text: "",
+    tooltip: "",
+    command: undefined as string | undefined,
+    show: jest.fn(),
+    hide: jest.fn(),
+    dispose: jest.fn(),
+  })),
   createWebviewPanel: jest.fn(
     (_viewType: string, _title: string, _column: number, _opts?: unknown) => {
       const _listeners: Array<(e: unknown) => void> = [];
