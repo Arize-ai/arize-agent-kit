@@ -1,5 +1,6 @@
 src/**
 test/**
+!python/**
 .gitignore
 tsconfig.json
 jest.config.js

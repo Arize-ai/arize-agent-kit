@@ -34,7 +34,8 @@
     }
   },
   "scripts": {
-    "build": "node esbuild.js",
+    "build": "npm run build:wheel && node esbuild.js",
+    "build:wheel": "node build-wheel.js",
     "watch": "node esbuild.js --watch",
     "package": "vsce package",
     "test": "jest",
