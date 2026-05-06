@@ -1,4 +1,4 @@
-# Arize Agent Kit
+# Arize Harness Tracing
 
 Trace AI coding sessions to [Arize AX](https://arize.com) or [Phoenix](https://github.com/Arize-ai/phoenix) with [OpenInference](https://github.com/Arize-ai/openinference) spans. Each harness integration emits spans for prompts, tool calls, model responses, and session lifecycle events.
 
