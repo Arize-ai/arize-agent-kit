@@ -7,6 +7,7 @@ never raise — every exception is caught and surfaced via the ``error`` field.
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional
 
 from core.vscode_bridge.models import build_codex_buffer
@@ -72,8 +73,6 @@ def _detect_state(host: Optional[str], port: Optional[int]) -> tuple:
         return ("stale", pid)
 
     try:
-        import os
-
         expected = _expected_build_path()
         if os.path.realpath(remote_bp) == os.path.realpath(expected):
             # Identity matches — genuinely running.
@@ -137,41 +136,48 @@ def buffer_start() -> Dict[str, Any]:
     On success the payload reflects the post-start state.  On failure
     ``success`` is ``False`` with ``error="buffer_start_failed"``.
     """
-    host, port = _resolve_host_port_safe()
     try:
-        from tracing.codex.codex_buffer_ctl import buffer_start as _ctl_start
+        host, port = _resolve_host_port_safe()
+        try:
+            from tracing.codex.codex_buffer_ctl import buffer_start as _ctl_start
 
-        ok = _ctl_start()
+            ok = _ctl_start()
+        except Exception:
+            return build_codex_buffer(
+                success=False,
+                error="buffer_start_failed",
+                state="unknown",
+                host=host,
+                port=port,
+            )
+
+        if not ok:
+            # Start returned False — re-probe for best-effort state info.
+            state, pid = _detect_state(host, port)
+            return build_codex_buffer(
+                success=False,
+                error="buffer_start_failed",
+                state=state,
+                host=host,
+                port=port,
+                pid=pid,
+            )
+
+        # Started successfully — probe state.
+        state, pid = _detect_state(host, port)
+        return build_codex_buffer(
+            success=True,
+            state=state if state != "unknown" else "running",
+            host=host,
+            port=port,
+            pid=pid,
+        )
     except Exception:
         return build_codex_buffer(
             success=False,
             error="buffer_start_failed",
             state="unknown",
-            host=host,
-            port=port,
         )
-
-    if not ok:
-        # Start returned False — re-probe for best-effort state info.
-        state, pid = _detect_state(host, port)
-        return build_codex_buffer(
-            success=False,
-            error="buffer_start_failed",
-            state=state,
-            host=host,
-            port=port,
-            pid=pid,
-        )
-
-    # Started successfully — probe state.
-    state, pid = _detect_state(host, port)
-    return build_codex_buffer(
-        success=True,
-        state=state if state != "unknown" else "running",
-        host=host,
-        port=port,
-        pid=pid,
-    )
 
 
 def buffer_stop() -> Dict[str, Any]:
@@ -180,35 +186,42 @@ def buffer_stop() -> Dict[str, Any]:
     On success the payload has ``state="stopped"``.  On failure ``success``
     is ``False`` with ``error="buffer_stop_failed"``.
     """
-    host, port = _resolve_host_port_safe()
     try:
-        from tracing.codex.codex_buffer_ctl import buffer_stop as _ctl_stop
+        host, port = _resolve_host_port_safe()
+        try:
+            from tracing.codex.codex_buffer_ctl import buffer_stop as _ctl_stop
 
-        result = _ctl_stop()
+            result = _ctl_stop()
+        except Exception:
+            return build_codex_buffer(
+                success=False,
+                error="buffer_stop_failed",
+                state="unknown",
+                host=host,
+                port=port,
+            )
+
+        if result == "stopped":
+            return build_codex_buffer(
+                success=True,
+                state="stopped",
+                host=host,
+                port=port,
+            )
+
+        # "refused" or unexpected value — re-probe state.
+        state, pid = _detect_state(host, port)
+        return build_codex_buffer(
+            success=False,
+            error="buffer_stop_failed",
+            state=state,
+            host=host,
+            port=port,
+            pid=pid,
+        )
     except Exception:
         return build_codex_buffer(
             success=False,
             error="buffer_stop_failed",
             state="unknown",
-            host=host,
-            port=port,
         )
-
-    if result == "stopped":
-        return build_codex_buffer(
-            success=True,
-            state="stopped",
-            host=host,
-            port=port,
-        )
-
-    # "refused" or unexpected value — re-probe state.
-    state, pid = _detect_state(host, port)
-    return build_codex_buffer(
-        success=False,
-        error="buffer_stop_failed",
-        state=state,
-        host=host,
-        port=port,
-        pid=pid,
-    )

@@ -152,6 +152,22 @@ class TestBufferStart:
         assert result["success"] is False
         assert result["error"] == "buffer_start_failed"
 
+    def test_start_exception(self):
+        """ctl.buffer_start raises — success=False, host/port still populated."""
+        with (
+            patch(f"{_CTL}._resolve_host_port", return_value=("127.0.0.1", 9009)),
+            patch(f"{_CTL}.buffer_start", side_effect=RuntimeError("boom")),
+        ):
+            from core.vscode_bridge.codex import buffer_start
+
+            result = buffer_start()
+
+        _assert_payload(result)
+        assert result["success"] is False
+        assert result["error"] == "buffer_start_failed"
+        assert result["host"] == "127.0.0.1"
+        assert result["port"] == 9009
+
 
 # ---------------------------------------------------------------------------
 # buffer_stop
@@ -195,3 +211,19 @@ class TestBufferStop:
         _assert_payload(result)
         assert result["success"] is False
         assert result["error"] == "buffer_stop_failed"
+
+    def test_stop_exception(self):
+        """ctl.buffer_stop raises — success=False, host/port still populated."""
+        with (
+            patch(f"{_CTL}._resolve_host_port", return_value=("127.0.0.1", 9009)),
+            patch(f"{_CTL}.buffer_stop", side_effect=RuntimeError("boom")),
+        ):
+            from core.vscode_bridge.codex import buffer_stop
+
+            result = buffer_stop()
+
+        _assert_payload(result)
+        assert result["success"] is False
+        assert result["error"] == "buffer_stop_failed"
+        assert result["host"] == "127.0.0.1"
+        assert result["port"] == 9009
