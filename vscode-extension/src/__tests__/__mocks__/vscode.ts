@@ -17,9 +17,27 @@ export enum StatusBarAlignment {
   Right = 2,
 }
 
+export enum ProgressLocation {
+  SourceControl = 1,
+  Window = 10,
+  Notification = 15,
+}
+
 export const window = {
   showInformationMessage: jest.fn((_msg: string) => Promise.resolve(undefined)),
   showQuickPick: jest.fn((_items: unknown[], _opts?: unknown) => Promise.resolve(undefined)),
+  createOutputChannel: jest.fn((_name: string) => ({
+    appendLine: jest.fn(),
+    append: jest.fn(),
+    clear: jest.fn(),
+    show: jest.fn(),
+    hide: jest.fn(),
+    dispose: jest.fn(),
+  })),
+  withProgress: jest.fn((_options: unknown, task: (progress: unknown, token: { onCancellationRequested: (cb: () => void) => { dispose: () => void } }) => Promise<unknown>) => {
+    const token = { onCancellationRequested: jest.fn(() => ({ dispose: jest.fn() })) };
+    return task({}, token);
+  }),
   createStatusBarItem: jest.fn((_alignment?: number, _priority?: number) => ({
     text: "",
     tooltip: "",

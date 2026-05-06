@@ -9,6 +9,7 @@ import * as vscode from "vscode";
 import * as bridge from "./bridge";
 import { HARNESS_KEYS } from "./types";
 import type { HarnessKey, StatusPayload, CodexBufferPayload } from "./types";
+import type { EnsureBridgeError } from "./bootstrap";
 import type { SidebarProvider, SidebarViewState, SidebarAction } from "./sidebar";
 
 // ---------------------------------------------------------------------------
@@ -149,6 +150,14 @@ export class SidebarController implements vscode.Disposable {
   private _renderError(error: string): void {
     const state: SidebarViewState = { ...this._lastState, bridgeError: error };
     this._provider.render(state);
+  }
+
+  /**
+   * Surface a bootstrap error into the sidebar view state.
+   * The next `refresh()` overwrites it with real data from the bridge.
+   */
+  surfaceError(code: EnsureBridgeError, detail: string): void {
+    this._renderError(`${code}: ${detail}`);
   }
 
   /** Dispatch any SidebarAction as if it had come from the webview. */
