@@ -57,7 +57,6 @@ const HARNESS_LABELS: Record<HarnessKey, string> = {
 
 export class SidebarProvider implements vscode.WebviewViewProvider {
   private _view: vscode.WebviewView | undefined;
-  private _lastState: SidebarViewState | undefined;
   private _disposables: vscode.Disposable[] = [];
 
   private readonly _onAction = new vscode.EventEmitter<SidebarAction>();
@@ -114,7 +113,6 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   /** Push new state into the webview. Idempotent. Called by sidebar-state. */
   public render(state: SidebarViewState): void {
-    this._lastState = state;
     if (this._view) {
       this._view.webview.postMessage({
         type: "render",

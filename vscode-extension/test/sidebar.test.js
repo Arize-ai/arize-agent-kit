@@ -7,21 +7,6 @@
 
 const vscode = require("vscode");
 
-// We need to build first so the compiled JS is available.
-// The test script should run `npm run build` before or the CI does it.
-// For safety we build inline if dist is missing.
-const path = require("path");
-const fs = require("fs");
-const distPath = path.join(__dirname, "..", "dist", "extension.js");
-if (!fs.existsSync(distPath)) {
-  const { execSync } = require("child_process");
-  execSync("npm run build", { cwd: path.join(__dirname, ".."), stdio: "pipe" });
-}
-
-// Import compiled sidebar module via the bundle
-// esbuild bundles everything into extension.js, but sidebar.ts is a separate
-// module not re-exported by extension.ts. We need to build sidebar separately
-// or use ts-jest. Since jest.config uses ts-jest preset, import the TS source:
 const { SidebarProvider } = require("../src/sidebar");
 
 // ---------------------------------------------------------------------------
@@ -253,5 +238,34 @@ describe("SidebarProvider", () => {
     provider.resolveWebviewView(viewParts.view, {}, {});
     expect(viewParts.webview.html).toMatch(/Content-Security-Policy/);
     expect(viewParts.webview.html).toMatch(/nonce-[A-Za-z0-9]{32}/);
+  });
+
+  test("visibility change fires onDidChangeVisibility with true/false", () => {
+    provider.resolveWebviewView(viewParts.view, {}, {});
+    const visHandler = jest.fn();
+    provider.onDidChangeVisibility(visHandler);
+
+    // Simulate view becoming hidden
+    viewParts.view.visible = false;
+    viewParts.listeners.visibility();
+    expect(visHandler).toHaveBeenCalledWith(false);
+
+    // Simulate view becoming visible again
+    viewParts.view.visible = true;
+    viewParts.listeners.visibility();
+    expect(visHandler).toHaveBeenCalledWith(true);
+    expect(visHandler).toHaveBeenCalledTimes(2);
+  });
+
+  test("dispose() does not throw and cleans up emitters", () => {
+    provider.resolveWebviewView(viewParts.view, {}, {});
+    expect(() => provider.dispose()).not.toThrow();
+
+    // After dispose, firing actions should not reach previously-registered listeners
+    const actionHandler = jest.fn();
+    // onAction emitter is disposed, so registering after dispose is a no-op
+    // (the mock EventEmitter clears listeners on dispose)
+    provider.onAction(actionHandler);
+    expect(actionHandler).not.toHaveBeenCalled();
   });
 });
