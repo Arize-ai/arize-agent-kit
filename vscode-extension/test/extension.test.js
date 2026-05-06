@@ -233,6 +233,8 @@ describe("activate(ctx) bootstrap integration", () => {
     const controllerInstance = SidebarController.mock.results[0].value;
     expect(controllerInstance.refresh).toHaveBeenCalled();
     expect(controllerInstance.surfaceError).not.toHaveBeenCalled();
+    const statusBarInstance = StatusBarManager.mock.results[0].value;
+    expect(statusBarInstance.refresh).toHaveBeenCalled();
   });
 
   test("on failure, surfaceError is called with error code and message, then refresh is called", async () => {
@@ -251,5 +253,7 @@ describe("activate(ctx) bootstrap integration", () => {
       "Python >= 3.9 not found on PATH.",
     );
     expect(controllerInstance.refresh).toHaveBeenCalled();
+    const statusBarInstance = StatusBarManager.mock.results[0].value;
+    expect(statusBarInstance.refresh).toHaveBeenCalled();
   });
 });
