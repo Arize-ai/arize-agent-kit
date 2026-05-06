@@ -16,42 +16,62 @@ export const HARNESS_KEYS: readonly HarnessKey[] = [
 
 /** Tracing backend configuration. */
 export interface Backend {
-  type: "arize" | "phoenix" | "custom";
-  api_key?: string;
-  endpoint?: string;
-  space_id?: string;
+  target: "arize" | "phoenix";
+  endpoint: string;
+  api_key: string;
+  space_id: string | null;
+}
+
+/** Logging flags. */
+export interface LoggingFlags {
+  prompts: boolean;
+  tool_details: boolean;
+  tool_content: boolean;
 }
 
 /** Status of a single configured harness. */
 export interface HarnessStatusItem {
-  harness: HarnessKey;
+  name: HarnessKey;
   configured: boolean;
-  project_name?: string;
-  backend?: Backend;
+  project_name: string | null;
+  backend: Backend | null;
+  scope: string | null;
 }
 
 /** Full status payload returned by the bridge. */
 export interface StatusPayload {
+  success: boolean;
+  error: string | null;
+  user_id: string | null;
   harnesses: HarnessStatusItem[];
+  logging: LoggingFlags | null;
+  codex_buffer: CodexBufferPayload | null;
 }
 
 /** Request to install/configure a harness. */
 export interface InstallRequest {
   harness: HarnessKey;
-  project_name: string;
   backend: Backend;
+  project_name: string;
+  user_id: string | null;
+  with_skills: boolean;
+  logging: LoggingFlags | null;
 }
 
 /** Result of an install, reconfigure, or uninstall operation. */
 export interface OperationResult {
   success: boolean;
-  message: string;
-  harness: HarnessKey;
+  error: string | null;
+  harness: string | null;
+  logs: string[];
 }
 
 /** Codex buffer state payload. */
 export interface CodexBufferPayload {
-  running: boolean;
-  pid?: number;
-  log_path?: string;
+  success: boolean;
+  error: string | null;
+  state: "running" | "stopped" | "stale" | "unknown";
+  host: string | null;
+  port: number | null;
+  pid: number | null;
 }
