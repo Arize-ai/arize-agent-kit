@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Codex event buffer service for Arize Agent Kit.
+Codex event buffer service for Arize Harness Tracing.
 
 Minimal HTTP server that buffers Codex OTLP log events between hook
 invocations.  No export logic — the notify handler drains events and
