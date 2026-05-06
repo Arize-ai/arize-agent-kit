@@ -307,6 +307,52 @@ describe("SidebarController", () => {
     expect(bridge.getStatus).not.toHaveBeenCalled();
   });
 
+  test("uninstall bridge rejection renders bridgeError without crash", async () => {
+    bridge.uninstall.mockRejectedValue(new Error("connection refused"));
+
+    ctrl = new SidebarController(provider);
+    await ctrl.handleAction({ type: "uninstall", harness: "codex" });
+
+    const state = provider.render.mock.calls[0][0];
+    expect(state.bridgeError).toBe("connection refused");
+    expect(bridge.getStatus).not.toHaveBeenCalled();
+  });
+
+  test("stopCodexBuffer failure populates bridgeError", async () => {
+    bridge.codexBufferStop.mockResolvedValue({ success: false, error: "not running", state: "unknown", host: null, port: null, pid: null });
+
+    ctrl = new SidebarController(provider);
+    await ctrl.stopCodexBuffer();
+
+    const state = provider.render.mock.calls[0][0];
+    expect(state.bridgeError).toBe("not running");
+    expect(bridge.getStatus).not.toHaveBeenCalled();
+  });
+
+  test("handleAction startCodexBuffer dispatches to startCodexBuffer()", async () => {
+    bridge.codexBufferStart.mockResolvedValue(bufferPayload("running"));
+    bridge.getStatus.mockResolvedValue(codexConfiguredStatus());
+    bridge.codexBufferStatus.mockResolvedValue(bufferPayload("running"));
+
+    ctrl = new SidebarController(provider);
+    await ctrl.handleAction({ type: "startCodexBuffer" });
+
+    expect(bridge.codexBufferStart).toHaveBeenCalled();
+    expect(bridge.getStatus).toHaveBeenCalled();
+  });
+
+  test("handleAction stopCodexBuffer dispatches to stopCodexBuffer()", async () => {
+    bridge.codexBufferStop.mockResolvedValue(bufferPayload("stopped"));
+    bridge.getStatus.mockResolvedValue(codexConfiguredStatus());
+    bridge.codexBufferStatus.mockResolvedValue(bufferPayload("stopped"));
+
+    ctrl = new SidebarController(provider);
+    await ctrl.handleAction({ type: "stopCodexBuffer" });
+
+    expect(bridge.codexBufferStop).toHaveBeenCalled();
+    expect(bridge.getStatus).toHaveBeenCalled();
+  });
+
   // ---- backendLabel mapping -----------------------------------------------
 
   test("backendLabel maps arize to 'Arize AX' and phoenix to 'Phoenix'", async () => {

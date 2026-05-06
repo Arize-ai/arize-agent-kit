@@ -72,6 +72,7 @@ export class SidebarController implements vscode.Disposable {
   private readonly _refreshIntervalMs: number;
   private _timer: ReturnType<typeof setInterval> | undefined;
   private _disposables: vscode.Disposable[] = [];
+  private _lastState: SidebarViewState = emptyState();
 
   private readonly _onOpenSetup = new vscode.EventEmitter<void>();
   public readonly onOpenSetup: vscode.Event<void> = this._onOpenSetup.event;
@@ -133,21 +134,28 @@ export class SidebarController implements vscode.Disposable {
 
     let codex: CodexBufferPayload | null = null;
     if (codexConfigured) {
-      try {
-        codex = await bridge.codexBufferStatus();
-      } catch {
-        // Non-fatal — codex buffer status is optional
-      }
+      const [, codexResult] = await Promise.all([
+        Promise.resolve(status), // status already resolved; keeps the Promise.all shape
+        bridge.codexBufferStatus().catch(() => null as CodexBufferPayload | null),
+      ]);
+      codex = codexResult;
     }
 
-    this._provider.render(toViewState(status, codex));
+    const state = toViewState(status, codex);
+    this._lastState = state;
+    this._provider.render(state);
+  }
+
+  private _renderError(error: string): void {
+    const state: SidebarViewState = { ...this._lastState, bridgeError: error };
+    this._provider.render(state);
   }
 
   /** Dispatch any SidebarAction as if it had come from the webview. */
   async handleAction(action: SidebarAction): Promise<void> {
     switch (action.type) {
       case "setup":
-        this._onOpenSetup.fire(undefined as unknown as void);
+        this._onOpenSetup.fire();
         break;
 
       case "reconfigure":
@@ -155,9 +163,15 @@ export class SidebarController implements vscode.Disposable {
         break;
 
       case "uninstall": {
-        const result = await bridge.uninstall(action.harness);
-        if (!result.success) {
-          this._provider.render(emptyState(result.error ?? "uninstall_failed"));
+        try {
+          const result = await bridge.uninstall(action.harness);
+          if (!result.success) {
+            this._renderError(result.error ?? "uninstall_failed");
+            return;
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this._renderError(msg);
           return;
         }
         await this.refresh();
@@ -182,12 +196,12 @@ export class SidebarController implements vscode.Disposable {
     try {
       const result = await bridge.codexBufferStart();
       if (!result.success) {
-        this._provider.render(emptyState(result.error ?? "codex_buffer_start_failed"));
+        this._renderError(result.error ?? "codex_buffer_start_failed");
         return;
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this._provider.render(emptyState(msg));
+      this._renderError(msg);
       return;
     }
     await this.refresh();
@@ -197,12 +211,12 @@ export class SidebarController implements vscode.Disposable {
     try {
       const result = await bridge.codexBufferStop();
       if (!result.success) {
-        this._provider.render(emptyState(result.error ?? "codex_buffer_stop_failed"));
+        this._renderError(result.error ?? "codex_buffer_stop_failed");
         return;
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this._provider.render(emptyState(msg));
+      this._renderError(msg);
       return;
     }
     await this.refresh();
