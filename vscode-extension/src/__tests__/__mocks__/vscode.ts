@@ -26,9 +26,24 @@ export const Uri = {
 };
 
 export class EventEmitter {
-  event = jest.fn();
-  fire = jest.fn();
-  dispose = jest.fn();
+  private _listeners: Array<(e: unknown) => void> = [];
+
+  event = jest.fn((listener: (e: unknown) => void) => {
+    this._listeners.push(listener);
+    return { dispose: jest.fn(() => {
+      this._listeners = this._listeners.filter((l) => l !== listener);
+    }) };
+  });
+
+  fire = jest.fn((data: unknown) => {
+    for (const listener of this._listeners) {
+      listener(data);
+    }
+  });
+
+  dispose = jest.fn(() => {
+    this._listeners = [];
+  });
 }
 
 export class Disposable {
