@@ -10,8 +10,16 @@
 
 ## Prerequisites
 
-- **Python >= 3.9** available on `PATH`
-- Run `install.sh` (macOS/Linux) or `install.bat` (Windows) from the repo root at least once so that `~/.arize/harness/venv` and the `arize-vscode-bridge` entry point exist
+- Python ≥ 3.9 available on `PATH`. The first time you open the Arize
+  Tracing view, the extension creates a venv at `~/.arize/harness/venv`
+  and installs the bridge automatically. No terminal step is required.
+
+## Local development
+
+- `npm install` from `vscode-extension/`.
+- `npm run build` builds the bundled wheel and the extension JS.
+- Press F5 in `vscode-extension/` to launch the Extension Development
+  Host with the local build.
 
 ## Usage
 
