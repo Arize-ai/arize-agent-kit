@@ -46,41 +46,55 @@ function isResultEvent(obj: unknown): obj is ResultEvent {
 /**
  * Spawn the bridge binary with the given argv and return the result payload.
  */
-function runBridge<T>(argv: string[], opts?: RunOptions): Promise<T> {
-  return new Promise<T>(async (resolve, reject) => {
-    let binary: string | null;
-    try {
-      binary = await findBridgeBinary();
-    } catch {
-      binary = null;
-    }
-    if (!binary) {
-      return reject(new Error("bridge: binary not found"));
-    }
+async function runBridge<T>(argv: string[], opts?: RunOptions): Promise<T> {
+  let binary: string | null;
+  try {
+    binary = await findBridgeBinary();
+  } catch {
+    binary = null;
+  }
+  if (!binary) {
+    throw new Error("bridge: binary not found");
+  }
 
-    // Check if already aborted
-    if (opts?.signal?.aborted) {
-      return reject(new Error("bridge: aborted"));
-    }
+  if (opts?.signal?.aborted) {
+    throw new Error("bridge: aborted");
+  }
 
-    const child = spawn(binary, argv, { stdio: ["ignore", "pipe", "pipe"] });
+  const bin = binary; // capture for closure narrowing
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const settle = <A extends unknown[]>(fn: (...args: A) => void, ...args: A) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn(...args);
+    };
+
+    const child = spawn(bin, argv, { stdio: ["ignore", "pipe", "pipe"] });
 
     let resultPayload: T | undefined;
     let stderrBuf = "";
     let stdoutBuf = "";
 
-    // Wire abort signal
     const onAbort = () => {
       child.kill("SIGTERM");
-      reject(new Error("bridge: aborted"));
+      settle(reject, new Error("bridge: aborted"));
     };
+
+    const cleanup = () => {
+      if (opts?.signal) {
+        opts.signal.removeEventListener("abort", onAbort);
+      }
+    };
+
     if (opts?.signal) {
       opts.signal.addEventListener("abort", onAbort, { once: true });
     }
 
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutBuf += chunk.toString();
-      // Process complete lines
       let nlIndex: number;
       while ((nlIndex = stdoutBuf.indexOf("\n")) !== -1) {
         const line = stdoutBuf.slice(0, nlIndex);
@@ -91,7 +105,6 @@ function runBridge<T>(argv: string[], opts?: RunOptions): Promise<T> {
         try {
           parsed = JSON.parse(line) as BridgeEvent;
         } catch {
-          // Unparseable line → forward as error log, do not throw
           opts?.onLog?.("error", line);
           continue;
         }
@@ -101,7 +114,6 @@ function runBridge<T>(argv: string[], opts?: RunOptions): Promise<T> {
         } else if (isResultEvent(parsed)) {
           resultPayload = parsed.payload as T;
         } else {
-          // Unknown event shape → forward as error log
           opts?.onLog?.("error", line);
         }
       }
@@ -112,30 +124,19 @@ function runBridge<T>(argv: string[], opts?: RunOptions): Promise<T> {
     });
 
     child.on("close", (code: number | null) => {
-      // Clean up abort listener
-      if (opts?.signal) {
-        opts.signal.removeEventListener("abort", onAbort);
-      }
-
       if (code === 2) {
-        return reject(
-          new Error(`bridge: argv error: ${stderrBuf.trim() || "unknown"}`)
-        );
+        return settle(reject, new Error(`bridge: argv error: ${stderrBuf.trim() || "unknown"}`));
       }
 
       if (resultPayload === undefined) {
-        return reject(new Error("bridge: no result emitted"));
+        return settle(reject, new Error("bridge: no result emitted"));
       }
 
-      // Exit 0 or 1 with a result → resolve (caller inspects success flag)
-      resolve(resultPayload);
+      settle(resolve, resultPayload);
     });
 
     child.on("error", (err: Error) => {
-      if (opts?.signal) {
-        opts.signal.removeEventListener("abort", onAbort);
-      }
-      reject(new Error(`bridge: spawn error: ${err.message}`));
+      settle(reject, new Error(`bridge: spawn error: ${err.message}`));
     });
   });
 }

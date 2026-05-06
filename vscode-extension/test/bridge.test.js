@@ -408,6 +408,28 @@ describe("python discovery", () => {
     expect(result).toBe(BRIDGE_PATH);
   });
 
+  test("findBridgeBinary: falls back to PATH when venv missing", async () => {
+    // Venv bridge does NOT exist — existsSyncResults is empty for BRIDGE_PATH
+    const whichCmd = IS_WIN ? "where" : "which";
+    const pathBridge = IS_WIN
+      ? "C:\\Tools\\arize-vscode-bridge.exe"
+      : "/usr/local/bin/arize-vscode-bridge";
+
+    cp.execFile.mockImplementation((cmd, args, opts, cb) => {
+      const bridgeName = IS_WIN ? "arize-vscode-bridge.exe" : "arize-vscode-bridge";
+      if (cmd === whichCmd && args[0] === bridgeName) {
+        cb(null, pathBridge, "");
+      } else {
+        cb(new Error("not found"), "", "");
+      }
+    });
+
+    existsSyncResults[pathBridge] = true;
+
+    const result = await findBridgeBinary();
+    expect(result).toBe(pathBridge);
+  });
+
   test("findBridgeBinary: returns null when not found anywhere", async () => {
     cp.execFile.mockImplementation((_cmd, _args, _opts, cb) => {
       cb(new Error("not found"), "", "");
