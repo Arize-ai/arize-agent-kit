@@ -1,0 +1,13 @@
+src/**
+test/**
+.gitignore
+tsconfig.json
+jest.config.js
+esbuild.js
+**/*.test.ts
+**/*.test.js
+**/__tests__/**
+**/__mocks__/**
+node_modules/**
+out/**
+*.vsix

@@ -1,0 +1,53 @@
+{
+  "name": "arize-agent-kit",
+  "displayName": "Arize Agent Kit",
+  "publisher": "arize",
+  "version": "0.0.1",
+  "description": "Arize tracing for AI coding agents",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onView:arize-sidebar",
+    "onCommand:arize.setup"
+  ],
+  "contributes": {
+    "commands": [
+      { "command": "arize.setup", "title": "Arize: Set Up Tracing" },
+      { "command": "arize.reconfigure", "title": "Arize: Reconfigure Tracing" },
+      { "command": "arize.uninstall", "title": "Arize: Uninstall Harness" },
+      { "command": "arize.refreshStatus", "title": "Arize: Refresh Status" },
+      { "command": "arize.startCodexBuffer", "title": "Arize: Start Codex Buffer" },
+      { "command": "arize.stopCodexBuffer", "title": "Arize: Stop Codex Buffer" },
+      { "command": "arize.statusBarMenu", "title": "Arize: Status Menu" }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "arize", "title": "Arize Tracing", "icon": "media/icon.svg" }
+      ]
+    },
+    "views": {
+      "arize": [
+        { "type": "webview", "id": "arize-sidebar", "name": "Arize Tracing" }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "vsce package",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "vscode:uninstall": "node ./dist/uninstall.js"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.3.0"
+  }
+}
