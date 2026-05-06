@@ -9,13 +9,44 @@ export const commands = {
   })),
 };
 
+export const ViewColumn = { One: 1, Two: 2, Three: 3 };
+
 export const window = {
   showInformationMessage: jest.fn((_msg: string) => Promise.resolve(undefined)),
-  createWebviewPanel: jest.fn(() => ({
-    webview: { html: "", onDidReceiveMessage: jest.fn(), postMessage: jest.fn() },
-    onDidDispose: jest.fn(),
-    dispose: jest.fn(),
-  })),
+  createWebviewPanel: jest.fn(
+    (_viewType: string, _title: string, _column: number, _opts?: unknown) => {
+      const _listeners: Array<(e: unknown) => void> = [];
+      const _disposeListeners: Array<() => void> = [];
+      return {
+        webview: {
+          html: "",
+          cspSource: "https://test.csp",
+          asWebviewUri: jest.fn((uri: { path: string }) => uri),
+          onDidReceiveMessage: jest.fn((cb: (e: unknown) => void) => {
+            _listeners.push(cb);
+            return { dispose: jest.fn() };
+          }),
+          postMessage: jest.fn(),
+          /** Test helper: simulate a message from the webview. */
+          _simulateMessage(msg: unknown) {
+            for (const cb of _listeners) cb(msg);
+          },
+        },
+        onDidDispose: jest.fn((cb: () => void) => {
+          _disposeListeners.push(cb);
+          return { dispose: jest.fn() };
+        }),
+        reveal: jest.fn(),
+        dispose: jest.fn(() => {
+          for (const cb of _disposeListeners) cb();
+        }),
+        /** Test helper: simulate the panel being closed by the user. */
+        _simulateDispose() {
+          for (const cb of _disposeListeners) cb();
+        },
+      };
+    },
+  ),
   registerWebviewViewProvider: jest.fn((_id: string, _provider: unknown) => ({
     dispose: jest.fn(),
   })),
@@ -23,6 +54,10 @@ export const window = {
 
 export const Uri = {
   file: jest.fn((path: string) => ({ scheme: "file", path })),
+  joinPath: jest.fn((base: { path: string }, ...segments: string[]) => ({
+    scheme: "file",
+    path: base.path + "/" + segments.join("/"),
+  })),
 };
 
 export class EventEmitter {
