@@ -27,6 +27,7 @@ jest.mock("fs", () => ({
 }));
 
 import { EventEmitter } from "events";
+import { join } from "path";
 import { findPython, findBridgeBinary } from "../python";
 import { ensureBridge, BootstrapResult, EnsureBridgeOptions, _resetForTesting, SITECUSTOMIZE_PY } from "../bootstrap";
 
@@ -510,10 +511,13 @@ describe("ensureBridge", () => {
       const sitePackagesCall = mockSpawn.mock.calls[3];
       expect(sitePackagesCall[1]).toEqual(["-c", "import site; print(site.getsitepackages()[0])"]);
 
-      // writeFile called with correct path and exact content
+      // writeFile called with correct path and exact content. Use path.join
+      // so the expected separators match the host OS — the production code
+      // uses path.join, which produces backslashes on Windows even though the
+      // test forces process.platform = "darwin".
       expect(mockWriteFile).toHaveBeenCalledTimes(1);
       expect(mockWriteFile).toHaveBeenCalledWith(
-        "/path/to/site-packages/sitecustomize.py",
+        join("/path/to/site-packages", "sitecustomize.py"),
         SITECUSTOMIZE_PY,
       );
     });

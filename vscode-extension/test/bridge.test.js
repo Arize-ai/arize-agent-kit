@@ -395,21 +395,25 @@ describe("python discovery", () => {
   test("findPython: falls back to PATH when venv missing", async () => {
     // No venv python
     const whichCmd = IS_WIN ? "where" : "which";
+    const pythonName = IS_WIN ? "python3.exe" : "python3";
+    const pathPython = IS_WIN
+      ? "C:\\Python\\python3.exe"
+      : "/usr/bin/python3";
 
     cp.execFile.mockImplementation((cmd, args, opts, cb) => {
-      if (cmd === whichCmd && args[0] === "python3") {
-        cb(null, "/usr/bin/python3", "");
-      } else if (cmd === "/usr/bin/python3") {
+      if (cmd === whichCmd && args[0] === pythonName) {
+        cb(null, pathPython, "");
+      } else if (cmd === pathPython) {
         cb(null, "3 11", "");
       } else {
         cb(new Error("not found"), "", "");
       }
     });
 
-    existsSyncResults["/usr/bin/python3"] = true;
+    existsSyncResults[pathPython] = true;
 
     const result = await findPython();
-    expect(result).toBe("/usr/bin/python3");
+    expect(result).toBe(pathPython);
   });
 
   test("findPython: returns null when no python found", async () => {
