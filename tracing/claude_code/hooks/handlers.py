@@ -374,8 +374,15 @@ def _handle_stop(input_json: dict) -> None:
 
 
 def _handle_subagent_start(input_json: dict) -> None:
-    """STUB — implementation pending in wave 2 for SubagentStart."""
-    pass
+    """Handle SubagentStart: record start time + prompt keyed by agent_id."""
+    state = resolve_session(input_json)
+    agent_id = input_json.get("agent_id", "")
+    if not agent_id:
+        return
+    state.set(f"subagent_{agent_id}_start_time", str(get_timestamp_ms()))
+    prompt = input_json.get("prompt", "") or ""
+    if prompt:
+        state.set(f"subagent_{agent_id}_prompt", prompt)
 
 
 def _handle_subagent_stop(input_json: dict) -> None:
@@ -403,16 +410,21 @@ def _handle_subagent_stop(input_json: dict) -> None:
     model = ""
     in_tokens = 0
     out_tokens = 0
-    start_time = end_time
+
+    # Prefer state-stored start time set by SubagentStart; fall back to transcript birth time.
+    stored_start = state.get(f"subagent_{agent_id}_start_time")
+    if stored_start:
+        start_time = stored_start
+    else:
+        start_time = end_time  # default; may be overwritten below
 
     transcript = resolve_transcript_path(input_json, session_id or "")
     if transcript is not None:
-        # Get file creation time for start_time
-        st = transcript.stat()
-        # st_birthtime is macOS/BSD only; fall back to ctime elsewhere.
-        birth = getattr(st, "st_birthtime", st.st_ctime)
-        start_ms = int(birth * 1000)
-        start_time = str(start_ms)
+        if not stored_start:
+            st = transcript.stat()
+            # st_birthtime is macOS/BSD only; fall back to ctime elsewhere.
+            birth = getattr(st, "st_birthtime", st.st_ctime)
+            start_time = str(int(birth * 1000))
 
         scanned_output, in_tokens, out_tokens, scanned_model = _scan_transcript_for_usage(transcript, 0)
         if not output:
@@ -439,6 +451,9 @@ def _handle_subagent_stop(input_json: dict) -> None:
         "llm.token_count.total": total_tokens,
         "output.value": output,
     }
+    stored_prompt = state.get(f"subagent_{agent_id}_prompt") or ""
+    if stored_prompt:
+        attrs["input.value"] = redact_content(env.log_prompts, stored_prompt)
     user_id = state.get("user_id") or ""
     if user_id:
         attrs["user.id"] = user_id
@@ -456,6 +471,11 @@ def _handle_subagent_stop(input_json: dict) -> None:
         SCOPE_NAME,
     )
     send_span(span)
+
+    # Clean up per-agent state keys
+    if agent_id:
+        state.delete(f"subagent_{agent_id}_start_time")
+        state.delete(f"subagent_{agent_id}_prompt")
 
 
 def _handle_stop_failure(input_json: dict) -> None:
