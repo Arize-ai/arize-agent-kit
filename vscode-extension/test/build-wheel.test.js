@@ -140,10 +140,10 @@ describe("build-wheel main()", () => {
     await expect(main()).rejects.toThrow(/No Python/);
   });
 
-  test("Windows discovery tries py -3 first", async () => {
+  test("Windows discovery tries py -3 before other system candidates", async () => {
     setPlatform("win32");
 
-    // Only py -3 succeeds
+    // Only py -3 succeeds; venv python paths don't.
     mockSpawnSyncImpl = (cmd, args) => {
       spawnCallLog.push({ type: "spawnSync", args: [cmd, args] });
       if (cmd === "py" && args && args[0] === "-3") return { status: 0 };
@@ -152,10 +152,16 @@ describe("build-wheel main()", () => {
 
     await main();
 
-    // The first spawnSync call should be for "py" with ["-3", ...]
     const syncCalls = spawnCallLog.filter((c) => c.type === "spawnSync");
-    expect(syncCalls.length).toBeGreaterThan(0);
-    expect(syncCalls[0].args[0]).toBe("py");
-    expect(syncCalls[0].args[1][0]).toBe("-3");
+    const pyIdx = syncCalls.findIndex(
+      (c) => c.args[0] === "py" && c.args[1][0] === "-3",
+    );
+    expect(pyIdx).toBeGreaterThanOrEqual(0);
+    // Among the non-venv candidates, py -3 comes first.
+    const nonVenvCalls = syncCalls.filter(
+      (c) => !c.args[0].includes("venv"),
+    );
+    expect(nonVenvCalls[0].args[0]).toBe("py");
+    expect(nonVenvCalls[0].args[1][0]).toBe("-3");
   });
 });

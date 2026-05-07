@@ -115,16 +115,28 @@ describe("WizardPanel.open", () => {
 // ---------------------------------------------------------------------------
 
 describe("prefill on ready", () => {
-  test("sends empty prefill when no prefillHarness is set", async () => {
+  test("setup with no prefill harness borrows backend from any configured harness", async () => {
     const installer = makeInstaller();
     WizardPanel.open(extensionUri(), installer);
     const panel = getPanel();
 
     simulateReady(panel);
-    // Allow microtask for async _sendPrefill
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(panel.webview.postMessage).toHaveBeenCalledWith({ type: "prefill" });
+    expect(panel.webview.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "prefill",
+        request: expect.objectContaining({
+          backend: expect.objectContaining({
+            target: "arize",
+            endpoint: "otlp.arize.com:443",
+            api_key: "secret",
+            space_id: "sp1",
+          }),
+          user_id: "user1",
+        }),
+      }),
+    );
   });
 
   test("sends prefill with harness data when prefillHarness is set", async () => {
@@ -144,7 +156,7 @@ describe("prefill on ready", () => {
           backend: expect.objectContaining({
             target: "arize",
             endpoint: "otlp.arize.com:443",
-            api_key: "",
+            api_key: "secret",
             space_id: "sp1",
           }),
           project_name: "my-proj",
@@ -153,20 +165,6 @@ describe("prefill on ready", () => {
         }),
       }),
     );
-  });
-
-  test("api_key is always empty string in prefill (never leaks secret)", async () => {
-    const installer = makeInstaller();
-    WizardPanel.open(extensionUri(), installer, { prefillHarness: "codex" });
-    const panel = getPanel();
-
-    simulateReady(panel);
-    await new Promise((r) => setTimeout(r, 0));
-
-    const prefillMsg = panel.webview.postMessage.mock.calls.find(
-      (c) => c[0].type === "prefill" && c[0].request,
-    );
-    expect(prefillMsg[0].request.backend.api_key).toBe("");
   });
 
   test("sends harness-only prefill when harness is not configured", async () => {

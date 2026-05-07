@@ -169,9 +169,6 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     .btn:hover { background: var(--btn-hover); }
     .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--fg); }
     .btn-secondary:hover { background: var(--border); }
-    .codex-buffer { border: 1px solid var(--border); border-radius: 3px; padding: 6px 8px; margin-top: 8px; }
-    .codex-buffer-title { font-weight: 600; font-size: 12px; margin-bottom: 4px; }
-    .codex-buffer-meta { font-size: 12px; opacity: 0.7; }
     .setup-link { color: var(--btn-bg); cursor: pointer; text-decoration: underline; font-size: 12px; }
     .setup-link:hover { opacity: 0.8; }
   </style>
@@ -195,7 +192,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       // Header
       html += '<div class="header">';
       html += '<span class="header-title">' + escapeHtml(state.userId || "Arize Tracing") + '</span>';
-      html += '<button class="icon-btn" onclick="sendAction({type:\\'refresh\\'})" title="Refresh">&#x21bb;</button>';
+      html += '<button class="icon-btn" data-action="refresh" title="Refresh">&#x21bb;</button>';
       html += '</div>';
 
       // Error banner
@@ -215,36 +212,17 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           if (h.backendLabel) meta += (meta ? " · " : "") + h.backendLabel;
           if (meta) html += '<div class="harness-meta">' + escapeHtml(meta) + '</div>';
           html += '<div class="harness-actions">';
-          html += '<button class="btn btn-secondary" onclick="sendAction({type:\\'reconfigure\\',harness:\\'' + key + '\\'})">Reconfigure</button>';
-          html += '<button class="btn btn-secondary" onclick="sendAction({type:\\'uninstall\\',harness:\\'' + key + '\\'})">Uninstall</button>';
+          html += '<button class="btn btn-secondary" data-action="reconfigure" data-harness="' + key + '">Reconfigure</button>';
+          html += '<button class="btn btn-secondary" data-action="uninstall" data-harness="' + key + '">Uninstall</button>';
           html += '</div>';
         } else {
           html += '<div class="harness-actions">';
-          html += '<span class="setup-link" onclick="sendAction({type:\\'setup\\'})">Set Up</span>';
+          html += '<span class="setup-link" data-action="setup">Set Up</span>';
           html += '</div>';
         }
         html += '</li>';
       }
       html += '</ul>';
-
-      // Codex buffer
-      if (state.codexBuffer) {
-        var cb = state.codexBuffer;
-        html += '<div class="codex-buffer" data-testid="codex-buffer">';
-        html += '<div class="codex-buffer-title">Codex buffer service</div>';
-        html += '<div class="codex-buffer-meta">State: ' + escapeHtml(cb.state) + '</div>';
-        if (cb.host || cb.port) {
-          html += '<div class="codex-buffer-meta">' + escapeHtml((cb.host || "") + (cb.port ? ":" + cb.port : "")) + '</div>';
-        }
-        html += '<div class="harness-actions" style="margin-top:4px">';
-        if (cb.state === "running") {
-          html += '<button class="btn btn-secondary" onclick="sendAction({type:\\'stopCodexBuffer\\'})">Stop</button>';
-        } else {
-          html += '<button class="btn" onclick="sendAction({type:\\'startCodexBuffer\\'})">Start</button>';
-        }
-        html += '</div>';
-        html += '</div>';
-      }
 
       root.innerHTML = html;
     }
@@ -253,6 +231,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       if (!str) return "";
       return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
     }
+
+    // CSP forbids inline handlers, so use delegated click listening on
+    // data-action attributes.
+    document.addEventListener("click", function(event) {
+      var el = event.target.closest("[data-action]");
+      if (!el) return;
+      var action = el.getAttribute("data-action");
+      var harness = el.getAttribute("data-harness");
+      if (action === "reconfigure" || action === "uninstall") {
+        sendAction({ type: action, harness: harness });
+      } else {
+        sendAction({ type: action });
+      }
+    });
 
     window.addEventListener("message", function(event) {
       var msg = event.data;

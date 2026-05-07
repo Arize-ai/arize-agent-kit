@@ -203,14 +203,6 @@ describe("SidebarProvider", () => {
     // The webview JS will render a "Start" button for "stopped" state
   });
 
-  test("HTML contains codex-buffer conditional rendering logic", () => {
-    provider.resolveWebviewView(viewParts.view, {}, {});
-    expect(viewParts.webview.html).toContain("codex-buffer");
-    expect(viewParts.webview.html).toContain("Codex buffer service");
-    expect(viewParts.webview.html).toContain("stopCodexBuffer");
-    expect(viewParts.webview.html).toContain("startCodexBuffer");
-  });
-
   test("HTML does not contain 'collector' wording", () => {
     provider.resolveWebviewView(viewParts.view, {}, {});
     expect(viewParts.webview.html.toLowerCase()).not.toContain("collector");

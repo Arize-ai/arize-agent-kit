@@ -69,6 +69,9 @@
   };
   var TOTAL_STEPS = 4;
 
+  var ARIZE_DEFAULT_ENDPOINT = "otlp.arize.com:443";
+  var PHOENIX_DEFAULT_ENDPOINT = "http://localhost:6006";
+
   // ---- State ----
 
   var state = {
@@ -207,9 +210,12 @@
           "data-backend": t,
           onClick: function () {
             state.backendTarget = t;
-            if (t === "arize" && !state.endpoint) state.endpoint = "otlp.arize.com:443";
-            if (t === "phoenix" && (!state.endpoint || state.endpoint === "otlp.arize.com:443"))
-              state.endpoint = "http://localhost:6006";
+            // Auto-fill endpoint with the new target's default unless the
+            // user has set a value that isn't either default (i.e. a
+            // genuinely custom endpoint they typed).
+            if (!state.endpoint || state.endpoint === ARIZE_DEFAULT_ENDPOINT || state.endpoint === PHOENIX_DEFAULT_ENDPOINT) {
+              state.endpoint = t === "arize" ? ARIZE_DEFAULT_ENDPOINT : PHOENIX_DEFAULT_ENDPOINT;
+            }
             render();
           },
         }, t.charAt(0).toUpperCase() + t.slice(1))
@@ -246,7 +252,7 @@
   }
 
   function defaultEndpoint() {
-    return state.backendTarget === "arize" ? "otlp.arize.com:443" : "http://localhost:6006";
+    return state.backendTarget === "arize" ? ARIZE_DEFAULT_ENDPOINT : PHOENIX_DEFAULT_ENDPOINT;
   }
 
   function step2Valid() {

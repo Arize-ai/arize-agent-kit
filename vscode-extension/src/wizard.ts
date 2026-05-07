@@ -115,16 +115,19 @@ export class WizardPanel implements vscode.Disposable {
   }
 
   private async _sendPrefill(): Promise<void> {
-    if (!this._opts.prefillHarness) {
-      this._post({ type: "prefill" });
+    const harness = this._opts.prefillHarness;
+
+    let status;
+    try {
+      status = await this._installer.loadStatus();
+    } catch {
+      this._post(harness ? { type: "prefill", harness } : { type: "prefill" });
       return;
     }
 
-    const harness = this._opts.prefillHarness;
-    try {
-      const status = await this._installer.loadStatus();
+    // Reconfigure path: prefer this harness's own existing config.
+    if (harness) {
       const item = status.harnesses.find((h) => h.name === harness);
-
       if (item?.configured && item.backend) {
         this._post({
           type: "prefill",
@@ -133,7 +136,7 @@ export class WizardPanel implements vscode.Disposable {
             backend: {
               target: item.backend.target,
               endpoint: item.backend.endpoint,
-              api_key: "",
+              api_key: item.backend.api_key,
               space_id: item.backend.space_id,
             },
             project_name: item.project_name ?? "",
@@ -141,12 +144,46 @@ export class WizardPanel implements vscode.Disposable {
             with_skills: false,
           },
         });
-      } else {
-        this._post({ type: "prefill", harness });
+        return;
       }
-    } catch {
-      this._post({ type: "prefill", harness });
     }
+
+    // Setup-or-fresh-harness path: borrow backend from any already-configured
+    // harness so the user doesn't have to retype api_key / space_id / endpoint.
+    const donor = status.harnesses.find((h) => h.configured && h.backend);
+    if (donor && donor.backend) {
+      this._post({
+        type: "prefill",
+        harness,
+        request: {
+          backend: {
+            target: donor.backend.target,
+            endpoint: donor.backend.endpoint,
+            api_key: donor.backend.api_key,
+            space_id: donor.backend.space_id,
+          },
+          // Don't carry the donor's project_name across harnesses — each
+          // harness should default to its own name (handled by the webview).
+          project_name: "",
+          user_id: status.user_id ?? null,
+          with_skills: false,
+        },
+      });
+      return;
+    }
+
+    // Nothing configured yet — at minimum carry the user_id if we have one.
+    this._post(
+      status.user_id
+        ? {
+            type: "prefill",
+            harness,
+            request: { user_id: status.user_id, with_skills: false },
+          }
+        : harness
+        ? { type: "prefill", harness }
+        : { type: "prefill" },
+    );
   }
 
   private async _handleInstall(request: InstallRequest): Promise<void> {
