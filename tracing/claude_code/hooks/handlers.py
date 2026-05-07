@@ -784,13 +784,53 @@ def _handle_session_end(input_json: dict) -> None:
 
 
 def _handle_pre_compact(input_json: dict) -> None:
-    """STUB — implementation pending in wave 2 for PreCompact."""
-    pass
+    """Handle PreCompact: record start time of compaction event."""
+    state = resolve_session(input_json)
+    state.set("compact_start_time", str(get_timestamp_ms()))
+    trigger = input_json.get("trigger", "")
+    if trigger:
+        state.set("compact_trigger", trigger)
 
 
 def _handle_post_compact(input_json: dict) -> None:
-    """STUB — implementation pending in wave 2 for PostCompact."""
-    pass
+    """Handle PostCompact: emit a CHAIN span describing the compaction."""
+    state = resolve_session(input_json)
+    session_id = state.get("session_id")
+    if session_id is None:
+        return
+
+    start_time = state.get("compact_start_time") or str(get_timestamp_ms())
+    end_time = str(get_timestamp_ms())
+    trigger = input_json.get("trigger") or state.get("compact_trigger") or "unknown"
+
+    trace_id = state.get("current_trace_id") or generate_trace_id()
+    parent = state.get("current_trace_span_id") or ""
+
+    attrs = {
+        "session.id": session_id,
+        "openinference.span.kind": "CHAIN",
+        "compact.trigger": trigger,
+    }
+    user_id = state.get("user_id") or ""
+    if user_id:
+        attrs["user.id"] = user_id
+
+    span = build_span(
+        f"Compact ({trigger})",
+        "CHAIN",
+        generate_span_id(),
+        trace_id,
+        parent,
+        start_time,
+        end_time,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
+    )
+    send_span(span)
+
+    state.delete("compact_start_time")
+    state.delete("compact_trigger")
 
 
 # ---------------------------------------------------------------------------
