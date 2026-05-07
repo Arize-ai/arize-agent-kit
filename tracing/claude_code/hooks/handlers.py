@@ -168,8 +168,20 @@ def _handle_post_tool_use_failure(input_json: dict) -> None:
 
 
 def _handle_user_prompt_expansion(input_json: dict) -> None:
-    """STUB — implementation pending in wave 2 for UserPromptExpansion."""
-    pass
+    """Handle UserPromptExpansion: stash command metadata for the next Turn span to attach."""
+    state = resolve_session(input_json)
+    expansion_type = input_json.get("expansion_type", "")
+    command_name = input_json.get("command_name", "")
+    command_args = input_json.get("command_args", "")
+    command_source = input_json.get("command_source", "")
+    if expansion_type:
+        state.set("pending_expansion_type", expansion_type)
+    if command_name:
+        state.set("pending_command_name", command_name)
+    if command_args:
+        state.set("pending_command_args", command_args)
+    if command_source:
+        state.set("pending_command_source", command_source)
 
 
 def _handle_user_prompt_submit(input_json: dict) -> None:
@@ -343,6 +355,20 @@ def _handle_stop(input_json: dict) -> None:
     if user_id:
         attrs["user.id"] = user_id
 
+    # Attach command metadata from UserPromptExpansion if present
+    expansion_type = state.get("pending_expansion_type") or ""
+    command_name = state.get("pending_command_name") or ""
+    command_args = state.get("pending_command_args") or ""
+    command_source = state.get("pending_command_source") or ""
+    if expansion_type:
+        attrs["command.expansion_type"] = expansion_type
+    if command_name:
+        attrs["command.name"] = command_name
+    if command_args:
+        attrs["command.args"] = redact_content(env.log_prompts, command_args)
+    if command_source:
+        attrs["command.source"] = command_source
+
     span = build_span(
         f"Turn {trace_count}",
         "LLM",
@@ -363,6 +389,10 @@ def _handle_stop(input_json: dict) -> None:
     state.delete("current_trace_start_time")
     state.delete("current_trace_prompt")
     state.delete("trace_start_line")
+    state.delete("pending_expansion_type")
+    state.delete("pending_command_name")
+    state.delete("pending_command_args")
+    state.delete("pending_command_source")
 
     # Periodic GC
     try:
@@ -515,6 +545,10 @@ def _handle_stop_failure(input_json: dict) -> None:
     state.delete("current_trace_start_time")
     state.delete("current_trace_prompt")
     state.delete("trace_start_line")
+    state.delete("pending_expansion_type")
+    state.delete("pending_command_name")
+    state.delete("pending_command_args")
+    state.delete("pending_command_source")
 
 
 def _handle_notification(input_json: dict) -> None:
