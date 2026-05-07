@@ -128,7 +128,7 @@ class TestFreshInstall:
         settings = json.loads(settings_file.read_text())
 
         hooks = settings.get("hooks", {})
-        assert len(hooks) == 10
+        assert len(hooks) == 16
 
         env = settings.get("env", {})
         assert env.get("ARIZE_TRACE_ENABLED") == "true"

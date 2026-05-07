@@ -162,6 +162,16 @@ def _handle_post_tool_use(input_json: dict) -> None:
     send_span(span)
 
 
+def _handle_post_tool_use_failure(input_json: dict) -> None:
+    """STUB — implementation pending in wave 2 for PostToolUseFailure."""
+    pass
+
+
+def _handle_user_prompt_expansion(input_json: dict) -> None:
+    """STUB — implementation pending in wave 2 for UserPromptExpansion."""
+    pass
+
+
 def _handle_user_prompt_submit(input_json: dict) -> None:
     """Handle user_prompt_submit: set up a new trace (close orphaned turn first)."""
     state = resolve_session(input_json)
@@ -361,6 +371,11 @@ def _handle_stop(input_json: dict) -> None:
         tc = 0
     if tc % 5 == 0:
         gc_stale_state_files()
+
+
+def _handle_subagent_start(input_json: dict) -> None:
+    """STUB — implementation pending in wave 2 for SubagentStart."""
+    pass
 
 
 def _handle_subagent_stop(input_json: dict) -> None:
@@ -583,6 +598,11 @@ def _handle_permission_request(input_json: dict) -> None:
     send_span(span)
 
 
+def _handle_permission_denied(input_json: dict) -> None:
+    """STUB — implementation pending in wave 2 for PermissionDenied."""
+    pass
+
+
 def _handle_session_end(input_json: dict) -> None:
     """Handle session_end: log summary and clean up state file."""
     state = resolve_session(input_json)
@@ -606,6 +626,16 @@ def _handle_session_end(input_json: dict) -> None:
             pass
 
     gc_stale_state_files()
+
+
+def _handle_pre_compact(input_json: dict) -> None:
+    """STUB — implementation pending in wave 2 for PreCompact."""
+    pass
+
+
+def _handle_post_compact(input_json: dict) -> None:
+    """STUB — implementation pending in wave 2 for PostCompact."""
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -721,3 +751,69 @@ def session_end():
         _handle_session_end(input_json)
     except Exception as e:
         error(f"session_end hook failed: {e}")
+
+
+def post_tool_use_failure():
+    """Entry point for arize-hook-post-tool-use-failure."""
+    try:
+        if not check_requirements():
+            return
+        input_json = _read_stdin()
+        _handle_post_tool_use_failure(input_json)
+    except Exception as e:
+        error(f"post_tool_use_failure hook failed: {e}")
+
+
+def subagent_start():
+    """Entry point for arize-hook-subagent-start."""
+    try:
+        if not check_requirements():
+            return
+        input_json = _read_stdin()
+        _handle_subagent_start(input_json)
+    except Exception as e:
+        error(f"subagent_start hook failed: {e}")
+
+
+def user_prompt_expansion():
+    """Entry point for arize-hook-user-prompt-expansion."""
+    try:
+        if not check_requirements():
+            return
+        input_json = _read_stdin()
+        _handle_user_prompt_expansion(input_json)
+    except Exception as e:
+        error(f"user_prompt_expansion hook failed: {e}")
+
+
+def pre_compact():
+    """Entry point for arize-hook-pre-compact."""
+    try:
+        if not check_requirements():
+            return
+        input_json = _read_stdin()
+        _handle_pre_compact(input_json)
+    except Exception as e:
+        error(f"pre_compact hook failed: {e}")
+
+
+def post_compact():
+    """Entry point for arize-hook-post-compact."""
+    try:
+        if not check_requirements():
+            return
+        input_json = _read_stdin()
+        _handle_post_compact(input_json)
+    except Exception as e:
+        error(f"post_compact hook failed: {e}")
+
+
+def permission_denied():
+    """Entry point for arize-hook-permission-denied."""
+    try:
+        if not check_requirements():
+            return
+        input_json = _read_stdin()
+        _handle_permission_denied(input_json)
+    except Exception as e:
+        error(f"permission_denied hook failed: {e}")
