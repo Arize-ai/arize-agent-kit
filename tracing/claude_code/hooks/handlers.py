@@ -754,8 +754,41 @@ def _handle_permission_request(input_json: dict) -> None:
 
 
 def _handle_permission_denied(input_json: dict) -> None:
-    """STUB — implementation pending in wave 2 for PermissionDenied."""
-    pass
+    """Handle PermissionDenied: emit a CHAIN span recording an auto-mode tool denial."""
+    state = resolve_session(input_json)
+    trace_id = state.get("current_trace_id")
+    if trace_id is None:
+        return
+
+    session_id = state.get("session_id")
+    tool_name = input_json.get("tool_name", "")
+    tool_input = redact_content(env.log_tool_details, json.dumps(input_json.get("tool_input", {})))
+
+    attrs = {
+        "session.id": session_id,
+        "openinference.span.kind": "CHAIN",
+        "permission.tool": tool_name,
+        "permission.denied": "true",
+        "input.value": tool_input,
+    }
+    user_id = state.get("user_id") or ""
+    if user_id:
+        attrs["user.id"] = user_id
+
+    now = str(get_timestamp_ms())
+    span = build_span(
+        "Permission Denied",
+        "CHAIN",
+        generate_span_id(),
+        trace_id,
+        state.get("current_trace_span_id") or "",
+        now,
+        now,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
+    )
+    send_span(span)
 
 
 def _handle_session_end(input_json: dict) -> None:
