@@ -41,16 +41,25 @@ function findPython() {
   const isWin = process.platform === "win32";
   const tried = [];
 
-  // Prefer the active virtualenv if one is set — otherwise pip install can
-  // hit a Homebrew/system Python that PEP 668 marks externally-managed.
+  // Prefer a virtualenv (active env, or a .venv at the repo root) — otherwise
+  // pip install can hit a Homebrew/system Python that PEP 668 marks
+  // externally-managed.
+  const venvCandidates = [];
   if (process.env.VIRTUAL_ENV) {
+    venvCandidates.push(process.env.VIRTUAL_ENV);
+  }
+  venvCandidates.push(path.join(REPO_ROOT, ".venv"));
+  venvCandidates.push(path.join(REPO_ROOT, "venv"));
+  for (const venvDir of venvCandidates) {
     const venvPython = path.join(
-      process.env.VIRTUAL_ENV,
+      venvDir,
       isWin ? "Scripts" : "bin",
       isWin ? "python.exe" : "python",
     );
     tried.push(venvPython);
-    if (checkPython(venvPython)) return { cmd: venvPython, prefix: [] };
+    if (fs.existsSync(venvPython) && checkPython(venvPython)) {
+      return { cmd: venvPython, prefix: [] };
+    }
   }
 
   if (isWin) {
