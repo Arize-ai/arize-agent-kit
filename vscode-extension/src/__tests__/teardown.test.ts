@@ -62,7 +62,9 @@ function failureResult(harness: string, error: string): OperationResult {
 // ── Reset ────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  // resetAllMocks (vs clearAllMocks) drains *Once queues so a test that fails
+  // mid-flow can't leak unconsumed mocks into the next test.
+  jest.resetAllMocks();
   mockExistsSync.mockReturnValue(false);
   mockRm.mockResolvedValue(undefined);
 });

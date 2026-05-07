@@ -70,9 +70,16 @@ const WHEEL_JSON = JSON.stringify({ filename: "arize_harness_tracing-0.1.0-py3-n
 
 // ── Reset mocks between tests ────────────────────────────────────────
 
+const ORIGINAL_PLATFORM = process.platform;
+
 beforeEach(() => {
-  jest.clearAllMocks();
+  // resetAllMocks (vs clearAllMocks) drains *Once queues so a test that fails
+  // mid-flow can't leak unconsumed mocks into the next test.
+  jest.resetAllMocks();
   _resetForTesting();
+  // Default to linux so the macOS SSL fix step (bootstrap.ts step 7) is skipped
+  // in tests that don't opt in. The inner SSL describe overrides to "darwin".
+  Object.defineProperty(process, "platform", { value: "linux" });
   mockFindBridgeBinary.mockResolvedValue(null);
   mockFindPython.mockResolvedValue(null);
   mockExistsSync.mockReturnValue(false);
@@ -80,6 +87,10 @@ beforeEach(() => {
     throw new Error("ENOENT");
   });
   mockWriteFile.mockResolvedValue(undefined);
+});
+
+afterEach(() => {
+  Object.defineProperty(process, "platform", { value: ORIGINAL_PLATFORM });
 });
 
 // ── Tests ────────────────────────────────────────────────────────────
