@@ -41,6 +41,18 @@ function findPython() {
   const isWin = process.platform === "win32";
   const tried = [];
 
+  // Prefer the active virtualenv if one is set — otherwise pip install can
+  // hit a Homebrew/system Python that PEP 668 marks externally-managed.
+  if (process.env.VIRTUAL_ENV) {
+    const venvPython = path.join(
+      process.env.VIRTUAL_ENV,
+      isWin ? "Scripts" : "bin",
+      isWin ? "python.exe" : "python",
+    );
+    tried.push(venvPython);
+    if (checkPython(venvPython)) return { cmd: venvPython, prefix: [] };
+  }
+
   if (isWin) {
     // Windows: py -3, python3.exe, python.exe
     tried.push("py -3");
