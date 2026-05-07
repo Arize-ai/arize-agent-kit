@@ -163,8 +163,109 @@ def _handle_post_tool_use(input_json: dict) -> None:
 
 
 def _handle_post_tool_use_failure(input_json: dict) -> None:
-    """STUB — implementation pending in wave 2 for PostToolUseFailure."""
-    pass
+    """Handle post_tool_use_failure: build and send a TOOL span with error attributes."""
+    state = resolve_session(input_json)
+    session_id = state.get("session_id")
+    if session_id is None:
+        return
+
+    trace_id = state.get("current_trace_id")
+    parent_span_id = state.get("current_trace_span_id")
+    state.increment("tool_count")
+
+    # Extract tool info
+    tool_name = input_json.get("tool_name", "unknown")
+    tool_id = input_json.get("tool_use_id") or generate_trace_id()
+    tool_input = json.dumps(input_json.get("tool_input", {}))
+    tool_response = str(input_json.get("tool_response", ""))
+    error_text = input_json.get("error", "")
+
+    # Tool-specific metadata
+    tool_command = ""
+    tool_file_path = ""
+    tool_url = ""
+    tool_query = ""
+    tool_description = ""
+
+    if tool_name == "Bash":
+        tool_command = input_json.get("tool_input", {}).get("command", "")
+        tool_description = tool_command[:200]
+    elif tool_name in ("Read", "Write", "Edit", "Glob"):
+        tool_file_path = input_json.get("tool_input", {}).get("file_path") or input_json.get("tool_input", {}).get(
+            "pattern", ""
+        )
+        tool_description = tool_file_path[:200]
+    elif tool_name == "WebSearch":
+        tool_query = input_json.get("tool_input", {}).get("query", "")
+        tool_description = tool_query[:200]
+    elif tool_name == "WebFetch":
+        tool_url = input_json.get("tool_input", {}).get("url", "")
+        tool_description = tool_url[:200]
+    elif tool_name == "Grep":
+        tool_query = input_json.get("tool_input", {}).get("pattern", "")
+        tool_file_path = input_json.get("tool_input", {}).get("path", "")
+        tool_description = f"grep: {tool_query[:100]}"
+    else:
+        tool_description = tool_input[:200]
+
+    # Timing
+    start_time = state.get(f"tool_{tool_id}_start") or str(get_timestamp_ms())
+    end_time = str(get_timestamp_ms())
+    state.delete(f"tool_{tool_id}_start")
+
+    # Use error as output when tool_response is empty
+    output_value = tool_response if tool_response else error_text
+
+    # Redaction
+    tool_input = redact_content(env.log_tool_content, tool_input)
+    output_value = redact_content(env.log_tool_content, output_value)
+    redacted_error = redact_content(env.log_tool_content, error_text)
+    tool_description = redact_content(env.log_tool_details, tool_description)
+    if tool_command:
+        tool_command = redact_content(env.log_tool_details, tool_command)
+    if tool_file_path:
+        tool_file_path = redact_content(env.log_tool_details, tool_file_path)
+    if tool_url:
+        tool_url = redact_content(env.log_tool_details, tool_url)
+    if tool_query:
+        tool_query = redact_content(env.log_tool_details, tool_query)
+
+    # Build attributes
+    user_id = state.get("user_id") or ""
+    attrs = {
+        "session.id": session_id,
+        "openinference.span.kind": "TOOL",
+        "tool.name": tool_name,
+        "input.value": tool_input,
+        "output.value": output_value,
+        "tool.description": tool_description,
+        "error.type": "tool_failure",
+        "error.message": redacted_error,
+    }
+    if user_id:
+        attrs["user.id"] = user_id
+    if tool_command:
+        attrs["tool.command"] = tool_command
+    if tool_file_path:
+        attrs["tool.file_path"] = tool_file_path
+    if tool_url:
+        attrs["tool.url"] = tool_url
+    if tool_query:
+        attrs["tool.query"] = tool_query
+
+    span = build_span(
+        f"{tool_name} (failed)",
+        "TOOL",
+        generate_span_id(),
+        trace_id or "",
+        parent_span_id or "",
+        start_time,
+        end_time,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
+    )
+    send_span(span)
 
 
 def _handle_user_prompt_expansion(input_json: dict) -> None:
