@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "userPromptSubmit",
+  "cwd": "/tmp/test-project",
+  "session_id": "00000000-0000-0000-0000-000000000001",
+  "prompt": "what's the current time and date?"
+}
