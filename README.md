@@ -11,6 +11,7 @@ Trace AI coding sessions to [Arize AX](https://arize.com) or [Phoenix](https://g
 | [Cursor IDE / CLI](tracing/cursor/README.md) | `cursor-tracing` | `install.sh` / `install.bat` |
 | [GitHub Copilot (VS Code + CLI)](tracing/copilot/README.md) | `copilot-tracing` | `install.sh` / `install.bat` |
 | [Gemini CLI](tracing/gemini/README.md) | `gemini-tracing` | `install.sh` / `install.bat` |
+| [Kiro CLI](tracing/kiro/README.md) | `kiro-tracing` | `install.sh` / `install.bat` |
 
 Claude Code CLI and the Claude Agent SDK share the same plugin, hooks, and configuration — one install covers both.
 
@@ -28,12 +29,14 @@ curl -sSL "$INSTALL_URL" | bash -s -- codex     # OpenAI Codex
 curl -sSL "$INSTALL_URL" | bash -s -- cursor    # Cursor IDE / CLI
 curl -sSL "$INSTALL_URL" | bash -s -- copilot   # GitHub Copilot (VS Code + CLI)
 curl -sSL "$INSTALL_URL" | bash -s -- gemini    # Gemini CLI
+curl -sSL "$INSTALL_URL" | bash -s -- kiro      # Kiro CLI
 
 curl -sSL "$INSTALL_URL" | bash -s -- uninstall claude    # Remove Claude Code tracing
 curl -sSL "$INSTALL_URL" | bash -s -- uninstall codex     # Remove Codex tracing
 curl -sSL "$INSTALL_URL" | bash -s -- uninstall cursor    # Remove Cursor tracing
 curl -sSL "$INSTALL_URL" | bash -s -- uninstall copilot   # Remove Copilot tracing
 curl -sSL "$INSTALL_URL" | bash -s -- uninstall gemini    # Remove Gemini tracing
+curl -sSL "$INSTALL_URL" | bash -s -- uninstall kiro      # Remove Kiro tracing
 curl -sSL "$INSTALL_URL" | bash -s -- uninstall           # Remove all installed harnesses
 ```
 
@@ -48,12 +51,14 @@ iwr -useb $INSTALL_URL -OutFile $env:TEMP\install.bat
 & $env:TEMP\install.bat cursor    # Cursor IDE / CLI
 & $env:TEMP\install.bat copilot   # GitHub Copilot (VS Code + CLI)
 & $env:TEMP\install.bat gemini    # Gemini CLI
+& $env:TEMP\install.bat kiro      # Kiro CLI
 
 & $env:TEMP\install.bat uninstall claude    # Remove Claude Code tracing
 & $env:TEMP\install.bat uninstall codex     # Remove Codex tracing
 & $env:TEMP\install.bat uninstall cursor    # Remove Cursor tracing
 & $env:TEMP\install.bat uninstall copilot   # Remove Copilot tracing
 & $env:TEMP\install.bat uninstall gemini    # Remove Gemini tracing
+& $env:TEMP\install.bat uninstall kiro      # Remove Kiro tracing
 & $env:TEMP\install.bat uninstall           # Remove all installed harnesses
 ```
 
@@ -71,12 +76,14 @@ cd arize-harness-tracing
 ./install.sh cursor    # Cursor IDE / CLI
 ./install.sh copilot   # GitHub Copilot (VS Code + CLI)
 ./install.sh gemini    # Gemini CLI
+./install.sh kiro      # Kiro CLI
 
 ./install.sh uninstall claude    # Remove Claude Code tracing
 ./install.sh uninstall codex     # Remove Codex tracing
 ./install.sh uninstall cursor    # Remove Cursor tracing
 ./install.sh uninstall copilot   # Remove Copilot tracing
 ./install.sh uninstall gemini    # Remove Gemini tracing
+./install.sh uninstall kiro      # Remove Kiro tracing
 ./install.sh uninstall           # Remove all installed harnesses
 ```
 
@@ -87,12 +94,14 @@ install.bat codex     # OpenAI Codex
 install.bat cursor    # Cursor IDE / CLI
 install.bat copilot   # GitHub Copilot (VS Code + CLI)
 install.bat gemini    # Gemini CLI
+install.bat kiro      # Kiro CLI
 
 install.bat uninstall claude    # Remove Claude Code tracing
 install.bat uninstall codex     # Remove Codex tracing
 install.bat uninstall cursor    # Remove Cursor tracing
 install.bat uninstall copilot   # Remove Copilot tracing
 install.bat uninstall gemini    # Remove Gemini tracing
+install.bat uninstall kiro      # Remove Kiro tracing
 install.bat uninstall           # Remove all installed harnesses
 ```
 
