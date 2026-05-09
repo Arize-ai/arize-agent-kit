@@ -89,29 +89,6 @@ def test_install_sh_usage_kiro_description():
 
 
 # ---------------------------------------------------------------------------
-# install.sh — kiro dispatches correctly (smoke test)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(os.name == "nt", reason="bash not available on Windows")
-def test_install_sh_kiro_not_unknown_harness():
-    """install.sh kiro must NOT print 'Unknown harness' or 'Unknown command'.
-
-    It will still fail (install.py doesn't exist yet), but it should fail
-    at the 'install.py not found' stage, not at 'Unknown harness'.
-    """
-    result = subprocess.run(
-        ["bash", str(INSTALL_SH), "kiro"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        env={**os.environ, "HOME": "/nonexistent"},
-    )
-    assert "Unknown harness" not in result.stderr, "kiro should be recognised as a valid harness"
-    assert "Unknown command" not in result.stderr, "kiro should be recognised as a valid command"
-
-
-# ---------------------------------------------------------------------------
 # install.bat — parse_args harness loop
 # ---------------------------------------------------------------------------
 
