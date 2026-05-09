@@ -507,6 +507,7 @@ class TestStopSidecarEnrichment:
         attrs = _span_attrs(captured_spans[0])
         assert attrs["llm.model_name"] == "auto"
         assert attrs["kiro.agent_name"] == "arize-traced"
+        assert attrs["kiro.context_usage_percentage"] == 0.0
         # Turn-level attrs absent
         for key in (
             "llm.token_count.prompt",
@@ -543,10 +544,12 @@ class TestStopSidecarEnrichment:
         """With multiple turns, stop uses trace_count-1 as the turn index."""
         sidecar = self._load_sidecar_fixture("session_complete.json")
         # Build 3 turns with distinct token counts
-        base_turn = sidecar["session_state"]["conversation_metadata"]["user_turn_metadatas"][0].copy()
+        import copy
+
+        base_turn = sidecar["session_state"]["conversation_metadata"]["user_turn_metadatas"][0]
         turns = []
         for i, (inp, out) in enumerate([(100, 200), (300, 400), (500, 600)]):
-            t = base_turn.copy()
+            t = copy.deepcopy(base_turn)
             t["input_token_count"] = inp
             t["output_token_count"] = out
             turns.append(t)
@@ -619,7 +622,7 @@ class TestMain:
         """If a handler raises, main() still returns 0."""
         from tracing.kiro.hooks import handlers
 
-        with mock.patch.object(handlers, "_handle_stop", side_effect=RuntimeError("boom")):
+        with mock.patch.dict(handlers._DISPATCH, {"stop": mock.Mock(side_effect=RuntimeError("boom"))}):
             stop = _load_fixture("stop.json")
             rc = _invoke_main(stop)
         assert rc == 0
