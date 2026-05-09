@@ -55,12 +55,15 @@ arize-hook-gemini-before-tool = "tracing.gemini.hooks.handlers:before_tool"
 arize-hook-gemini-after-tool = "tracing.gemini.hooks.handlers:after_tool"
 # Cursor hook
 arize-hook-cursor = "tracing.cursor.hooks.handlers:main"
+# Kiro hook
+arize-hook-kiro = "tracing.kiro.hooks.handlers:main"
 # Setup wizards
 arize-setup-claude = "core.setup.claude:main"
 arize-setup-codex = "core.setup.codex:main"
 arize-setup-copilot = "core.setup.copilot:main"
 arize-setup-cursor = "core.setup.cursor:main"
 arize-setup-gemini = "core.setup.gemini:main"
+arize-setup-kiro = "core.setup.kiro:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
