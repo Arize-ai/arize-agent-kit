@@ -14,21 +14,8 @@ from tracing.kiro.constants import AGENT_SKELETON, DEFAULT_AGENT_NAME, HOOK_EVEN
 FAKE_VENV_BIN = Path("/fake/venv/bin/arize-hook-kiro")
 HOOK_CMD = str(FAKE_VENV_BIN)
 
-# All 12 expected top-level keys in a Kiro agent JSON.
-EXPECTED_SKELETON_KEYS = {
-    "name",
-    "description",
-    "prompt",
-    "mcpServers",
-    "tools",
-    "toolAliases",
-    "allowedTools",
-    "resources",
-    "hooks",
-    "toolsSettings",
-    "includeMcpJson",
-    "model",
-}
+# Derive expected keys from the constant so the test stays in sync.
+EXPECTED_SKELETON_KEYS = set(AGENT_SKELETON.keys())
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +44,6 @@ def agents_dir(tmp_path, monkeypatch):
     d = tmp_path / "agents"
     d.mkdir()
     monkeypatch.setattr("tracing.kiro.install.KIRO_AGENTS_DIR", d)
-    monkeypatch.setattr("tracing.kiro.constants.KIRO_AGENTS_DIR", d)
     return d
 
 
@@ -334,6 +320,8 @@ class TestMaybeSetDefault:
         mock_subprocess.assert_called_once()
         args = mock_subprocess.call_args[0][0]
         assert args == ["/fake/kiro-cli", "agent", "set-default", "arize-traced"]
+        # Hooks must never raise — check=False is critical
+        assert mock_subprocess.call_args[1].get("check") is False
 
     def test_no_skips_subprocess(self, monkeypatch, mock_subprocess, mock_shutil_which):
         from tracing.kiro.install import _maybe_set_default

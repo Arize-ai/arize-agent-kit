@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import shutil
 import subprocess
@@ -119,7 +120,7 @@ def _load_agent(path: Path, fallback_name: str) -> dict:
             return data
         except (json.JSONDecodeError, OSError, ValueError) as exc:
             info(f"Warning: {path} is malformed ({exc}); rebuilding from skeleton")
-    skel = dict(AGENT_SKELETON)
+    skel = copy.deepcopy(AGENT_SKELETON)
     skel["name"] = fallback_name
     skel["hooks"] = {}
     return skel
