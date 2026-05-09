@@ -202,6 +202,7 @@ harness_dir() {
         copilot) echo "tracing/copilot" ;;
         cursor)  echo "tracing/cursor" ;;
         gemini)  echo "tracing/gemini" ;;
+        kiro)    echo "tracing/kiro" ;;
         *)       return 1 ;;
     esac
 }
@@ -238,6 +239,7 @@ Commands:
   copilot     Install and configure tracing for GitHub Copilot (VS Code + CLI)
   cursor      Install and configure tracing for Cursor IDE
   gemini      Install and configure tracing for Gemini CLI
+  kiro        Install and configure tracing for Kiro CLI
   update      Update the installed arize-harness-tracing and re-register all harnesses
   uninstall <harness>   Tear down one harness
   uninstall             Full wipe: venv + repo + shared config
@@ -268,7 +270,7 @@ main() {
     done
 
     case "$cmd" in
-        claude|codex|copilot|cursor|gemini)
+        claude|codex|copilot|cursor|gemini|kiro)
             install_harness "$cmd" "$with_skills"
             ;;
         uninstall)

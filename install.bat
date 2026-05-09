@@ -28,11 +28,11 @@ if /i "%~1"=="--help"    goto :usage
 if /i "%~1"=="help"      goto :usage
 if /i "%~1"=="--with-skills" ( set "WITH_SKILLS=--with-skills" & shift & goto :parse_args )
 if /i "%~1"=="--branch" ( set "INSTALL_BRANCH=%~2" & set "TARBALL_URL=https://github.com/Arize-ai/arize-harness-tracing/archive/refs/heads/%~2.tar.gz" & shift & shift & goto :parse_args )
-for %%C in (claude codex copilot cursor gemini) do if /i "%~1"=="%%C" ( set "COMMAND=%%C" & shift & goto :parse_args )
+for %%C in (claude codex copilot cursor gemini kiro) do if /i "%~1"=="%%C" ( set "COMMAND=%%C" & shift & goto :parse_args )
 if /i "%~1"=="update" ( set "COMMAND=update" & shift & goto :parse_args )
 if /i "%~1"=="uninstall" (
     set "COMMAND=uninstall" & shift
-    for %%C in (claude codex copilot cursor gemini) do if /i "%~1"=="%%C" ( set "UNINSTALL_HARNESS=%%C" & shift )
+    for %%C in (claude codex copilot cursor gemini kiro) do if /i "%~1"=="%%C" ( set "UNINSTALL_HARNESS=%%C" & shift )
     goto :parse_args
 )
 echo [arize] Unknown argument: %~1 >&2
@@ -41,7 +41,7 @@ goto :usage
 if "%COMMAND%"=="" ( echo [arize] No command specified >&2 & goto :usage )
 
 REM --- Harness name -> directory mapping ---
-REM claude->tracing\claude_code  codex->tracing\codex  copilot->tracing\copilot  cursor->tracing\cursor  gemini->tracing\gemini
+REM claude->tracing\claude_code  codex->tracing\codex  copilot->tracing\copilot  cursor->tracing\cursor  gemini->tracing\gemini  kiro->tracing\kiro
 
 REM --- Dispatch ---
 if "%COMMAND%"=="update"    goto :cmd_update
@@ -205,6 +205,7 @@ if /i "%~1"=="codex"       set "HARNESS_DIR=tracing\codex"
 if /i "%~1"=="copilot"     set "HARNESS_DIR=tracing\copilot"
 if /i "%~1"=="cursor"      set "HARNESS_DIR=tracing\cursor"
 if /i "%~1"=="gemini"      set "HARNESS_DIR=tracing\gemini"
+if /i "%~1"=="kiro"        set "HARNESS_DIR=tracing\kiro"
 if "%HARNESS_DIR%"=="" ( echo [arize] Unknown harness: %~1 >&2 & exit /b 1 )
 goto :eof
 
@@ -221,6 +222,7 @@ echo     codex               Install tracing for OpenAI Codex CLI
 echo     copilot             Install tracing for GitHub Copilot
 echo     cursor              Install tracing for Cursor IDE
 echo     gemini              Install tracing for Gemini CLI
+echo     kiro                Install tracing for Kiro CLI
 echo     update              Update to latest and reinstall all harnesses
 echo     uninstall [harness] Remove one harness or full wipe
 echo.
