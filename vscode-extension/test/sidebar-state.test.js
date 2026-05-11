@@ -94,7 +94,7 @@ describe("SidebarController", () => {
 
   // ---- refresh() ----------------------------------------------------------
 
-  test("refresh() with empty config produces five unconfigured rows", async () => {
+  test("refresh() with empty config produces six unconfigured rows", async () => {
     bridge.getStatus.mockResolvedValue(emptyStatus());
     ctrl = new SidebarController(provider);
     await ctrl.refresh();

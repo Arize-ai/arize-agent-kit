@@ -52,6 +52,7 @@ function fullState() {
       { name: "cursor", configured: false, projectName: null, backendLabel: null },
       { name: "copilot", configured: false, projectName: null, backendLabel: null },
       { name: "gemini", configured: false, projectName: null, backendLabel: null },
+      { name: "kiro", configured: false, projectName: null, backendLabel: null },
     ],
     userId: "user@example.com",
     codexBuffer: { state: "running", host: "localhost", port: 4318 },
@@ -107,7 +108,7 @@ describe("SidebarProvider", () => {
     provider.render(state);
     const call = viewParts.webview.postMessage.mock.calls[0][0];
     expect(call.type).toBe("render");
-    expect(call.state.harnesses).toHaveLength(5);
+    expect(call.state.harnesses).toHaveLength(6);
     expect(call.state.harnesses[0].name).toBe("claude-code");
     expect(call.state.harnesses[0].configured).toBe(true);
     expect(call.state.userId).toBe("user@example.com");
