@@ -320,3 +320,68 @@ def test_numeric_user_id(config_dir):
     _write_yaml(config_dir, {"user_id": 12345})
     result = load_status()
     assert result["user_id"] == "12345"
+
+
+# ---- kiro_options ----
+
+
+def test_status_includes_kiro_agent_name_when_configured(config_dir):
+    """Kiro entry with agent_name → kiro_options surfaces it, set_default is False."""
+    _write_yaml(
+        config_dir,
+        {
+            "harnesses": {
+                "kiro": {
+                    "project_name": "p",
+                    "target": "phoenix",
+                    "endpoint": "http://x",
+                    "api_key": "",
+                    "agent_name": "my-agent",
+                },
+            },
+        },
+    )
+    result = load_status()
+    kiro = {h["name"]: h for h in result["harnesses"]}["kiro"]
+    assert kiro["kiro_options"] is not None
+    assert kiro["kiro_options"]["agent_name"] == "my-agent"
+    assert kiro["kiro_options"]["set_default"] is False
+
+
+def test_status_omits_kiro_options_when_no_agent_name(config_dir):
+    """Kiro entry without agent_name → kiro_options is None."""
+    _write_yaml(
+        config_dir,
+        {
+            "harnesses": {
+                "kiro": {
+                    "project_name": "p",
+                    "target": "phoenix",
+                    "endpoint": "http://x",
+                    "api_key": "",
+                },
+            },
+        },
+    )
+    result = load_status()
+    kiro = {h["name"]: h for h in result["harnesses"]}["kiro"]
+    assert kiro["kiro_options"] is None
+
+
+def test_status_other_harnesses_have_null_kiro_options(config_dir):
+    """Every non-kiro harness item has kiro_options=None."""
+    harnesses = {}
+    for i, key in enumerate(HARNESS_KEYS):
+        harnesses[key] = {
+            "project_name": f"proj-{key}",
+            "target": "phoenix",
+            "endpoint": "http://x",
+            "api_key": "",
+        }
+    harnesses["kiro"]["agent_name"] = "k-agent"
+    _write_yaml(config_dir, {"harnesses": harnesses})
+
+    result = load_status()
+    for h in result["harnesses"]:
+        if h["name"] != "kiro":
+            assert h["kiro_options"] is None

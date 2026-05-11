@@ -11,7 +11,13 @@ from typing import Any, Dict, Optional
 
 from core.config import load_config
 from core.constants import CONFIG_FILE
-from core.vscode_bridge.models import HARNESS_KEYS, build_backend, build_harness_status_item, build_status
+from core.vscode_bridge.models import (
+    HARNESS_KEYS,
+    build_backend,
+    build_harness_status_item,
+    build_kiro_options,
+    build_status,
+)
 
 
 def _extract_backend(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -38,11 +44,21 @@ def _extract_harness_item(name: str, entry: Any) -> Dict[str, Any]:
     if not isinstance(entry, dict):
         return build_harness_status_item(name=name)
 
+    kiro_options = None
+    if name == "kiro":
+        agent_name = entry.get("agent_name")
+        if isinstance(agent_name, str) and agent_name:
+            kiro_options = build_kiro_options(
+                agent_name=agent_name,
+                set_default=False,
+            )
+
     return build_harness_status_item(
         name=name,
         configured=True,
         project_name=entry.get("project_name"),
         backend=_extract_backend(entry),
+        kiro_options=kiro_options,
     )
 
 
