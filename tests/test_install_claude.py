@@ -122,10 +122,13 @@ class TestFreshInstall:
         assert config["harnesses"]["claude-code"]["target"] == expected_target
         assert config["harnesses"]["claude-code"]["project_name"] == "claude-code"
 
-        # Check settings.json has all hook events
+        # Check settings.json has plugin + all hook events
         settings_file = fake_home / ".claude" / "settings.json"
         assert settings_file.exists()
         settings = json.loads(settings_file.read_text())
+
+        assert len(settings.get("plugins", [])) == 1
+        assert settings["plugins"][0]["type"] == "local"
 
         hooks = settings.get("hooks", {})
         assert len(hooks) == 16
@@ -163,7 +166,7 @@ class TestIdempotent:
     """Re-install is idempotent — no duplicate hooks."""
 
     def test_double_install_no_duplicates(self, fake_home, monkeypatch):
-        """Running install() twice does not duplicate hooks."""
+        """Running install() twice does not duplicate hooks or plugins."""
         import tracing.claude_code.install as claude_install
 
         _mock_prompts(monkeypatch)
@@ -173,6 +176,9 @@ class TestIdempotent:
 
         settings_file = fake_home / ".claude" / "settings.json"
         settings = json.loads(settings_file.read_text())
+
+        # Still exactly 1 plugin
+        assert len(settings["plugins"]) == 1
 
         # Still exactly 1 hook entry per event
         for event, entries in settings["hooks"].items():
@@ -277,7 +283,7 @@ class TestUninstall:
     """Uninstall removes hooks and harness entry."""
 
     def test_uninstall_removes_hooks_and_config(self, fake_home, monkeypatch):
-        """Uninstall removes hooks and harness entry from config.yaml."""
+        """Uninstall removes hooks, plugin, and harness entry from config.yaml."""
         import tracing.claude_code.install as claude_install
 
         _mock_prompts(monkeypatch)
@@ -285,10 +291,11 @@ class TestUninstall:
         claude_install.install(with_skills=False)
         claude_install.uninstall()
 
-        # settings.json should have no hooks
+        # settings.json should have no hooks and no plugins
         settings_file = fake_home / ".claude" / "settings.json"
         settings = json.loads(settings_file.read_text())
         assert "hooks" not in settings
+        assert "plugins" not in settings
 
         # config.yaml should have no claude-code entry
         config_file = fake_home / ".arize" / "harness" / "config.yaml"
@@ -339,8 +346,8 @@ class TestUninstall:
 
         Regression guard: the previous bash installer cleaned
         ARIZE_PROJECT_NAME / ARIZE_TRACE_ENABLED / etc. out of
-        settings.json on uninstall. The Python port only removed hooks,
-        leaving stale env entries.
+        settings.json on uninstall. The Python port only removed hooks
+        and plugins, leaving stale env entries.
         """
         import tracing.claude_code.install as claude_install
 

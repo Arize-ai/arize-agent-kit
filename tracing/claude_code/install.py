@@ -10,6 +10,7 @@ from core.setup import (
     dry_run,
     ensure_harness_installed,
     ensure_shared_runtime,
+    harness_dir,
     info,
     merge_harness_entry,
     prompt_backend,
@@ -105,12 +106,28 @@ def _save_settings(settings: dict) -> None:
 
 
 def _register_claude_hooks(project_name: str = HARNESS_NAME) -> None:
-    """Read SETTINGS_FILE (or init to {}), add hook commands.
+    """Read SETTINGS_FILE (or init to {}), add plugin reference + hook commands.
+
+    Registering the local plugin (path → ~/.arize/harness/tracing/claude_code)
+    makes Claude Code auto-load its bundled hooks even in non-interactive
+    (-p) mode, where ``--setting-sources`` defaults to ``project,local`` and
+    user-level hooks would otherwise be skipped.
 
     Merges with existing entries without duplicating. Uses venv_bin() for each
     HOOK_EVENTS entry point. Honors dry_run().
     """
     settings = _load_settings()
+    plugin_dir = str(harness_dir("claude-code"))
+
+    # Add plugin reference (idempotent — skip if the path is already listed
+    # under either the string or {path: ...} shape used by the marketplace).
+    plugins = settings.setdefault("plugins", [])
+    has_plugin = any(
+        (isinstance(p, str) and p == plugin_dir) or (isinstance(p, dict) and p.get("path") == plugin_dir)
+        for p in plugins
+    )
+    if not has_plugin:
+        plugins.append({"type": "local", "path": plugin_dir})
 
     # Set env vars (only if absent)
     env_block = settings.setdefault("env", {})
@@ -135,10 +152,10 @@ def _register_claude_hooks(project_name: str = HARNESS_NAME) -> None:
 
 
 def _unregister_claude_hooks() -> None:
-    """Remove our hook entries from SETTINGS_FILE.
+    """Remove our hook entries and plugin reference from SETTINGS_FILE.
 
-    Keeps other hooks and env vars intact. No-op if file doesn't exist.
-    Honors dry_run().
+    Keeps other hooks, plugins, and env vars intact. No-op if file doesn't
+    exist. Honors dry_run().
     """
     if not SETTINGS_FILE.exists():
         return
@@ -146,6 +163,18 @@ def _unregister_claude_hooks() -> None:
     settings = _load_settings()
     if not settings:
         return
+
+    plugin_dir = str(harness_dir("claude-code"))
+
+    # Remove our plugin entries (drops empty list).
+    if "plugins" in settings:
+        settings["plugins"] = [
+            p
+            for p in settings["plugins"]
+            if not ((isinstance(p, str) and p == plugin_dir) or (isinstance(p, dict) and p.get("path") == plugin_dir))
+        ]
+        if not settings["plugins"]:
+            del settings["plugins"]
 
     # Remove our hook entries
     if "hooks" in settings:
