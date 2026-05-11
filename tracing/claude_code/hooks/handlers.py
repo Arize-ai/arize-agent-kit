@@ -761,12 +761,14 @@ def _handle_permission_denied(input_json: dict) -> None:
         return
 
     session_id = state.get("session_id")
+    permission = input_json.get("permission", "")
     tool_name = input_json.get("tool_name", "")
     tool_input = redact_content(env.log_tool_details, json.dumps(input_json.get("tool_input", {})))
 
     attrs = {
         "session.id": session_id,
         "openinference.span.kind": "CHAIN",
+        "permission.type": permission,
         "permission.tool": tool_name,
         "permission.denied": "true",
         "input.value": tool_input,
@@ -826,17 +828,28 @@ def _handle_pre_compact(input_json: dict) -> None:
 
 
 def _handle_post_compact(input_json: dict) -> None:
-    """Handle PostCompact: emit a CHAIN span describing the compaction."""
+    """Handle PostCompact: emit a CHAIN span describing the compaction.
+
+    Skip emission when compaction fires between turns (no `current_trace_id`).
+    An orphan compact span in its own trace is hard to correlate in Arize;
+    matches the permission_denied/notification guard pattern.
+    """
     state = resolve_session(input_json)
     session_id = state.get("session_id")
     if session_id is None:
+        return
+
+    trace_id = state.get("current_trace_id")
+    if trace_id is None:
+        # Compaction between turns. Clean up pending state, no span emitted.
+        state.delete("compact_start_time")
+        state.delete("compact_trigger")
         return
 
     start_time = state.get("compact_start_time") or str(get_timestamp_ms())
     end_time = str(get_timestamp_ms())
     trigger = input_json.get("trigger") or state.get("compact_trigger") or "unknown"
 
-    trace_id = state.get("current_trace_id") or generate_trace_id()
     parent = state.get("current_trace_span_id") or ""
 
     attrs = {

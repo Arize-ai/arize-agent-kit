@@ -92,6 +92,17 @@ class TestPermissionDenied:
         attrs = _span_attrs(captured_spans[0])
         assert attrs["permission.tool"] == "Bash"
 
+    def test_sets_permission_type_when_present(self, mock_resolve, captured_spans, state):
+        """When the payload carries a `permission` field, surface it as
+        `permission.type` (mirrors _handle_permission_request)."""
+        state.set("current_trace_id", "trace-1")
+        state.set("current_trace_span_id", "span-1")
+        payload = _base_input()
+        payload["permission"] = "execute"
+        _handle_permission_denied(payload)
+        attrs = _span_attrs(captured_spans[0])
+        assert attrs["permission.type"] == "execute"
+
     def test_sets_input_value_from_tool_input(self, mock_resolve, captured_spans, state):
         state.set("current_trace_id", "trace-1")
         state.set("current_trace_span_id", "span-1")

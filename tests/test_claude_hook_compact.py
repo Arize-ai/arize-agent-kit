@@ -93,6 +93,7 @@ class TestPreCompact:
 
 class TestPostCompact:
     def test_post_compact_emits_chain_span(self, mock_resolve, captured_spans, state):
+        state.set("current_trace_id", "t" * 32)
         state.set("compact_start_time", "5000")
         state.set("compact_trigger", "manual")
         _handle_post_compact({})
@@ -104,6 +105,7 @@ class TestPostCompact:
         assert span["name"] == "Compact (manual)"
 
     def test_post_compact_uses_recorded_start_time(self, mock_resolve, captured_spans, state):
+        state.set("current_trace_id", "t" * 32)
         state.set("compact_start_time", "5000")
         state.set("compact_trigger", "manual")
         _handle_post_compact({})
@@ -119,15 +121,22 @@ class TestPostCompact:
         assert span["traceId"] == "t" * 32
         assert span["parentSpanId"] == "s" * 16
 
-    def test_post_compact_emits_root_span_without_turn(self, mock_resolve, captured_spans, state):
+    def test_post_compact_skips_when_no_active_turn(self, mock_resolve, captured_spans, state):
+        """No current_trace_id ⇒ no span (avoids orphan compact traces).
+
+        Pending compact state must still be cleaned up so a subsequent turn
+        doesn't see stale compact_start_time / compact_trigger.
+        """
         state.set("compact_start_time", "5000")
+        state.set("compact_trigger", "auto")
+        # current_trace_id is unset
         _handle_post_compact({})
-        span = _extract_span(captured_spans)
-        assert len(span["traceId"]) == 32
-        # No parent when no current turn
-        assert span.get("parentSpanId", "") == ""
+        assert len(captured_spans) == 0
+        assert state.get("compact_start_time") is None
+        assert state.get("compact_trigger") is None
 
     def test_post_compact_cleans_up_state(self, mock_resolve, captured_spans, state):
+        state.set("current_trace_id", "t" * 32)
         state.set("compact_start_time", "5000")
         state.set("compact_trigger", "auto")
         _handle_post_compact({})
@@ -140,6 +149,7 @@ class TestPostCompact:
         assert len(captured_spans) == 0
 
     def test_post_compact_falls_back_to_payload_trigger(self, mock_resolve, captured_spans, state):
+        state.set("current_trace_id", "t" * 32)
         state.set("compact_start_time", "5000")
         _handle_post_compact({"trigger": "auto"})
         span = _extract_span(captured_spans)
