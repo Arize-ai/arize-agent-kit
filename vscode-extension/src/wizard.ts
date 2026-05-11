@@ -142,6 +142,7 @@ export class WizardPanel implements vscode.Disposable {
             project_name: item.project_name ?? "",
             user_id: status.user_id ?? null,
             with_skills: false,
+            kiro_options: item.kiro_options,
           },
         });
         return;
