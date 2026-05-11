@@ -94,14 +94,14 @@ describe("SidebarController", () => {
 
   // ---- refresh() ----------------------------------------------------------
 
-  test("refresh() with empty config produces five unconfigured rows", async () => {
+  test("refresh() with empty config produces six unconfigured rows", async () => {
     bridge.getStatus.mockResolvedValue(emptyStatus());
     ctrl = new SidebarController(provider);
     await ctrl.refresh();
 
     expect(provider.render).toHaveBeenCalledTimes(1);
     const state = provider.render.mock.calls[0][0];
-    expect(state.harnesses).toHaveLength(5);
+    expect(state.harnesses).toHaveLength(6);
     expect(state.harnesses.every((h) => !h.configured)).toBe(true);
     expect(state.userId).toBeNull();
     expect(state.codexBuffer).toBeNull();
@@ -138,7 +138,7 @@ describe("SidebarController", () => {
 
     const state = provider.render.mock.calls[0][0];
     expect(state.bridgeError).toBe("network down");
-    expect(state.harnesses).toHaveLength(5);
+    expect(state.harnesses).toHaveLength(6);
     expect(state.harnesses.every((h) => !h.configured)).toBe(true);
   });
 
