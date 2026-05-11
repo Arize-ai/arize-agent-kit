@@ -79,7 +79,7 @@ describe("teardownAll", () => {
     const result = await teardownAll({});
 
     expect(result.ok).toBe(true);
-    expect(result.harnesses).toHaveLength(5);
+    expect(result.harnesses).toHaveLength(6);
     for (const h of result.harnesses) {
       expect(h.state).toBe("skipped");
     }
@@ -101,7 +101,7 @@ describe("teardownAll", () => {
     const result = await teardownAll({});
 
     expect(result.ok).toBe(true);
-    expect(result.harnesses).toHaveLength(5);
+    expect(result.harnesses).toHaveLength(6);
     for (const h of result.harnesses) {
       expect(h.state).toBe("skipped");
     }
