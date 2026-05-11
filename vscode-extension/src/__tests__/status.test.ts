@@ -24,6 +24,7 @@ function makeHarness(
       ? { target: "arize", endpoint: "https://arize.com", api_key: "key", space_id: null }
       : null,
     scope: null,
+    kiro_options: null,
   };
 }
 

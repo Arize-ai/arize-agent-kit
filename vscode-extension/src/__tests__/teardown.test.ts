@@ -39,11 +39,11 @@ function makeStatus(overrides: Partial<StatusPayload> = {}): StatusPayload {
     error: null,
     user_id: null,
     harnesses: [
-      { name: "claude-code", configured: false, project_name: null, backend: null, scope: null },
-      { name: "codex", configured: false, project_name: null, backend: null, scope: null },
-      { name: "cursor", configured: false, project_name: null, backend: null, scope: null },
-      { name: "copilot", configured: false, project_name: null, backend: null, scope: null },
-      { name: "gemini", configured: false, project_name: null, backend: null, scope: null },
+      { name: "claude-code", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
+      { name: "codex", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
+      { name: "cursor", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
+      { name: "copilot", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
+      { name: "gemini", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
     ],
     logging: null,
     codex_buffer: null,
@@ -113,11 +113,11 @@ describe("teardownAll", () => {
   it("when two harnesses are configured and the first uninstall fails, result records failure and continues", async () => {
     const status = makeStatus({
       harnesses: [
-        { name: "claude-code", configured: true, project_name: "test", backend: null, scope: null },
-        { name: "codex", configured: true, project_name: "test", backend: null, scope: null },
-        { name: "cursor", configured: false, project_name: null, backend: null, scope: null },
-        { name: "copilot", configured: false, project_name: null, backend: null, scope: null },
-        { name: "gemini", configured: false, project_name: null, backend: null, scope: null },
+        { name: "claude-code", configured: true, project_name: "test", backend: null, scope: null, kiro_options: null },
+        { name: "codex", configured: true, project_name: "test", backend: null, scope: null, kiro_options: null },
+        { name: "cursor", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
+        { name: "copilot", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
+        { name: "gemini", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
       ],
     });
     mockGetStatus.mockResolvedValueOnce(status);
@@ -187,11 +187,11 @@ describe("teardownAll", () => {
 
     const status = makeStatus({
       harnesses: [
-        { name: "claude-code", configured: true, project_name: "test", backend: null, scope: null },
-        { name: "codex", configured: true, project_name: "test", backend: null, scope: null },
-        { name: "cursor", configured: false, project_name: null, backend: null, scope: null },
-        { name: "copilot", configured: false, project_name: null, backend: null, scope: null },
-        { name: "gemini", configured: false, project_name: null, backend: null, scope: null },
+        { name: "claude-code", configured: true, project_name: "test", backend: null, scope: null, kiro_options: null },
+        { name: "codex", configured: true, project_name: "test", backend: null, scope: null, kiro_options: null },
+        { name: "cursor", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
+        { name: "copilot", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
+        { name: "gemini", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
       ],
     });
     mockGetStatus.mockResolvedValueOnce(status);
@@ -259,11 +259,11 @@ describe("teardownAll", () => {
         pid: 1234,
       },
       harnesses: [
-        { name: "claude-code", configured: false, project_name: null, backend: null, scope: null },
-        { name: "codex", configured: true, project_name: "test", backend: null, scope: null },
-        { name: "cursor", configured: false, project_name: null, backend: null, scope: null },
-        { name: "copilot", configured: false, project_name: null, backend: null, scope: null },
-        { name: "gemini", configured: false, project_name: null, backend: null, scope: null },
+        { name: "claude-code", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
+        { name: "codex", configured: true, project_name: "test", backend: null, scope: null, kiro_options: null },
+        { name: "cursor", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
+        { name: "copilot", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
+        { name: "gemini", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
       ],
     });
     mockGetStatus.mockResolvedValueOnce(status);
@@ -312,11 +312,11 @@ describe("teardownAll", () => {
   it("when bridge.uninstall throws, records the harness as failed and continues", async () => {
     const status = makeStatus({
       harnesses: [
-        { name: "claude-code", configured: true, project_name: "test", backend: null, scope: null },
-        { name: "codex", configured: true, project_name: "test", backend: null, scope: null },
-        { name: "cursor", configured: false, project_name: null, backend: null, scope: null },
-        { name: "copilot", configured: false, project_name: null, backend: null, scope: null },
-        { name: "gemini", configured: false, project_name: null, backend: null, scope: null },
+        { name: "claude-code", configured: true, project_name: "test", backend: null, scope: null, kiro_options: null },
+        { name: "codex", configured: true, project_name: "test", backend: null, scope: null, kiro_options: null },
+        { name: "cursor", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
+        { name: "copilot", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
+        { name: "gemini", configured: false, project_name: null, backend: null, scope: null, kiro_options: null },
       ],
     });
     mockGetStatus.mockResolvedValueOnce(status);

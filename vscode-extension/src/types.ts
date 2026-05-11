@@ -3,7 +3,7 @@
  */
 
 /** Supported harness identifiers. */
-export type HarnessKey = "claude-code" | "codex" | "cursor" | "copilot" | "gemini";
+export type HarnessKey = "claude-code" | "codex" | "cursor" | "copilot" | "gemini" | "kiro";
 
 /** All supported harness keys, in canonical order. */
 export const HARNESS_KEYS: readonly HarnessKey[] = [
@@ -12,7 +12,14 @@ export const HARNESS_KEYS: readonly HarnessKey[] = [
   "cursor",
   "copilot",
   "gemini",
+  "kiro",
 ] as const;
+
+/** Kiro-specific install/configuration options. */
+export interface KiroOptions {
+  agent_name: string;
+  set_default: boolean;
+}
 
 /** Tracing backend configuration. */
 export interface Backend {
@@ -36,6 +43,7 @@ export interface HarnessStatusItem {
   project_name: string | null;
   backend: Backend | null;
   scope: string | null;
+  kiro_options: KiroOptions | null;
 }
 
 /** Full status payload returned by the bridge. */
@@ -56,6 +64,7 @@ export interface InstallRequest {
   user_id: string | null;
   with_skills: boolean;
   logging: LoggingFlags | null;
+  kiro_options: KiroOptions | null;
 }
 
 /** Result of an install, reconfigure, or uninstall operation. */
