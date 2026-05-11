@@ -162,6 +162,129 @@ def _handle_post_tool_use(input_json: dict) -> None:
     send_span(span)
 
 
+def _handle_post_tool_use_failure(input_json: dict) -> None:
+    """Handle post_tool_use_failure: build and send a TOOL span with error attributes."""
+    state = resolve_session(input_json)
+    session_id = state.get("session_id")
+    if session_id is None:
+        return
+
+    trace_id = state.get("current_trace_id")
+    parent_span_id = state.get("current_trace_span_id")
+    state.increment("tool_count")
+
+    # Extract tool info
+    tool_name = input_json.get("tool_name", "unknown")
+    tool_id = input_json.get("tool_use_id") or generate_trace_id()
+    tool_input = json.dumps(input_json.get("tool_input", {}))
+    tool_response = str(input_json.get("tool_response", ""))
+    error_text = input_json.get("error", "")
+
+    # Tool-specific metadata
+    tool_command = ""
+    tool_file_path = ""
+    tool_url = ""
+    tool_query = ""
+    tool_description = ""
+
+    if tool_name == "Bash":
+        tool_command = input_json.get("tool_input", {}).get("command", "")
+        tool_description = tool_command[:200]
+    elif tool_name in ("Read", "Write", "Edit", "Glob"):
+        tool_file_path = input_json.get("tool_input", {}).get("file_path") or input_json.get("tool_input", {}).get(
+            "pattern", ""
+        )
+        tool_description = tool_file_path[:200]
+    elif tool_name == "WebSearch":
+        tool_query = input_json.get("tool_input", {}).get("query", "")
+        tool_description = tool_query[:200]
+    elif tool_name == "WebFetch":
+        tool_url = input_json.get("tool_input", {}).get("url", "")
+        tool_description = tool_url[:200]
+    elif tool_name == "Grep":
+        tool_query = input_json.get("tool_input", {}).get("pattern", "")
+        tool_file_path = input_json.get("tool_input", {}).get("path", "")
+        tool_description = f"grep: {tool_query[:100]}"
+    else:
+        tool_description = tool_input[:200]
+
+    # Timing
+    start_time = state.get(f"tool_{tool_id}_start") or str(get_timestamp_ms())
+    end_time = str(get_timestamp_ms())
+    state.delete(f"tool_{tool_id}_start")
+
+    # Use error as output when tool_response is empty
+    output_value = tool_response if tool_response else error_text
+
+    # Redaction
+    tool_input = redact_content(env.log_tool_content, tool_input)
+    output_value = redact_content(env.log_tool_content, output_value)
+    redacted_error = redact_content(env.log_tool_content, error_text)
+    tool_description = redact_content(env.log_tool_details, tool_description)
+    if tool_command:
+        tool_command = redact_content(env.log_tool_details, tool_command)
+    if tool_file_path:
+        tool_file_path = redact_content(env.log_tool_details, tool_file_path)
+    if tool_url:
+        tool_url = redact_content(env.log_tool_details, tool_url)
+    if tool_query:
+        tool_query = redact_content(env.log_tool_details, tool_query)
+
+    # Build attributes
+    user_id = state.get("user_id") or ""
+    attrs = {
+        "session.id": session_id,
+        "openinference.span.kind": "TOOL",
+        "tool.name": tool_name,
+        "input.value": tool_input,
+        "output.value": output_value,
+        "tool.description": tool_description,
+        "error.type": "tool_failure",
+        "error.message": redacted_error,
+    }
+    if user_id:
+        attrs["user.id"] = user_id
+    if tool_command:
+        attrs["tool.command"] = tool_command
+    if tool_file_path:
+        attrs["tool.file_path"] = tool_file_path
+    if tool_url:
+        attrs["tool.url"] = tool_url
+    if tool_query:
+        attrs["tool.query"] = tool_query
+
+    span = build_span(
+        f"{tool_name} (failed)",
+        "TOOL",
+        generate_span_id(),
+        trace_id or "",
+        parent_span_id or "",
+        start_time,
+        end_time,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
+    )
+    send_span(span)
+
+
+def _handle_user_prompt_expansion(input_json: dict) -> None:
+    """Handle UserPromptExpansion: stash command metadata for the next Turn span to attach."""
+    state = resolve_session(input_json)
+    expansion_type = input_json.get("expansion_type", "")
+    command_name = input_json.get("command_name", "")
+    command_args = input_json.get("command_args", "")
+    command_source = input_json.get("command_source", "")
+    if expansion_type:
+        state.set("pending_expansion_type", expansion_type)
+    if command_name:
+        state.set("pending_command_name", command_name)
+    if command_args:
+        state.set("pending_command_args", command_args)
+    if command_source:
+        state.set("pending_command_source", command_source)
+
+
 def _handle_user_prompt_submit(input_json: dict) -> None:
     """Handle user_prompt_submit: set up a new trace (close orphaned turn first)."""
     state = resolve_session(input_json)
@@ -333,6 +456,20 @@ def _handle_stop(input_json: dict) -> None:
     if user_id:
         attrs["user.id"] = user_id
 
+    # Attach command metadata from UserPromptExpansion if present
+    expansion_type = state.get("pending_expansion_type") or ""
+    command_name = state.get("pending_command_name") or ""
+    command_args = state.get("pending_command_args") or ""
+    command_source = state.get("pending_command_source") or ""
+    if expansion_type:
+        attrs["command.expansion_type"] = expansion_type
+    if command_name:
+        attrs["command.name"] = command_name
+    if command_args:
+        attrs["command.args"] = redact_content(env.log_prompts, command_args)
+    if command_source:
+        attrs["command.source"] = command_source
+
     span = build_span(
         f"Turn {trace_count}",
         "LLM",
@@ -353,6 +490,10 @@ def _handle_stop(input_json: dict) -> None:
     state.delete("current_trace_start_time")
     state.delete("current_trace_prompt")
     state.delete("trace_start_line")
+    state.delete("pending_expansion_type")
+    state.delete("pending_command_name")
+    state.delete("pending_command_args")
+    state.delete("pending_command_source")
 
     # Periodic GC
     try:
@@ -361,6 +502,18 @@ def _handle_stop(input_json: dict) -> None:
         tc = 0
     if tc % 5 == 0:
         gc_stale_state_files()
+
+
+def _handle_subagent_start(input_json: dict) -> None:
+    """Handle SubagentStart: record start time + prompt keyed by agent_id."""
+    state = resolve_session(input_json)
+    agent_id = input_json.get("agent_id", "")
+    if not agent_id:
+        return
+    state.set(f"subagent_{agent_id}_start_time", str(get_timestamp_ms()))
+    prompt = input_json.get("prompt", "") or ""
+    if prompt:
+        state.set(f"subagent_{agent_id}_prompt", prompt)
 
 
 def _handle_subagent_stop(input_json: dict) -> None:
@@ -388,16 +541,21 @@ def _handle_subagent_stop(input_json: dict) -> None:
     model = ""
     in_tokens = 0
     out_tokens = 0
-    start_time = end_time
+
+    # Prefer state-stored start time set by SubagentStart; fall back to transcript birth time.
+    stored_start = state.get(f"subagent_{agent_id}_start_time")
+    if stored_start:
+        start_time = stored_start
+    else:
+        start_time = end_time  # default; may be overwritten below
 
     transcript = resolve_transcript_path(input_json, session_id or "")
     if transcript is not None:
-        # Get file creation time for start_time
-        st = transcript.stat()
-        # st_birthtime is macOS/BSD only; fall back to ctime elsewhere.
-        birth = getattr(st, "st_birthtime", st.st_ctime)
-        start_ms = int(birth * 1000)
-        start_time = str(start_ms)
+        if not stored_start:
+            st = transcript.stat()
+            # st_birthtime is macOS/BSD only; fall back to ctime elsewhere.
+            birth = getattr(st, "st_birthtime", st.st_ctime)
+            start_time = str(int(birth * 1000))
 
         scanned_output, in_tokens, out_tokens, scanned_model = _scan_transcript_for_usage(transcript, 0)
         if not output:
@@ -424,6 +582,9 @@ def _handle_subagent_stop(input_json: dict) -> None:
         "llm.token_count.total": total_tokens,
         "output.value": output,
     }
+    stored_prompt = state.get(f"subagent_{agent_id}_prompt") or ""
+    if stored_prompt:
+        attrs["input.value"] = redact_content(env.log_prompts, stored_prompt)
     user_id = state.get("user_id") or ""
     if user_id:
         attrs["user.id"] = user_id
@@ -441,6 +602,11 @@ def _handle_subagent_stop(input_json: dict) -> None:
         SCOPE_NAME,
     )
     send_span(span)
+
+    # Clean up per-agent state keys
+    if agent_id:
+        state.delete(f"subagent_{agent_id}_start_time")
+        state.delete(f"subagent_{agent_id}_prompt")
 
 
 def _handle_stop_failure(input_json: dict) -> None:
@@ -500,6 +666,10 @@ def _handle_stop_failure(input_json: dict) -> None:
     state.delete("current_trace_start_time")
     state.delete("current_trace_prompt")
     state.delete("trace_start_line")
+    state.delete("pending_expansion_type")
+    state.delete("pending_command_name")
+    state.delete("pending_command_args")
+    state.delete("pending_command_source")
 
 
 def _handle_notification(input_json: dict) -> None:
@@ -583,6 +753,46 @@ def _handle_permission_request(input_json: dict) -> None:
     send_span(span)
 
 
+def _handle_permission_denied(input_json: dict) -> None:
+    """Handle PermissionDenied: emit a CHAIN span recording an auto-mode tool denial."""
+    state = resolve_session(input_json)
+    trace_id = state.get("current_trace_id")
+    if trace_id is None:
+        return
+
+    session_id = state.get("session_id")
+    permission = input_json.get("permission", "")
+    tool_name = input_json.get("tool_name", "")
+    tool_input = redact_content(env.log_tool_details, json.dumps(input_json.get("tool_input", {})))
+
+    attrs = {
+        "session.id": session_id,
+        "openinference.span.kind": "CHAIN",
+        "permission.type": permission,
+        "permission.tool": tool_name,
+        "permission.denied": "true",
+        "input.value": tool_input,
+    }
+    user_id = state.get("user_id") or ""
+    if user_id:
+        attrs["user.id"] = user_id
+
+    now = str(get_timestamp_ms())
+    span = build_span(
+        "Permission Denied",
+        "CHAIN",
+        generate_span_id(),
+        trace_id,
+        state.get("current_trace_span_id") or "",
+        now,
+        now,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
+    )
+    send_span(span)
+
+
 def _handle_session_end(input_json: dict) -> None:
     """Handle session_end: log summary and clean up state file."""
     state = resolve_session(input_json)
@@ -606,6 +816,67 @@ def _handle_session_end(input_json: dict) -> None:
             pass
 
     gc_stale_state_files()
+
+
+def _handle_pre_compact(input_json: dict) -> None:
+    """Handle PreCompact: record start time of compaction event."""
+    state = resolve_session(input_json)
+    state.set("compact_start_time", str(get_timestamp_ms()))
+    trigger = input_json.get("trigger", "")
+    if trigger:
+        state.set("compact_trigger", trigger)
+
+
+def _handle_post_compact(input_json: dict) -> None:
+    """Handle PostCompact: emit a CHAIN span describing the compaction.
+
+    Skip emission when compaction fires between turns (no `current_trace_id`).
+    An orphan compact span in its own trace is hard to correlate in Arize;
+    matches the permission_denied/notification guard pattern.
+    """
+    state = resolve_session(input_json)
+    session_id = state.get("session_id")
+    if session_id is None:
+        return
+
+    trace_id = state.get("current_trace_id")
+    if trace_id is None:
+        # Compaction between turns. Clean up pending state, no span emitted.
+        state.delete("compact_start_time")
+        state.delete("compact_trigger")
+        return
+
+    start_time = state.get("compact_start_time") or str(get_timestamp_ms())
+    end_time = str(get_timestamp_ms())
+    trigger = input_json.get("trigger") or state.get("compact_trigger") or "unknown"
+
+    parent = state.get("current_trace_span_id") or ""
+
+    attrs = {
+        "session.id": session_id,
+        "openinference.span.kind": "CHAIN",
+        "compact.trigger": trigger,
+    }
+    user_id = state.get("user_id") or ""
+    if user_id:
+        attrs["user.id"] = user_id
+
+    span = build_span(
+        f"Compact ({trigger})",
+        "CHAIN",
+        generate_span_id(),
+        trace_id,
+        parent,
+        start_time,
+        end_time,
+        attrs,
+        SERVICE_NAME,
+        SCOPE_NAME,
+    )
+    send_span(span)
+
+    state.delete("compact_start_time")
+    state.delete("compact_trigger")
 
 
 # ---------------------------------------------------------------------------
@@ -721,3 +992,69 @@ def session_end():
         _handle_session_end(input_json)
     except Exception as e:
         error(f"session_end hook failed: {e}")
+
+
+def post_tool_use_failure():
+    """Entry point for arize-hook-post-tool-use-failure."""
+    try:
+        if not check_requirements():
+            return
+        input_json = _read_stdin()
+        _handle_post_tool_use_failure(input_json)
+    except Exception as e:
+        error(f"post_tool_use_failure hook failed: {e}")
+
+
+def subagent_start():
+    """Entry point for arize-hook-subagent-start."""
+    try:
+        if not check_requirements():
+            return
+        input_json = _read_stdin()
+        _handle_subagent_start(input_json)
+    except Exception as e:
+        error(f"subagent_start hook failed: {e}")
+
+
+def user_prompt_expansion():
+    """Entry point for arize-hook-user-prompt-expansion."""
+    try:
+        if not check_requirements():
+            return
+        input_json = _read_stdin()
+        _handle_user_prompt_expansion(input_json)
+    except Exception as e:
+        error(f"user_prompt_expansion hook failed: {e}")
+
+
+def pre_compact():
+    """Entry point for arize-hook-pre-compact."""
+    try:
+        if not check_requirements():
+            return
+        input_json = _read_stdin()
+        _handle_pre_compact(input_json)
+    except Exception as e:
+        error(f"pre_compact hook failed: {e}")
+
+
+def post_compact():
+    """Entry point for arize-hook-post-compact."""
+    try:
+        if not check_requirements():
+            return
+        input_json = _read_stdin()
+        _handle_post_compact(input_json)
+    except Exception as e:
+        error(f"post_compact hook failed: {e}")
+
+
+def permission_denied():
+    """Entry point for arize-hook-permission-denied."""
+    try:
+        if not check_requirements():
+            return
+        input_json = _read_stdin()
+        _handle_permission_denied(input_json)
+    except Exception as e:
+        error(f"permission_denied hook failed: {e}")

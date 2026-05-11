@@ -21,6 +21,12 @@ HOOK_EVENTS = {
     "Notification": "arize-hook-notification",
     "PermissionRequest": "arize-hook-permission-request",
     "SessionEnd": "arize-hook-session-end",
+    "PostToolUseFailure": "arize-hook-post-tool-use-failure",
+    "SubagentStart": "arize-hook-subagent-start",
+    "UserPromptExpansion": "arize-hook-user-prompt-expansion",
+    "PreCompact": "arize-hook-pre-compact",
+    "PostCompact": "arize-hook-post-compact",
+    "PermissionDenied": "arize-hook-permission-denied",
 }
 
 # Env keys written into settings.json by the installer. Uninstall pops

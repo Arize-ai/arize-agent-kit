@@ -1,0 +1,18 @@
+{
+  "session_id": "00000000-0000-0000-0000-000000000001",
+  "cwd": "/tmp/test-project",
+  "session_state": {
+    "version": 1,
+    "agent_name": "arize-traced",
+    "rts_model_state": {
+      "model_info": {
+        "model_id": "auto",
+        "context_window_tokens": 200000
+      },
+      "context_usage_percentage": 0.0
+    },
+    "conversation_metadata": {
+      "user_turn_metadatas": []
+    }
+  }
+}

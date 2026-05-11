@@ -1,0 +1,17 @@
+{
+  "hook_event_name": "postToolUse",
+  "cwd": "/tmp/test-project",
+  "session_id": "00000000-0000-0000-0000-000000000002",
+  "tool_name": "read",
+  "tool_input": {
+    "operations": [
+      {"mode": "Line", "path": "install.sh"}
+    ],
+    "__tool_use_purpose": "Read the contents of install.sh"
+  },
+  "tool_response": {
+    "items": [
+      {"Text": "#!/bin/bash\n# Arize Harness Tracing — Thin shell router\n..."}
+    ]
+  }
+}

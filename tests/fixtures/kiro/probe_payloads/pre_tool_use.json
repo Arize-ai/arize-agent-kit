@@ -1,0 +1,12 @@
+{
+  "hook_event_name": "preToolUse",
+  "cwd": "/tmp/test-project",
+  "session_id": "00000000-0000-0000-0000-000000000002",
+  "tool_name": "read",
+  "tool_input": {
+    "operations": [
+      {"mode": "Line", "path": "install.sh"}
+    ],
+    "__tool_use_purpose": "Read the contents of install.sh"
+  }
+}
