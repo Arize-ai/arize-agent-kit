@@ -21,6 +21,7 @@ HarnessStatusItem = {
     "project_name": str | None,
     "backend": Backend | None,
     "scope": str | None,           # currently always None; reserved
+    "kiro_options": {"agent_name": str, "set_default": bool} | None,
 }
 
 StatusPayload = {
@@ -39,6 +40,7 @@ InstallRequest = {
     "user_id": str | None,
     "with_skills": bool,
     "logging": {"prompts": bool, "tool_details": bool, "tool_content": bool} | None,
+    "kiro_options": {"agent_name": str, "set_default": bool} | None,
 }
 
 OperationResult = {
@@ -64,7 +66,7 @@ from typing import Any, Dict, List, Optional
 
 # ---- constants ----
 
-HARNESS_KEYS = ("claude-code", "codex", "cursor", "copilot", "gemini")
+HARNESS_KEYS = ("claude-code", "codex", "cursor", "copilot", "gemini", "kiro")
 
 _VALID_TARGETS = ("arize", "phoenix")
 _VALID_CODEX_STATES = ("running", "stopped", "stale", "unknown")
@@ -135,21 +137,50 @@ def build_backend(
     }
 
 
+def build_kiro_options(
+    agent_name: str,
+    set_default: bool = False,
+) -> Dict[str, Any]:
+    """Build a KiroOptions dict.
+
+    Shape:
+      { "agent_name": str, "set_default": bool }
+
+    agent_name must be a non-empty string. Allowed character set is enforced
+    by tracing.kiro.install at write-time, NOT here — this builder only checks
+    non-emptiness so we don't double-validate.
+    """
+    _require_str(agent_name, "agent_name")
+    return {
+        "agent_name": agent_name,
+        "set_default": bool(set_default),
+    }
+
+
 def build_harness_status_item(
     name: str,
     configured: bool = False,
     project_name: Optional[str] = None,
     backend: Optional[Dict[str, Any]] = None,
     scope: Optional[str] = None,
+    kiro_options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build a HarnessStatusItem dict."""
     _validate_harness(name)
+    if kiro_options is not None and name != "kiro":
+        raise ValueError("kiro_options only valid when harness is 'kiro'")
+    if kiro_options is not None:
+        kiro_options = build_kiro_options(
+            kiro_options.get("agent_name", ""),
+            kiro_options.get("set_default", False),
+        )
     return {
         "name": name,
         "configured": bool(configured),
         "project_name": project_name,
         "backend": backend,
         "scope": scope,
+        "kiro_options": kiro_options,
     }
 
 
@@ -163,7 +194,8 @@ def build_status(
 ) -> Dict[str, Any]:
     """Build a StatusPayload dict.
 
-    *harnesses* defaults to all five harnesses unconfigured when omitted.
+    *harnesses* defaults to all harnesses in :data:`HARNESS_KEYS` unconfigured
+    when omitted.
     """
     if harnesses is None:
         harnesses = [build_harness_status_item(name=k) for k in HARNESS_KEYS]
@@ -184,10 +216,18 @@ def build_install_request(
     user_id: Optional[str] = None,
     with_skills: bool = False,
     logging: Optional[Dict[str, bool]] = None,
+    kiro_options: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build an InstallRequest dict."""
     _validate_harness(harness)
     _require_str(project_name, "project_name")
+    if kiro_options is not None and harness != "kiro":
+        raise ValueError("kiro_options only valid when harness is 'kiro'")
+    if kiro_options is not None:
+        kiro_options = build_kiro_options(
+            kiro_options.get("agent_name", ""),
+            kiro_options.get("set_default", False),
+        )
     return {
         "harness": harness,
         "backend": backend,
@@ -195,6 +235,7 @@ def build_install_request(
         "user_id": user_id,
         "with_skills": bool(with_skills),
         "logging": _normalize_logging(logging),
+        "kiro_options": kiro_options,
     }
 
 
