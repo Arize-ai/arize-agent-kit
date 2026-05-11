@@ -102,7 +102,7 @@ def test_one_harness_configured(config_dir):
     assert result["success"] is True
 
     by_name = {h["name"]: h for h in result["harnesses"]}
-    assert len(by_name) == 5
+    assert len(by_name) == len(HARNESS_KEYS)
 
     cc = by_name["claude-code"]
     assert cc["configured"] is True
@@ -112,7 +112,7 @@ def test_one_harness_configured(config_dir):
     assert cc["backend"]["api_key"] == "key123"
     assert cc["backend"]["space_id"] == "sp-1"
 
-    for name in ("codex", "cursor", "copilot", "gemini"):
+    for name in ("codex", "cursor", "copilot", "gemini", "kiro"):
         assert by_name[name]["configured"] is False
         assert by_name[name]["backend"] is None
 
@@ -385,3 +385,86 @@ def test_status_other_harnesses_have_null_kiro_options(config_dir):
     for h in result["harnesses"]:
         if h["name"] != "kiro":
             assert h["kiro_options"] is None
+
+
+def test_status_kiro_options_when_agent_name_empty_string(config_dir):
+    """Kiro entry with agent_name='' → kiro_options is None (not a usable name)."""
+    _write_yaml(
+        config_dir,
+        {
+            "harnesses": {
+                "kiro": {
+                    "project_name": "p",
+                    "target": "phoenix",
+                    "endpoint": "http://x",
+                    "api_key": "",
+                    "agent_name": "",
+                },
+            },
+        },
+    )
+    result = load_status()
+    kiro = {h["name"]: h for h in result["harnesses"]}["kiro"]
+    assert kiro["kiro_options"] is None
+
+
+def test_status_kiro_options_when_agent_name_not_string(config_dir):
+    """Kiro entry with non-string agent_name → kiro_options is None."""
+    _write_yaml(
+        config_dir,
+        {
+            "harnesses": {
+                "kiro": {
+                    "project_name": "p",
+                    "target": "phoenix",
+                    "endpoint": "http://x",
+                    "api_key": "",
+                    "agent_name": 42,
+                },
+            },
+        },
+    )
+    result = load_status()
+    kiro = {h["name"]: h for h in result["harnesses"]}["kiro"]
+    assert kiro["kiro_options"] is None
+
+
+def test_status_kiro_configured_unaffected_by_kiro_options(config_dir):
+    """Kiro item still reports configured=True, project_name, and backend
+    regardless of whether kiro_options is populated."""
+    _write_yaml(
+        config_dir,
+        {
+            "harnesses": {
+                "kiro": {
+                    "project_name": "kiro-proj",
+                    "target": "phoenix",
+                    "endpoint": "http://x",
+                    "api_key": "",
+                    "agent_name": "kagent",
+                },
+            },
+        },
+    )
+    result = load_status()
+    kiro = {h["name"]: h for h in result["harnesses"]}["kiro"]
+    assert kiro["configured"] is True
+    assert kiro["project_name"] == "kiro-proj"
+    assert kiro["backend"]["target"] == "phoenix"
+    assert kiro["kiro_options"]["agent_name"] == "kagent"
+
+
+def test_status_kiro_no_options_when_entry_not_dict(config_dir):
+    """Non-dict kiro entry → kiro_options is None (handled by early return)."""
+    _write_yaml(
+        config_dir,
+        {
+            "harnesses": {
+                "kiro": "not-a-dict",
+            },
+        },
+    )
+    result = load_status()
+    kiro = {h["name"]: h for h in result["harnesses"]}["kiro"]
+    assert kiro["configured"] is False
+    assert kiro["kiro_options"] is None
