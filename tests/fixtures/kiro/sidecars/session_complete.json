@@ -1,0 +1,36 @@
+{
+  "session_id": "00000000-0000-0000-0000-000000000001",
+  "cwd": "/tmp/test-project",
+  "title": "test conversation",
+  "created_at": 1778266569,
+  "updated_at": 1778266582,
+  "session_state": {
+    "version": 1,
+    "agent_name": "arize-traced",
+    "rts_model_state": {
+      "conversation_id": "00000000-0000-0000-0000-000000000001",
+      "model_info": {
+        "model_id": "claude-sonnet-4",
+        "context_window_tokens": 200000
+      },
+      "context_usage_percentage": 4.7
+    },
+    "conversation_metadata": {
+      "user_turn_metadatas": [
+        {
+          "input_token_count": 1234,
+          "output_token_count": 567,
+          "total_request_count": 2,
+          "number_of_cycles": 1,
+          "turn_duration": {"secs": 10, "nanos": 151949125},
+          "end_reason": "UserTurnEnd",
+          "end_timestamp": "2026-05-08T18:58:52.356111Z",
+          "metering_usage": [
+            {"value": 0.026, "unit": "credit", "unitPlural": "credits"},
+            {"value": 0.077, "unit": "credit", "unitPlural": "credits"}
+          ]
+        }
+      ]
+    }
+  }
+}

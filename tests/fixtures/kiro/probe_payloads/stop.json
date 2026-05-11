@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "stop",
+  "cwd": "/tmp/test-project",
+  "session_id": "00000000-0000-0000-0000-000000000001",
+  "assistant_response": "Friday, May 8, 2026, 11:56 AM (PDT, UTC-7)."
+}

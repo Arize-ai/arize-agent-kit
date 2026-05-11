@@ -62,6 +62,8 @@ EXPECTED_HARNESS_ENTRY_POINTS = {
     "arize-hook-gemini-after-tool": "tracing.gemini.hooks.handlers:after_tool",
     # Cursor hook
     "arize-hook-cursor": "tracing.cursor.hooks.handlers:main",
+    # Kiro hook
+    "arize-hook-kiro": "tracing.kiro.hooks.handlers:main",
 }
 
 # Setup wizards stay on core.setup.*
@@ -71,6 +73,7 @@ EXPECTED_SETUP_ENTRY_POINTS = {
     "arize-setup-copilot": "core.setup.copilot:main",
     "arize-setup-cursor": "core.setup.cursor:main",
     "arize-setup-gemini": "core.setup.gemini:main",
+    "arize-setup-kiro": "core.setup.kiro:main",
 }
 
 
@@ -235,6 +238,7 @@ class TestHooksDirsInHarnessPackages:
             ("tracing/copilot", ["__init__.py", "adapter.py", "handlers.py"]),
             ("tracing/cursor", ["__init__.py", "adapter.py", "handlers.py"]),
             ("tracing/gemini", ["__init__.py", "adapter.py", "handlers.py"]),
+            ("tracing/kiro", ["__init__.py", "adapter.py", "handlers.py"]),
         ],
     )
     def test_hooks_dir_has_expected_files(self, pkg, expected_files):
