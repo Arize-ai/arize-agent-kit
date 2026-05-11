@@ -1,10 +1,10 @@
 # Arize Agent Kit — VS Code Extension
 
-Wire up [Arize](https://arize.com) tracing for AI coding agents — Claude Code, Codex, Cursor, Copilot, and Gemini — without leaving the editor. The extension installs and configures the Arize harness in a managed venv, then surfaces status and controls in a sidebar view.
+Wire up [Arize](https://arize.com) tracing for AI coding agents — Claude Code, Codex, Cursor, Copilot, Gemini, and Kiro — without leaving the editor. The extension installs and configures the Arize harness in a managed venv, then surfaces status and controls in a sidebar view.
 
 ## What it does
 
-- **Guided setup wizard** for tracing with `claude-code`, `codex`, `cursor`, `copilot`, and `gemini` harnesses
+- **Guided setup wizard** for tracing with `claude-code`, `codex`, `cursor`, `copilot`, `gemini`, and `kiro` harnesses
 - **Sidebar view** listing configured harnesses with their project names and backends
 - **Reconfigure and uninstall** individual harnesses directly from the sidebar
 - **Status bar item** showing current tracing state at a glance
