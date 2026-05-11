@@ -105,12 +105,7 @@ def test_plugin_path_uses_install_dir(monkeypatch):
     custom_dir = Path("/custom/install/dir")
     monkeypatch.setattr(setup_mod, "INSTALL_DIR", custom_dir)
 
-    # Must reimport to pick up the patched INSTALL_DIR
-    import importlib
-
     from tracing.claude_code import agent_sdk
-
-    importlib.reload(agent_sdk)
 
     agent_sdk.claude_options()
 
