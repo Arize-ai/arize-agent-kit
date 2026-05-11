@@ -37,6 +37,12 @@ EXPECTED_HARNESS_ENTRY_POINTS = {
     "arize-hook-notification": "tracing.claude_code.hooks.handlers:notification",
     "arize-hook-permission-request": "tracing.claude_code.hooks.handlers:permission_request",
     "arize-hook-session-end": "tracing.claude_code.hooks.handlers:session_end",
+    "arize-hook-post-tool-use-failure": "tracing.claude_code.hooks.handlers:post_tool_use_failure",
+    "arize-hook-subagent-start": "tracing.claude_code.hooks.handlers:subagent_start",
+    "arize-hook-user-prompt-expansion": "tracing.claude_code.hooks.handlers:user_prompt_expansion",
+    "arize-hook-pre-compact": "tracing.claude_code.hooks.handlers:pre_compact",
+    "arize-hook-post-compact": "tracing.claude_code.hooks.handlers:post_compact",
+    "arize-hook-permission-denied": "tracing.claude_code.hooks.handlers:permission_denied",
     # Codex hooks
     "arize-hook-codex-notify": "tracing.codex.hooks.handlers:notify",
     "arize-hook-codex-drain": "tracing.codex.hooks.handlers:drain_idle",

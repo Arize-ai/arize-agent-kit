@@ -122,7 +122,7 @@ class TestFreshInstall:
         assert config["harnesses"]["claude-code"]["target"] == expected_target
         assert config["harnesses"]["claude-code"]["project_name"] == "claude-code"
 
-        # Check settings.json has plugin + 9 hook events
+        # Check settings.json has plugin + all hook events
         settings_file = fake_home / ".claude" / "settings.json"
         assert settings_file.exists()
         settings = json.loads(settings_file.read_text())
@@ -131,7 +131,7 @@ class TestFreshInstall:
         assert settings["plugins"][0]["type"] == "local"
 
         hooks = settings.get("hooks", {})
-        assert len(hooks) == 10
+        assert len(hooks) == 16
 
         env = settings.get("env", {})
         assert env.get("ARIZE_TRACE_ENABLED") == "true"

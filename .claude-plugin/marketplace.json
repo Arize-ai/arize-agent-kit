@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "claude-code-tracing",
-      "source": "./claude-code-tracing",
+      "source": "./tracing/claude_code",
       "description": "Automatic tracing of Claude Code sessions to Arize AX or Phoenix with OpenInference spans",
       "version": "1.0.0",
       "homepage": "https://arize.com",
