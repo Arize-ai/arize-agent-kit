@@ -12,7 +12,7 @@ import subprocess
 
 import pytest
 
-INSTALL_SH = os.path.join(os.path.dirname(__file__), "..", "install.sh")
+INSTALL_SH = os.path.join(os.path.dirname(__file__), "..", "..", "install.sh")
 
 
 def _read_install_sh() -> str:

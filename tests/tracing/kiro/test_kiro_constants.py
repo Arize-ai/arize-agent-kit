@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-FIXTURES_DIR = Path(__file__).parent / "fixtures" / "kiro"
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
 PROBE_DIR = FIXTURES_DIR / "probe_payloads"
 SIDECAR_DIR = FIXTURES_DIR / "sidecars"
 

@@ -164,7 +164,7 @@ class TestUnregisterAllKiroHooks:
     """Tests for _unregister_all_kiro_hooks — cleaning hooks from agent files."""
 
     def _write_agent(self, path: Path, data: dict) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        path.parent.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2) + "\n")
 
     def test_removes_only_our_entries(self, agents_dir):

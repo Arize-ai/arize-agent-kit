@@ -1147,7 +1147,7 @@ class TestEntryPoints:
 
     def test_pyproject_has_setup_entry_points(self):
         """pyproject.toml defines all five setup wizard entry points."""
-        pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
+        pyproject_path = Path(__file__).parent.parent.parent / "pyproject.toml"
         content = pyproject_path.read_text()
         assert 'arize-setup-claude = "core.setup.claude:main"' in content
         assert 'arize-setup-codex = "core.setup.codex:main"' in content

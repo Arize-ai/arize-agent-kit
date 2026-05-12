@@ -15,8 +15,8 @@ import re
 
 import pytest
 
-INSTALL_SH = os.path.join(os.path.dirname(__file__), "..", "install.sh")
-GITIGNORE = os.path.join(os.path.dirname(__file__), "..", ".gitignore")
+INSTALL_SH = os.path.join(os.path.dirname(__file__), "..", "..", "install.sh")
+GITIGNORE = os.path.join(os.path.dirname(__file__), "..", "..", ".gitignore")
 
 
 def _read_install_sh() -> str:

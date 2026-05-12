@@ -26,7 +26,7 @@ from tracing.kiro.hooks import adapter
 # Helpers
 # ---------------------------------------------------------------------------
 
-FIXTURE_DIR = Path(__file__).parent / "fixtures" / "kiro"
+FIXTURE_DIR = Path(__file__).parent / "fixtures"
 PROBE_DIR = FIXTURE_DIR / "probe_payloads"
 SIDECAR_DIR = FIXTURE_DIR / "sidecars"
 

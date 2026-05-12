@@ -80,6 +80,7 @@ markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 source = ["core", "tracing"]
 omit = [
     "tracing/codex/codex_buffer.py",
+    "**/constants.py",
 ]
 
 [tool.coverage.report]
