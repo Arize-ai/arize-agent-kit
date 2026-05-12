@@ -78,7 +78,6 @@ def kiro_env(tmp_path, monkeypatch):
 
     # Also patch install module bindings
     monkeypatch.setattr(inst, "INSTALL_DIR", harness_dir)
-    monkeypatch.setattr(inst, "CONFIG_FILE", harness_dir / "config.yaml")
 
     # Patch CONFIG_FILE in core.config so load_config/save_config use temp path
     import core.config as config_mod
