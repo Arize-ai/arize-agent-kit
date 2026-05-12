@@ -10,6 +10,15 @@ curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-agent-kit/main/instal
 ./install.sh kiro
 ```
 
+## VS Code integration
+
+Kiro is selectable in the Arize Tracing sidebar alongside the other supported harnesses. The setup wizard asks for:
+
+- **Agent name** — which `~/.kiro/agents/<name>.json` to install hooks into (default: `arize-traced`).
+- **Set as default** — optional checkbox that runs `kiro-cli agent set-default <name>` after install.
+
+Only one Kiro agent is traced at a time. Reconfiguring with a different agent name moves tracing to the new agent rather than layering it. If `kiro-cli` is not on `PATH`, the install fails before any files are written, with a clear error in the wizard.
+
 ## What gets installed
 
 - Hook entries written into `~/.kiro/agents/<agent>.json` (default agent: `arize-traced`)
