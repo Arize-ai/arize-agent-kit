@@ -5,7 +5,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const HARNESS_KEYS = ["claude-code", "codex", "cursor", "copilot", "gemini"];
+const HARNESS_KEYS = ["claude-code", "codex", "cursor", "copilot", "gemini", "kiro"];
 
 let postMessageCalls;
 
@@ -81,7 +81,7 @@ describe("Wizard UI", () => {
 
   test("all five harness cards render in step 1, in documented order", () => {
     const cards = getHarnessCards();
-    expect(cards.length).toBe(5);
+    expect(cards.length).toBe(HARNESS_KEYS.length);
     const keys = Array.from(cards).map((c) => c.getAttribute("data-harness"));
     expect(keys).toEqual(HARNESS_KEYS);
   });
