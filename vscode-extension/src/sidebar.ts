@@ -49,6 +49,7 @@ const HARNESS_LABELS: Record<HarnessKey, string> = {
   cursor: "Cursor",
   copilot: "Copilot",
   gemini: "Gemini",
+  kiro: "Kiro",
 };
 
 // ---------------------------------------------------------------------------

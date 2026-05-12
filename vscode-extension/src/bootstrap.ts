@@ -336,7 +336,15 @@ async function doEnsureBridge(opts: EnsureBridgeOptions): Promise<BootstrapResul
 
   // Step 6: pip install the wheel
   try {
-    const result = await runProcess(venvPip, ["install", "--quiet", wheelPath], onLog, signal);
+    // --force-reinstall: the bundled wheel keeps the same version across rebuilds, so
+    // pip would otherwise treat an existing 0.1.0 install as "already satisfied" and
+    // skip refreshing entry-point scripts (e.g. a newly-added arize-vscode-bridge).
+    const result = await runProcess(
+      venvPip,
+      ["install", "--quiet", "--force-reinstall", "--no-deps", wheelPath],
+      onLog,
+      signal,
+    );
     if (result.code !== 0) {
       return { ok: false, error: "pip_install_failed", errorMessage: result.stderr || "pip install failed." };
     }

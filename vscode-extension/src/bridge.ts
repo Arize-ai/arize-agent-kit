@@ -179,6 +179,12 @@ export async function install(
     argv.push("--log-tool-details", String(req.logging.tool_details));
     argv.push("--log-tool-content", String(req.logging.tool_content));
   }
+  if (req.harness === "kiro" && req.kiro_options) {
+    argv.push("--agent-name", req.kiro_options.agent_name);
+    if (req.kiro_options.set_default) {
+      argv.push("--set-default");
+    }
+  }
 
   return runBridge<OperationResult>(argv, opts);
 }

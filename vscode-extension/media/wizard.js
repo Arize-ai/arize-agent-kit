@@ -59,14 +59,16 @@
 
   // ---- Constants ----
 
-  var HARNESS_KEYS = ["claude-code", "codex", "cursor", "copilot", "gemini"];
+  var HARNESS_KEYS = ["claude-code", "codex", "cursor", "copilot", "gemini", "kiro"];
   var HARNESS_LABELS = {
     "claude-code": "Claude Code",
     codex: "Codex",
     cursor: "Cursor",
     copilot: "Copilot",
     gemini: "Gemini",
+    kiro: "Kiro",
   };
+  var KIRO_DEFAULT_AGENT_NAME = "arize-traced";
   var TOTAL_STEPS = 4;
 
   var ARIZE_DEFAULT_ENDPOINT = "otlp.arize.com:443";
@@ -87,6 +89,8 @@
     logPrompts: true,
     logToolDetails: true,
     logToolContent: true,
+    kiroAgentName: KIRO_DEFAULT_AGENT_NAME,
+    kiroSetDefault: false,
     installing: false,
     resultPayload: null,
     prefillHarness: null,
@@ -285,6 +289,31 @@
       }, "(optional)")
     );
 
+    if (state.harness === "kiro") {
+      container.appendChild(
+        formGroup(
+          "Kiro Agent Name",
+          "text",
+          "kiro_agent_name",
+          state.kiroAgentName,
+          function (v) {
+            state.kiroAgentName = v;
+          },
+          "Default: " + KIRO_DEFAULT_AGENT_NAME + " — name of the ~/.kiro/agents/<name>.json file to install hooks into"
+        )
+      );
+      container.appendChild(
+        checkboxRow(
+          "kiro_set_default",
+          "Set as Kiro's default agent",
+          state.kiroSetDefault,
+          function (v) {
+            state.kiroSetDefault = v;
+          }
+        )
+      );
+    }
+
     container.appendChild(
       checkboxRow("with_skills", "Enable skills", state.withSkills, function (v) {
         state.withSkills = v;
@@ -336,6 +365,10 @@
       ["Log Tool Details", state.logToolDetails ? "Yes" : "No"],
       ["Log Tool Content", state.logToolContent ? "Yes" : "No"],
     ];
+    if (state.harness === "kiro") {
+      rows.push(["Kiro Agent Name", state.kiroAgentName || KIRO_DEFAULT_AGENT_NAME]);
+      rows.push(["Set as Default Agent", state.kiroSetDefault ? "Yes" : "No"]);
+    }
     rows.forEach(function (r) {
       table.appendChild(
         h("tr", null, [h("td", null, r[0]), h("td", null, r[1])])
@@ -419,7 +452,14 @@
         tool_details: state.logToolDetails,
         tool_content: state.logToolContent,
       },
+      kiro_options: null,
     };
+    if (state.harness === "kiro") {
+      request.kiro_options = {
+        agent_name: state.kiroAgentName || KIRO_DEFAULT_AGENT_NAME,
+        set_default: state.kiroSetDefault,
+      };
+    }
 
     vscode.postMessage({ type: "install", request: request });
   }
@@ -524,6 +564,10 @@
             if (r.logging.tool_details != null) state.logToolDetails = r.logging.tool_details;
             if (r.logging.tool_content != null) state.logToolContent = r.logging.tool_content;
           }
+          if (r.kiro_options && r.kiro_options.agent_name) {
+            state.kiroAgentName = r.kiro_options.agent_name;
+          }
+          // set_default always renders as unchecked on prefill — do NOT read it from r.kiro_options.set_default
         }
         render();
         break;

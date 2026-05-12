@@ -10,6 +10,7 @@ from core.vscode_bridge.models import (
     build_codex_buffer,
     build_harness_status_item,
     build_install_request,
+    build_kiro_options,
     build_operation_result,
     build_status,
 )
@@ -74,6 +75,7 @@ class TestBuildHarnessStatusItem:
             "project_name": None,
             "backend": None,
             "scope": None,
+            "kiro_options": None,
         }
 
     def test_configured(self):
@@ -94,7 +96,29 @@ class TestBuildHarnessStatusItem:
 
     def test_exact_keys(self):
         h = build_harness_status_item("gemini")
-        assert set(h.keys()) == {"name", "configured", "project_name", "backend", "scope"}
+        assert set(h.keys()) == {
+            "name",
+            "configured",
+            "project_name",
+            "backend",
+            "scope",
+            "kiro_options",
+        }
+
+    def test_kiro_options_for_kiro(self):
+        h = build_harness_status_item(
+            "kiro",
+            configured=True,
+            kiro_options=build_kiro_options("my-agent"),
+        )
+        assert h["kiro_options"] == {"agent_name": "my-agent", "set_default": False}
+
+    def test_kiro_options_rejected_for_other_harness(self):
+        with pytest.raises(ValueError, match="kiro_options only valid"):
+            build_harness_status_item(
+                "codex",
+                kiro_options={"agent_name": "x", "set_default": False},
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +132,7 @@ class TestBuildStatus:
         assert s["success"] is True
         assert s["error"] is None
         assert s["user_id"] is None
-        assert len(s["harnesses"]) == 5
+        assert len(s["harnesses"]) == 6
         assert s["logging"] is None
         assert s["codex_buffer"] is None
         names = [h["name"] for h in s["harnesses"]]
@@ -166,6 +190,7 @@ class TestBuildInstallRequest:
             "user_id": None,
             "with_skills": False,
             "logging": None,
+            "kiro_options": None,
         }
 
     def test_full(self):
@@ -202,7 +227,35 @@ class TestBuildInstallRequest:
             "user_id",
             "with_skills",
             "logging",
+            "kiro_options",
         }
+
+    def test_kiro_options_for_kiro(self):
+        backend = build_backend("phoenix", "http://localhost:6006")
+        r = build_install_request(
+            "kiro",
+            backend,
+            "proj",
+            kiro_options=build_kiro_options("x", set_default=True),
+        )
+        assert r["kiro_options"] == {"agent_name": "x", "set_default": True}
+
+    def test_kiro_options_rejected_for_other_harness(self):
+        backend = build_backend("phoenix", "http://localhost:6006")
+        with pytest.raises(ValueError, match="kiro_options only valid"):
+            build_install_request(
+                "codex",
+                backend,
+                "proj",
+                kiro_options={"agent_name": "x", "set_default": False},
+            )
+
+    def test_kiro_options_default_none(self):
+        backend = build_backend("phoenix", "http://localhost:6006")
+        for harness in HARNESS_KEYS:
+            r = build_install_request(harness, backend, "proj")
+            assert "kiro_options" in r
+            assert r["kiro_options"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -317,11 +370,44 @@ class TestJsonRoundTrip:
 
 
 class TestHarnessKeys:
-    def test_all_five_present(self):
-        assert len(HARNESS_KEYS) == 5
+    def test_all_six_present(self):
+        assert len(HARNESS_KEYS) == 6
 
     def test_is_tuple(self):
         assert isinstance(HARNESS_KEYS, tuple)
 
     def test_expected_values(self):
-        assert set(HARNESS_KEYS) == {"claude-code", "codex", "cursor", "copilot", "gemini"}
+        assert set(HARNESS_KEYS) == {
+            "claude-code",
+            "codex",
+            "cursor",
+            "copilot",
+            "gemini",
+            "kiro",
+        }
+
+    def test_contains_kiro(self):
+        assert "kiro" in HARNESS_KEYS
+
+
+# ---------------------------------------------------------------------------
+# KiroOptions
+# ---------------------------------------------------------------------------
+
+
+class TestBuildKiroOptions:
+    def test_valid(self):
+        assert build_kiro_options("my-agent", set_default=True) == {
+            "agent_name": "my-agent",
+            "set_default": True,
+        }
+
+    def test_default_set_default(self):
+        assert build_kiro_options("my-agent") == {
+            "agent_name": "my-agent",
+            "set_default": False,
+        }
+
+    def test_rejects_empty_name(self):
+        with pytest.raises(ValueError, match="agent_name"):
+            build_kiro_options("")

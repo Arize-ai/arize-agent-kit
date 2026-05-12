@@ -16,6 +16,7 @@ _HARNESS_MODULES = {
     "cursor": "tracing.cursor.install",
     "copilot": "tracing.copilot.install",
     "gemini": "tracing.gemini.install",
+    "kiro": "tracing.kiro.install",
 }
 
 
@@ -72,6 +73,11 @@ def install(request: Dict[str, Any]) -> Dict[str, Any]:
     # Build logging block if provided.
     logging_block = request.get("logging")
 
+    extra_kwargs: Dict[str, Any] = {}
+    if harness == "kiro" and request.get("kiro_options"):
+        extra_kwargs["agent_name"] = request["kiro_options"]["agent_name"]
+        extra_kwargs["set_default"] = request["kiro_options"]["set_default"]
+
     try:
         mod = _import_installer(harness)
         logs = _capture_output(
@@ -82,6 +88,7 @@ def install(request: Dict[str, Any]) -> Dict[str, Any]:
             user_id=request.get("user_id") or "",
             with_skills=request.get("with_skills", False),
             logging_block=logging_block,
+            **extra_kwargs,
         )
     except Exception:
         tb = traceback.format_exc()

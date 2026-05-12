@@ -269,6 +269,126 @@ class TestInstall:
 
 
 # ---------------------------------------------------------------------------
+# Install subcommand — Kiro-specific flags
+# ---------------------------------------------------------------------------
+
+
+class TestInstallKiroFlags:
+    @mock.patch("core.vscode_bridge.install.install")
+    def test_install_kiro_with_agent_name_flag(self, mock_install, monkeypatch):
+        mock_install.return_value = {
+            "success": True,
+            "error": None,
+            "harness": "kiro",
+            "logs": [],
+        }
+        argv = [
+            "install",
+            "--harness",
+            "kiro",
+            "--target",
+            "phoenix",
+            "--endpoint",
+            "http://x",
+            "--api-key",
+            "",
+            "--project-name",
+            "p",
+            "--agent-name",
+            "my-agent",
+        ]
+        code, lines, stderr = _run(argv, monkeypatch)
+        assert code == 0
+        call_args = mock_install.call_args[0][0]
+        assert call_args["kiro_options"] is not None
+        assert call_args["kiro_options"]["agent_name"] == "my-agent"
+        assert call_args["kiro_options"]["set_default"] is False
+
+    @mock.patch("core.vscode_bridge.install.install")
+    def test_install_kiro_with_set_default_flag(self, mock_install, monkeypatch):
+        mock_install.return_value = {
+            "success": True,
+            "error": None,
+            "harness": "kiro",
+            "logs": [],
+        }
+        argv = [
+            "install",
+            "--harness",
+            "kiro",
+            "--target",
+            "phoenix",
+            "--endpoint",
+            "http://x",
+            "--api-key",
+            "",
+            "--project-name",
+            "p",
+            "--set-default",
+        ]
+        code, lines, stderr = _run(argv, monkeypatch)
+        assert code == 0
+        call_args = mock_install.call_args[0][0]
+        assert call_args["kiro_options"] is not None
+        assert call_args["kiro_options"]["set_default"] is True
+        assert call_args["kiro_options"]["agent_name"] == "arize-traced"
+
+    @mock.patch("core.vscode_bridge.install.install")
+    def test_install_kiro_without_flags_omits_options(self, mock_install, monkeypatch):
+        mock_install.return_value = {
+            "success": True,
+            "error": None,
+            "harness": "kiro",
+            "logs": [],
+        }
+        argv = [
+            "install",
+            "--harness",
+            "kiro",
+            "--target",
+            "phoenix",
+            "--endpoint",
+            "http://x",
+            "--api-key",
+            "",
+            "--project-name",
+            "p",
+        ]
+        code, lines, stderr = _run(argv, monkeypatch)
+        assert code == 0
+        call_args = mock_install.call_args[0][0]
+        assert call_args["kiro_options"] is None
+
+    @mock.patch("core.vscode_bridge.install.install")
+    def test_install_non_kiro_ignores_kiro_flags(self, mock_install, monkeypatch):
+        mock_install.return_value = {
+            "success": True,
+            "error": None,
+            "harness": "codex",
+            "logs": [],
+        }
+        argv = [
+            "install",
+            "--harness",
+            "codex",
+            "--target",
+            "phoenix",
+            "--endpoint",
+            "http://x",
+            "--api-key",
+            "",
+            "--project-name",
+            "p",
+            "--agent-name",
+            "my-agent",
+        ]
+        code, lines, stderr = _run(argv, monkeypatch)
+        assert code == 0
+        call_args = mock_install.call_args[0][0]
+        assert call_args["kiro_options"] is None
+
+
+# ---------------------------------------------------------------------------
 # Uninstall subcommand
 # ---------------------------------------------------------------------------
 

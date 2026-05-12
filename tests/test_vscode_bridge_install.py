@@ -205,6 +205,71 @@ def test_install_passes_correct_kwargs():
 
 
 # ---------------------------------------------------------------------------
+# Install — kiro_options pass-through
+# ---------------------------------------------------------------------------
+
+
+def test_install_kiro_with_kiro_options_passes_them_through():
+    captured = {}
+
+    def _spy(**kwargs):
+        captured.update(kwargs)
+
+    fake = _fake_module()
+    fake.install_noninteractive = _spy
+
+    req = _base_request(
+        harness="kiro",
+        kiro_options={"agent_name": "custom", "set_default": True},
+    )
+
+    with mock.patch("core.vscode_bridge.install._import_installer", return_value=fake):
+        result = install(req)
+
+    assert result["success"] is True
+    assert captured["agent_name"] == "custom"
+    assert captured["set_default"] is True
+
+
+def test_install_kiro_without_kiro_options_omits_them():
+    captured = {}
+
+    def _spy(**kwargs):
+        captured.update(kwargs)
+
+    fake = _fake_module()
+    fake.install_noninteractive = _spy
+
+    req = _base_request(harness="kiro", kiro_options=None)
+
+    with mock.patch("core.vscode_bridge.install._import_installer", return_value=fake):
+        result = install(req)
+
+    assert result["success"] is True
+    assert "agent_name" not in captured
+    assert "set_default" not in captured
+
+
+def test_install_non_kiro_does_not_receive_kiro_kwargs():
+    captured = {}
+
+    def _spy(**kwargs):
+        captured.update(kwargs)
+
+    fake = _fake_module()
+    fake.install_noninteractive = _spy
+
+    req = _base_request(harness="codex", kiro_options=None)
+
+    with mock.patch("core.vscode_bridge.install._import_installer", return_value=fake):
+        result = install(req)
+
+    assert result["success"] is True
+    assert "agent_name" not in captured
+    assert "set_default" not in captured
+
+
+# ---------------------------------------------------------------------------
 # Uninstall — success per harness
 # ---------------------------------------------------------------------------
 

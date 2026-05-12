@@ -60,6 +60,17 @@ def _build_parser() -> argparse.ArgumentParser:
     install_p.add_argument("--log-prompts", choices=("true", "false"), default=None, help="Log prompts")
     install_p.add_argument("--log-tool-details", choices=("true", "false"), default=None, help="Log tool details")
     install_p.add_argument("--log-tool-content", choices=("true", "false"), default=None, help="Log tool content")
+    install_p.add_argument(
+        "--agent-name",
+        default=None,
+        help="Kiro: agent name to install hooks into (default arize-traced)",
+    )
+    install_p.add_argument(
+        "--set-default",
+        action="store_true",
+        default=False,
+        help="Kiro: set the chosen agent as Kiro's default after install",
+    )
 
     # uninstall
     uninstall_p = sub.add_parser("uninstall", help="Uninstall tracing for a harness")
@@ -121,6 +132,15 @@ def _run_install(args: argparse.Namespace) -> int:
         )
         return _drain_logs_and_emit(result)
 
+    kiro_options = None
+    if args.harness == "kiro" and (args.agent_name or args.set_default):
+        from core.vscode_bridge.models import build_kiro_options
+
+        kiro_options = build_kiro_options(
+            agent_name=args.agent_name or "arize-traced",
+            set_default=args.set_default,
+        )
+
     request = build_install_request(
         harness=args.harness,
         backend=backend,
@@ -128,6 +148,7 @@ def _run_install(args: argparse.Namespace) -> int:
         user_id=args.user_id,
         with_skills=args.with_skills,
         logging=_build_logging_block(args),
+        kiro_options=kiro_options,
     )
     result = install(request)
     return _drain_logs_and_emit(result)
