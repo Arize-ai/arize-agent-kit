@@ -200,14 +200,14 @@ Ask the user: **"Have you already installed this plugin via the Claude Code CLI?
 
 **If yes (already installed via CLI):** They can reference it from the CLI cache. Tell them to check `~/.claude/plugins/installed_plugins.json` for the exact path, or use:
 ```
-~/.claude/plugins/cache/arize-harness-tracing/claude-code-tracing/1.0.0
+~/.claude/plugins/cache/coding-harness-tracing/claude-code-tracing/1.0.0
 ```
 
 **If no:** Tell them to clone the repo into their project:
 ```bash
-git clone https://github.com/Arize-ai/arize-harness-tracing.git
+git clone https://github.com/Arize-ai/coding-harness-tracing.git
 ```
-The plugin path will be `./arize-harness-tracing/claude-code-tracing`
+The plugin path will be `./coding-harness-tracing/claude-code-tracing`
 
 No Python dependencies are needed -- both Phoenix and Arize AX use HTTP/JSON.
 
@@ -244,7 +244,7 @@ Give the user the appropriate snippet to add to their application. They must use
 ```python
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
-PLUGIN_PATH = "./arize-harness-tracing/claude-code-tracing"  # or CLI cache path
+PLUGIN_PATH = "./coding-harness-tracing/claude-code-tracing"  # or CLI cache path
 
 options = ClaudeAgentOptions(
     plugins=[{"type": "local", "path": PLUGIN_PATH}],
@@ -260,7 +260,7 @@ async with ClaudeSDKClient(options=options) as client:
 ```typescript
 import { ClaudeSDKClient } from "@anthropic-ai/claude-agent-sdk";
 
-const PLUGIN_PATH = "./arize-harness-tracing/claude-code-tracing"; // or CLI cache path
+const PLUGIN_PATH = "./coding-harness-tracing/claude-code-tracing"; // or CLI cache path
 
 const client = new ClaudeSDKClient({
   plugins: [{ type: "local", path: PLUGIN_PATH }],

@@ -196,7 +196,7 @@ class TestEnsureSessionInitialized:
         """Full verified payload schema (snake_case) works end-to-end."""
         sm = self._make_state(copilot_state_dir, "full-schema")
         payload = {
-            "cwd": "/Users/duncan/Documents/code/arize-harness-tracing",
+            "cwd": "/Users/duncan/Documents/code/coding-harness-tracing",
             "hook_event_name": "SessionStart",
             "session_id": "d4870649-2f69-472d-96a2-599e55ab13f0",
             "timestamp": "2026-05-04T23:25:33.735Z",
@@ -205,7 +205,7 @@ class TestEnsureSessionInitialized:
         }
         adapter.ensure_session_initialized(sm, payload)
         assert sm.get("session_id") == "d4870649-2f69-472d-96a2-599e55ab13f0"
-        assert sm.get("project_name") == "arize-harness-tracing"
+        assert sm.get("project_name") == "coding-harness-tracing"
 
 
 # ── gc_stale_state_files tests ───────────────────────────────────────────────

@@ -11,29 +11,29 @@ macOS / Linux:
 
 ```bash
 # Install
-curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-harness-tracing/main/install.sh | bash -s -- codex
+curl -sSL https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/main/install.sh | bash -s -- codex
 
 # Uninstall
-curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-harness-tracing/main/install.sh | bash -s -- uninstall codex
+curl -sSL https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/main/install.sh | bash -s -- uninstall codex
 ```
 
 Windows (PowerShell):
 
 ```powershell
 # Install
-iwr -useb https://raw.githubusercontent.com/Arize-ai/arize-harness-tracing/main/install.bat -OutFile $env:TEMP\install.bat
+iwr -useb https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/main/install.bat -OutFile $env:TEMP\install.bat
 & $env:TEMP\install.bat codex
 
 # Uninstall
-iwr -useb https://raw.githubusercontent.com/Arize-ai/arize-harness-tracing/main/install.bat -OutFile $env:TEMP\install.bat
+iwr -useb https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/main/install.bat -OutFile $env:TEMP\install.bat
 & $env:TEMP\install.bat uninstall codex
 ```
 
 ### Local setup
 
 ```bash
-git clone https://github.com/Arize-ai/arize-harness-tracing.git
-cd arize-harness-tracing
+git clone https://github.com/Arize-ai/coding-harness-tracing.git
+cd coding-harness-tracing
 ```
 
 macOS / Linux:

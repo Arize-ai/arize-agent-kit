@@ -11,7 +11,7 @@
   },
   "tool_response": {
     "items": [
-      {"Text": "#!/bin/bash\n# Arize Harness Tracing — Thin shell router\n..."}
+      {"Text": "#!/bin/bash\n# Arize Coding Harness Tracing — Thin shell router\n..."}
     ]
   }
 }

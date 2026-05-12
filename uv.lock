@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "arize-harness-tracing"
+name = "coding-harness-tracing"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
