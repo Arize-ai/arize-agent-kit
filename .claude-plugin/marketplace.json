@@ -1,5 +1,5 @@
 {
-  "name": "arize-harness-tracing",
+  "name": "coding-harness-tracing",
   "owner": {
     "name": "Arize AI",
     "email": "support@arize.com"
@@ -14,7 +14,7 @@
       "description": "Automatic tracing of Claude Code sessions to Arize AX or Phoenix with OpenInference spans",
       "version": "1.0.0",
       "homepage": "https://arize.com",
-      "repository": "https://github.com/Arize-ai/arize-harness-tracing",
+      "repository": "https://github.com/Arize-ai/coding-harness-tracing",
       "license": "MIT",
       "keywords": [
         "tracing",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared library for arize-harness-tracing: state management, file locking, and span building.
+"""Shared library for coding-harness-tracing: state management, file locking, and span building.
 
 Provides FileLock (cross-platform file locking), StateManager (per-session
 key-value state backed by YAML files), and OTLP span building functions.
@@ -799,8 +799,8 @@ def build_span(
     start_ms: "int | str" = 0,
     end_ms: "int | str" = 0,
     attrs: "dict | None" = None,
-    service_name: str = "arize-harness-tracing",
-    scope_name: str = "arize-harness-tracing",
+    service_name: str = "coding-harness-tracing",
+    scope_name: str = "coding-harness-tracing",
 ) -> dict:
     """Build an OTLP JSON span payload.
 
@@ -848,8 +848,8 @@ def build_span(
 
 def build_multi_span(
     span_payloads: list,
-    service_name: str = "arize-harness-tracing",
-    scope_name: str = "arize-harness-tracing",
+    service_name: str = "coding-harness-tracing",
+    scope_name: str = "coding-harness-tracing",
 ) -> dict:
     """Merge multiple build_span() outputs into a single resourceSpans payload.
 

@@ -12,7 +12,7 @@ import subprocess
 
 import pytest
 
-INSTALL_SH = os.path.join(os.path.dirname(__file__), "..", "install.sh")
+INSTALL_SH = os.path.join(os.path.dirname(__file__), "..", "..", "install.sh")
 
 
 def _read_install_sh() -> str:
@@ -152,7 +152,7 @@ class TestUsageOutput:
         self.text = _read_install_sh()
 
     def test_title(self):
-        assert "Arize Harness Tracing Installer" in self.text
+        assert "Arize Coding Harness Tracing Installer" in self.text
 
     @pytest.mark.parametrize(
         "cmd",
@@ -191,7 +191,7 @@ class TestSmokeTests:
     def test_help_exits_zero(self):
         result = self._run("--help")
         assert result.returncode == 0
-        assert "Arize Harness Tracing Installer" in result.stdout
+        assert "Arize Coding Harness Tracing Installer" in result.stdout
 
     def test_help_flag_h(self):
         result = self._run("-h")
@@ -335,7 +335,7 @@ class TestConstants:
         self.text = _read_install_sh()
 
     def test_repo_url(self):
-        assert "https://github.com/Arize-ai/arize-harness-tracing.git" in self.text
+        assert "https://github.com/Arize-ai/coding-harness-tracing.git" in self.text
 
     def test_install_dir(self):
         assert "${HOME}/.arize/harness" in self.text

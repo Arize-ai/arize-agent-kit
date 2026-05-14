@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Single source of truth for all filesystem paths used by arize-harness-tracing.
+"""Single source of truth for all filesystem paths used by coding-harness-tracing.
 
 Every module that needs a path imports it from here. Tests monkeypatch these
 values via the tmp_harness_dir fixture to avoid touching the real filesystem.

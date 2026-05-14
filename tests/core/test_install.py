@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).parent.parent
+REPO_ROOT = Path(__file__).parent.parent.parent
 INSTALL_SH = REPO_ROOT / "install.sh"
 INSTALL_BAT = REPO_ROOT / "install.bat"
 

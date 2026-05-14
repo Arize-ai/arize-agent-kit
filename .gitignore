@@ -48,3 +48,5 @@ logs/
 run/
 .arize-tmp-traces/
 .github/hooks/
+*/node_modules/
+wheel.json

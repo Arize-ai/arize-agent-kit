@@ -11,29 +11,29 @@ macOS / Linux:
 
 ```bash
 # Install
-curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-harness-tracing/main/install.sh | bash -s -- gemini
+curl -sSL https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/main/install.sh | bash -s -- gemini
 
 # Uninstall
-curl -sSL https://raw.githubusercontent.com/Arize-ai/arize-harness-tracing/main/install.sh | bash -s -- uninstall gemini
+curl -sSL https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/main/install.sh | bash -s -- uninstall gemini
 ```
 
 Windows (PowerShell):
 
 ```powershell
 # Install
-iwr -useb https://raw.githubusercontent.com/Arize-ai/arize-harness-tracing/main/install.bat -OutFile $env:TEMP\install.bat
+iwr -useb https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/main/install.bat -OutFile $env:TEMP\install.bat
 & $env:TEMP\install.bat gemini
 
 # Uninstall
-iwr -useb https://raw.githubusercontent.com/Arize-ai/arize-harness-tracing/main/install.bat -OutFile $env:TEMP\install.bat
+iwr -useb https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/main/install.bat -OutFile $env:TEMP\install.bat
 & $env:TEMP\install.bat uninstall gemini
 ```
 
 ### Local setup
 
 ```bash
-git clone https://github.com/Arize-ai/arize-harness-tracing.git
-cd arize-harness-tracing
+git clone https://github.com/Arize-ai/coding-harness-tracing.git
+cd coding-harness-tracing
 ```
 
 macOS / Linux:

@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for arize-harness-tracing tests."""
+"""Shared pytest fixtures for coding-harness-tracing tests."""
 
 import json
 import sys

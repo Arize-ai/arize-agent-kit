@@ -23,7 +23,7 @@ from tracing.kiro.hooks import adapter
 
 # ── Paths to fixture files ──────────────────────────────────────────────────
 
-FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "kiro")
+FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 PROBE_PAYLOADS_DIR = os.path.join(FIXTURES_DIR, "probe_payloads")
 SIDECARS_DIR = os.path.join(FIXTURES_DIR, "sidecars")
 
@@ -39,7 +39,7 @@ def _load_fixture(path: str) -> dict:
 @pytest.fixture
 def kiro_state_dir(tmp_harness_dir, monkeypatch):
     """Point adapter.STATE_DIR to a temp directory and return it."""
-    state_dir = tmp_harness_dir / "state" / "kiro"
+    state_dir = tmp_harness_dir / "kiro" / "state" / "kiro"
     state_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(adapter, "STATE_DIR", state_dir)
     return state_dir
