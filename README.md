@@ -7,7 +7,7 @@ Trace AI coding sessions to [Arize AX](https://arize.com) or [Phoenix](https://g
 | Harness Integration | Install | Name |
 |---------------------|---------|------|
 | [Claude Code CLI / Agent SDK](tracing/claude_code/README.md) | `install.sh` / `install.bat` | `claude` |
-| [Claude Code CLI / Agent SDK](tracing/claude_code/README.md) | [Claude marketplace](https://code.claude.com/docs/en/plugins-reference#plugins-reference) | `claude-code-tracing` |
+| [Claude Code CLI / Agent SDK](tracing/claude_code/README.md) | `Claude Plugin (see below)`| `claude-code-tracing` |
 | [OpenAI Codex CLI](tracing/codex/README.md) | `install.sh` / `install.bat` | `codex` |
 | [Cursor IDE / CLI](tracing/cursor/README.md) | `install.sh` / `install.bat` | `cursor` |
 | [GitHub Copilot (VS Code + CLI)](tracing/copilot/README.md) | `install.sh` / `install.bat` | `copilot` |
@@ -18,7 +18,11 @@ Claude Code CLI and the Claude Agent SDK share the same plugin, hooks, and confi
 
 ## Install
 
+> Installing Claude Code tracing via the Claude marketplace? See [Claude Code Tracing](tracing/claude_code/README.md#claude-code-marketplace) for the marketplace-specific flow — backend credentials must be set directly in `~/.claude/settings.json` since the install wizard is skipped.
+
 ### Quickstart
+
+Access and run the install script remotely to setup coding harness tracing in your local environment.
 
 **macOS / Linux:**
 
@@ -28,11 +32,13 @@ INSTALL_URL="https://raw.githubusercontent.com/Arize-ai/coding-harness-tracing/m
 # claude | codex | gemini | cursor | copilot | kiro
 HARNESS="claude"
 
+# setup tracing for a harness
 curl -sSL "$INSTALL_URL" | bash -s -- "$HARNESS"
 
+# remove tracing for a harness
 curl -sSL "$INSTALL_URL" | bash -s -- uninstall "$HARNESS"
 
-# Remove all installed harnesses
+# remove tracing for all harnesses
 curl -sSL "$INSTALL_URL" | bash -s -- uninstall
 ```
 
@@ -46,15 +52,19 @@ $HARNESS = "claude"
 
 iwr -useb $INSTALL_URL -OutFile $env:TEMP\install.bat
 
+# setup tracing for a harness
 & $env:TEMP\install.bat $HARNESS
 
+# remove tracing for a harness
 & $env:TEMP\install.bat uninstall $HARNESS
 
-# Remove all installed harnesses
+# remove tracing for all harnesses
 & $env:TEMP\install.bat uninstall
 ```
 
 ### Local Copy
+
+Clone the repo and then run install on your own machine.
 
 ```bash
 git clone https://github.com/Arize-ai/coding-harness-tracing.git
@@ -64,13 +74,15 @@ cd coding-harness-tracing
 **macOS / Linux**
 ```bash
 # claude | codex | gemini | cursor | copilot | kiro
-HARNESS=claude
+HARNESS="claude"
 
+# setup tracing for a harness
 ./install.sh "$HARNESS"
 
+# remove tracing for a harness
 ./install.sh uninstall "$HARNESS"
 
-# Remove all installed harnesses
+# remove tracing for all harnesses
 ./install.sh uninstall
 ```
 
@@ -79,11 +91,13 @@ HARNESS=claude
 # claude | codex | gemini | cursor | copilot | kiro
 $HARNESS = "claude"
 
+# setup tracing for a harness
 install.bat $HARNESS
 
+# remove tracing for a harness
 install.bat uninstall $HARNESS
 
-# Remove all installed harnesses
+# remove tracing for all harnesses
 install.bat uninstall
 ```
 
