@@ -5,6 +5,8 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 ## Setup
 The installer prompts for your backend (Phoenix or Arize AX) and project name, writes credentials to `~/.arize/harness/config.yaml`, and registers the hooks in `~/.claude/settings.json`.
 
+Pass `--with-skills` to also symlink the `manage-claude-code-tracing` skill into the current directory's `.agents/skills/` so Claude can help you manage the configuration interactively.
+
 ### Claude Code marketplace
 
 The marketplace flow registers the hooks but skips the interactive wizard, so backend credentials and content-logging preferences must be set directly in `~/.claude/settings.json` under `env`:
@@ -94,6 +96,14 @@ install.bat uninstall claude
 | Phoenix endpoint | `http://localhost:6006` |
 | Arize AX endpoint | `otlp.arize.com:443` |
 | Hook config file | `~/.claude/settings.json` |
-| Hook events registered | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `Notification`, `PermissionRequest`, `SessionEnd` |
+| Hook events registered | `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `UserPromptExpansion`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `StopFailure`, `SubagentStart`, `SubagentStop`, `Notification`, `PermissionRequest`, `PermissionDenied`, `PreCompact`, `PostCompact` |
 | State directory | `~/.arize/harness/state/claude-code/` |
 | Log file | `~/.arize/harness/logs/claude-code.log` |
+
+## Verifying tracing
+
+Run any Claude Code session as you normally would (e.g. `claude` or `claude -p "hello"`). The installed hooks fire on every `SessionStart`, `UserPromptSubmit`, `PreToolUse`, etc.
+
+- Check the hook log at `~/.arize/harness/logs/claude-code.log` to confirm events are being processed.
+- Confirm spans appear in your configured project in Arize AX or Phoenix.
+- Set `ARIZE_TRACE_ENABLED=false` in `~/.claude/settings.json` under `env` to temporarily disable tracing without uninstalling.

@@ -5,6 +5,8 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 ## Setup
 The installer prompts for your backend (Phoenix or Arize AX) and project name, writes credentials to `~/.arize/harness/config.yaml`, and registers Copilot Chat hooks at `.github/hooks/hooks.json`.
 
+Pass `--with-skills` to also symlink the `manage-copilot-tracing` skill into the current directory's `.agents/skills/` so coding agents in this workspace can help manage Copilot tracing configuration.
+
 ### Remote setup
 
 macOS / Linux:
@@ -68,3 +70,11 @@ install.bat uninstall copilot
 | Hook events | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop` |
 | State directory | `~/.arize/harness/state/copilot/` |
 | Log file | `~/.arize/harness/logs/copilot.log` |
+
+## Verifying tracing
+
+Use GitHub Copilot Chat in VS Code (or the Copilot CLI) inside the workspace that contains `.github/hooks/hooks.json`. The hooks fire on `SessionStart`, `UserPromptSubmit`, tool invocations, and `Stop`.
+
+- Check `~/.arize/harness/logs/copilot.log` to confirm events are being processed.
+- Confirm spans appear in your configured project in Arize AX or Phoenix.
+- The hooks file is per-workspace — repeat the install in each repo where you want Copilot tracing.
