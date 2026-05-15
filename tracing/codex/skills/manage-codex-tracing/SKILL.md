@@ -139,11 +139,11 @@ This section configures:
 
 ### Determine the integration path
 
-Ask the user: **"Where is the codex-tracing directory located?"**
+Ask the user: **"Where is the Codex tracing directory located?"**
 
 Common locations:
-- If cloned: `./coding-harness-tracing/codex-tracing`
-- If installed via the curl installer: `~/.arize/harness/codex-tracing`
+- If cloned: `./coding-harness-tracing/tracing/codex`
+- If installed via the curl installer: `~/.arize/harness/tracing/codex`
 
 Store this as `INTEGRATION_PATH` for the notify hook config.
 
@@ -249,10 +249,13 @@ Start the Codex buffer service:
 arize-codex-buffer start
 ```
 
-Or ensure it is running (starts only if not already up):
+Check its status or stop it with:
 ```bash
-arize-codex-buffer ensure
+arize-codex-buffer status
+arize-codex-buffer stop
 ```
+
+(The CLI supports `start`, `stop`, and `status` subcommands. The PID is recorded at `~/.arize/harness/run/codex-buffer.pid` so `start` is safe to re-run — it no-ops if the service is already up.)
 
 The buffer service is a single lightweight process (~5MB RSS, stdlib Python, zero CPU when idle). It only buffers events — span export is handled directly by the notify hook.
 
