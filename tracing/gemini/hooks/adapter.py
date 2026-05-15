@@ -12,7 +12,7 @@ import platform
 import subprocess
 import time
 
-from core.common import StateManager, env, generate_trace_id, get_timestamp_ms, log
+from core.common import StateManager, env, generate_trace_id, get_timestamp_ms, log, redirect_stderr_to_log_file
 from core.constants import HARNESSES, STATE_BASE_DIR
 
 # --- Module-level constants derived from HARNESSES ---
@@ -23,6 +23,7 @@ STATE_DIR = STATE_BASE_DIR / _HARNESS["state_subdir"]  # ~/.arize/harness/state/
 
 # Route hook stderr to a per-harness log file unless the user already set one.
 os.environ.setdefault("ARIZE_LOG_FILE", str(_HARNESS["default_log_file"]))
+redirect_stderr_to_log_file()
 
 
 def _get_grandparent_pid() -> str:

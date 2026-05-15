@@ -6,6 +6,7 @@ key-value state backed by YAML files), and OTLP span building functions.
 Replaces the jq-based state functions in common.sh lines 46-109 and
 build_span/build_multi_span from common.sh lines 277-317 / codex common.sh lines 110-145.
 """
+import atexit
 import functools
 import json as _json
 import os
@@ -178,6 +179,79 @@ def log(msg: str) -> None:
 def error(msg: str) -> None:
     """Error log — always written. Goes to stderr."""
     print(f"[arize:error] {msg}", file=sys.stderr, flush=True)
+
+
+# Module-level handles for the active stderr redirect. Kept so tests (and any
+# future caller) can restore the original stderr via restore_stderr_from_log_file().
+_original_stderr: Optional[IO] = None
+_redirected_log_fh: Optional[IO] = None
+
+
+def redirect_stderr_to_log_file() -> None:
+    """Tee ``sys.stderr`` to ``ARIZE_LOG_FILE`` (append, line-buffered).
+
+    Each hook invocation is a separate process. Adapters should call this
+    once at module import time so every entry point in the harness benefits
+    without needing to wrap every function. With the redirect in place:
+
+      - ``error(...)`` always writes → always lands in the log file.
+      - ``log(...)`` writes only when ``ARIZE_VERBOSE=true`` → verbose
+        noise lands in the file only when explicitly opted in.
+
+    Idempotent: if a redirect is already active, this is a no-op. The original
+    ``sys.stderr`` and the open file handle are stashed at module scope so
+    ``restore_stderr_from_log_file()`` can reverse the redirect — useful in
+    tests where adapter imports would otherwise leak stderr state across
+    cases.
+
+    Fail-soft: if the path can't be opened, stderr is left untouched and
+    output falls back to whatever the host CLI does with hook stderr.
+    No-op when ``ARIZE_LOG_FILE`` is unset.
+    """
+    global _original_stderr, _redirected_log_fh
+
+    if _redirected_log_fh is not None:
+        return  # already redirected
+
+    log_file = os.environ.get("ARIZE_LOG_FILE")
+    if not log_file:
+        return
+    try:
+        path = Path(log_file)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fh = open(path, "a", buffering=1, encoding="utf-8")
+    except OSError:
+        return
+
+    _original_stderr = sys.stderr
+    _redirected_log_fh = fh
+    sys.stderr = fh
+    # Restore on interpreter shutdown so atexit hooks (and any late prints)
+    # don't write to an FD that's about to close.
+    atexit.register(restore_stderr_from_log_file)
+
+
+def restore_stderr_from_log_file() -> None:
+    """Reverse ``redirect_stderr_to_log_file()``. Idempotent.
+
+    Restores the saved ``sys.stderr`` and closes the log file handle. Safe to
+    call multiple times. No-op if no redirect is active.
+    """
+    global _original_stderr, _redirected_log_fh
+
+    if _redirected_log_fh is None:
+        return
+
+    if _original_stderr is not None:
+        sys.stderr = _original_stderr
+
+    try:
+        _redirected_log_fh.close()
+    except OSError:
+        pass
+
+    _redirected_log_fh = None
+    _original_stderr = None
 
 
 def debug_dump(label: str, data: object) -> None:

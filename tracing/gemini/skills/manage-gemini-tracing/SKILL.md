@@ -163,7 +163,7 @@ Tell the user:
 - After saving, open a new Gemini CLI session and traces will appear in their Phoenix UI or Arize AX dashboard under the project name
 - Mention `ARIZE_DRY_RUN=true` to test without sending data (set as env var before launching Gemini CLI)
 - Mention `ARIZE_VERBOSE=true` for debug output
-- Hook logs are written to `~/.arize/harness/logs/gemini.log`
+- Errors are always written to `~/.arize/harness/logs/gemini.log`; set `ARIZE_VERBOSE=true` in the shell before launching Gemini CLI to also capture routine hook activity
 - Toggle tracing on/off via `ARIZE_TRACE_ENABLED` env var (must be exported in the user's shell -- Gemini hooks read host env vars)
 - Tail the log file at `~/.arize/harness/logs/gemini.log` for real-time debugging
 

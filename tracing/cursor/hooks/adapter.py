@@ -14,7 +14,7 @@ import re
 
 import yaml
 
-from core.common import FileLock, env
+from core.common import FileLock, env, redirect_stderr_to_log_file
 from core.constants import HARNESSES, STATE_BASE_DIR
 
 # --- Module-level constants from HARNESSES["cursor"] ---
@@ -26,6 +26,7 @@ MAX_ATTR_CHARS = int(os.environ.get("CURSOR_TRACE_MAX_ATTR_CHARS", "100000"))
 
 # Route hook stderr to a per-harness log file unless the user already set one.
 os.environ.setdefault("ARIZE_LOG_FILE", str(_HARNESS["default_log_file"]))
+redirect_stderr_to_log_file()
 
 
 def trace_id_from_generation(gen_id: str) -> str:

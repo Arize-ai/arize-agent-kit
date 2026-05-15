@@ -176,7 +176,7 @@ Tell the user:
 - After restarting, traces will appear in their Phoenix UI or Arize AX dashboard under the project name
 - Mention `ARIZE_DRY_RUN=true` to test without sending data
 - Mention `ARIZE_VERBOSE=true` for debug output
-- Hook logs are written to `~/.arize/harness/logs/claude-code.log`
+- Errors are always written to `~/.arize/harness/logs/claude-code.log`; set `ARIZE_VERBOSE` to `"true"` under `env` in `~/.claude/settings.json` to also capture routine hook activity (session_start, span emits, state transitions)
 
 **Note**: Project-local settings override global settings for the same variables.
 
@@ -198,16 +198,17 @@ Ask the user which backend they want. If they don't have credentials yet, walk t
 
 Ask the user: **"Have you already installed this plugin via the Claude Code CLI?"**
 
-**If yes (already installed via CLI):** They can reference it from the CLI cache. Tell them to check `~/.claude/plugins/installed_plugins.json` for the exact path, or use:
-```
-~/.claude/plugins/cache/coding-harness-tracing/claude-code-tracing/1.0.0
-```
+**If yes (already installed via the `install.sh` / `install.bat` flow):** The plugin lives inside the harness install directory at `~/.arize/harness/tracing/claude_code`.
+
+**If yes (installed via the Claude marketplace):** They can reference it from the CLI cache. Tell them to check `~/.claude/plugins/installed_plugins.json` for the exact path.
 
 **If no:** Tell them to clone the repo into their project:
 ```bash
 git clone https://github.com/Arize-ai/coding-harness-tracing.git
 ```
-The plugin path will be `./coding-harness-tracing/claude-code-tracing`
+The plugin path will be `./coding-harness-tracing/tracing/claude_code`.
+
+> Tip: `tracing.claude_code.agent_sdk.claude_options()` returns a pre-configured `ClaudeAgentOptions` with the plugin path and `setting_sources=["user"]` already wired in, so users can skip the manual plumbing in step 5 below when the harness is installed via `install.sh`.
 
 No Python dependencies are needed -- both Phoenix and Arize AX use HTTP/JSON.
 
@@ -244,7 +245,7 @@ Give the user the appropriate snippet to add to their application. They must use
 ```python
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
-PLUGIN_PATH = "./coding-harness-tracing/claude-code-tracing"  # or CLI cache path
+PLUGIN_PATH = "./coding-harness-tracing/tracing/claude_code"  # or ~/.arize/harness/tracing/claude_code if installed via install.sh
 
 options = ClaudeAgentOptions(
     plugins=[{"type": "local", "path": PLUGIN_PATH}],
@@ -260,7 +261,7 @@ async with ClaudeSDKClient(options=options) as client:
 ```typescript
 import { ClaudeSDKClient } from "@anthropic-ai/claude-agent-sdk";
 
-const PLUGIN_PATH = "./coding-harness-tracing/claude-code-tracing"; // or CLI cache path
+const PLUGIN_PATH = "./coding-harness-tracing/tracing/claude_code"; // or ~/.arize/harness/tracing/claude_code if installed via install.sh
 
 const client = new ClaudeSDKClient({
   plugins: [{ type: "local", path: PLUGIN_PATH }],
@@ -284,8 +285,8 @@ Tell the user to add `"ARIZE_DRY_RUN": "true"` to their settings file to verify 
 For full Agent SDK documentation, see: https://platform.claude.com/docs/en/agent-sdk/overview
 
 - **Important**: You must use `ClaudeSDKClient` -- the standalone `query()` function does not support hooks and tracing will not work.
-- **TypeScript SDK**: All 9 hooks are supported -- full parity with the CLI.
-- **Python SDK**: `SessionStart`, `SessionEnd`, `Notification`, and `PermissionRequest` hooks are not available. The plugin handles this automatically -- session state is lazily initialized on the first `UserPromptSubmit`. Core tracing (LLM spans, tool spans, subagent spans) works fully.
+- **Hook coverage**: The CLI registers a broad hook set (16 events as of this writing, including session-lifecycle, prompt/tool, compaction, and permission events). The Agent SDKs may expose a smaller subset depending on version; check the SDK's `HookEvent` enum / type for the events your SDK version supports.
+- **Python SDK** in particular has historically not supported `SessionStart`, `SessionEnd`, `Notification`, and `PermissionRequest`. The plugin handles this automatically -- session state is lazily initialized on the first `UserPromptSubmit`, so core tracing (LLM spans, tool spans, subagent spans) works fully.
 - Tracing env vars must be passed via a settings file in `ClaudeAgentOptions` -- the SDK subprocess does not inherit shell environment variables.
 - If the user is **troubleshooting** an existing Agent SDK setup, you can help by checking log files (`~/.arize/harness/logs/claude-code.log`), verifying the settings file contains the correct env vars, verifying `~/.arize/harness/config.yaml` has correct backend credentials, or enabling dry-run mode.
 

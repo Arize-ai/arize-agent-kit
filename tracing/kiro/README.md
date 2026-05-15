@@ -6,6 +6,8 @@ Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for
 
 The installer prompts for your backend (Phoenix or Arize AX) and project name, writes credentials to `~/.arize/harness/config.yaml`, and registers hooks in a Kiro agent config under `~/.kiro/agents/<agent>.json` (default agent: `arize-traced`). You can optionally have the installer run `kiro-cli agent set-default <agent>` so the traced agent is used by default.
 
+Pass `--with-skills` to also symlink the `manage-kiro-tracing` skill into the current directory's `.agents/skills/` so coding agents in this workspace can help manage Kiro tracing configuration.
+
 ### Remote setup
 
 macOS / Linux:
@@ -80,6 +82,8 @@ kiro-cli chat
 # Otherwise:
 kiro-cli chat --agent arize-traced
 ```
+
+Errors land in `~/.arize/harness/logs/kiro.log` always; set `export ARIZE_VERBOSE=true` before launching Kiro to also see routine hook activity. See the [main README's Environment variables section](../../README.md#environment-variables) for the full list of runtime overrides (`ARIZE_TRACE_ENABLED`, `ARIZE_DRY_RUN`, `ARIZE_USER_ID`, etc.).
 
 ## Span shape
 
