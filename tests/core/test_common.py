@@ -22,7 +22,9 @@ from core.common import (
     error,
     get_target,
     log,
+    redirect_stderr_to_log_file,
     resolve_backend,
+    restore_stderr_from_log_file,
     send_span,
 )
 
@@ -64,6 +66,97 @@ class TestLogging:
         assert len(files) == 1
         data = yaml.safe_load(files[0].read_text())
         assert data == {"key": "val"}
+
+
+# ── redirect_stderr_to_log_file tests ──────────────────────────────────────
+
+
+class TestStderrRedirect:
+    """``redirect_stderr_to_log_file()`` + ``restore_stderr_from_log_file()``."""
+
+    @pytest.fixture(autouse=True)
+    def _always_restore(self):
+        """Each test starts and ends with a clean stderr.
+
+        Adapter imports earlier in the test session may have already called
+        ``redirect_stderr_to_log_file()`` — restore here so our idempotency
+        guard doesn't short-circuit the next ``redirect`` call.
+        """
+        restore_stderr_from_log_file()
+        yield
+        restore_stderr_from_log_file()
+
+    def test_writes_stderr_to_log_file(self, tmp_path, monkeypatch):
+        log_file = tmp_path / "hook.log"
+        monkeypatch.setenv("ARIZE_LOG_FILE", str(log_file))
+
+        redirect_stderr_to_log_file()
+        error("boom")
+        restore_stderr_from_log_file()
+
+        assert "boom" in log_file.read_text()
+
+    def test_noop_when_log_file_unset(self, monkeypatch):
+        monkeypatch.delenv("ARIZE_LOG_FILE", raising=False)
+        original = __import__("sys").stderr
+        redirect_stderr_to_log_file()
+        assert __import__("sys").stderr is original
+
+    def test_creates_parent_directory(self, tmp_path, monkeypatch):
+        log_file = tmp_path / "nested" / "dir" / "hook.log"
+        monkeypatch.setenv("ARIZE_LOG_FILE", str(log_file))
+
+        redirect_stderr_to_log_file()
+        error("hello")
+        restore_stderr_from_log_file()
+
+        assert log_file.exists()
+        assert "hello" in log_file.read_text()
+
+    def test_restore_returns_original_stderr(self, tmp_path, monkeypatch):
+        import sys as _sys
+
+        log_file = tmp_path / "hook.log"
+        monkeypatch.setenv("ARIZE_LOG_FILE", str(log_file))
+        original = _sys.stderr
+
+        redirect_stderr_to_log_file()
+        assert _sys.stderr is not original  # redirect took effect
+
+        restore_stderr_from_log_file()
+        assert _sys.stderr is original  # restored
+
+    def test_restore_is_idempotent(self, tmp_path, monkeypatch):
+        log_file = tmp_path / "hook.log"
+        monkeypatch.setenv("ARIZE_LOG_FILE", str(log_file))
+
+        redirect_stderr_to_log_file()
+        restore_stderr_from_log_file()
+        # Second call should be a no-op (no exception, no state corruption).
+        restore_stderr_from_log_file()
+
+    def test_redirect_is_idempotent(self, tmp_path, monkeypatch):
+        """Calling redirect twice should not leak a second FD or re-redirect."""
+        import sys as _sys
+
+        log_file = tmp_path / "hook.log"
+        monkeypatch.setenv("ARIZE_LOG_FILE", str(log_file))
+
+        redirect_stderr_to_log_file()
+        fh_after_first = _sys.stderr
+        redirect_stderr_to_log_file()
+        fh_after_second = _sys.stderr
+        assert fh_after_first is fh_after_second
+
+    def test_failsoft_on_unwritable_path(self, monkeypatch):
+        """Opening a path that can't be created leaves stderr untouched."""
+        import sys as _sys
+
+        # /dev/null/foo is unwritable on POSIX (file under a file).
+        monkeypatch.setenv("ARIZE_LOG_FILE", "/dev/null/cannot-create.log")
+        original = _sys.stderr
+        redirect_stderr_to_log_file()
+        assert _sys.stderr is original  # untouched
 
 
 # ── FileLock tests ──────────────────────────────────────────────────────────
