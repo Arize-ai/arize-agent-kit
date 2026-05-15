@@ -159,7 +159,7 @@ Tell the user:
 - After saving, open a new Copilot session and traces will appear in their Phoenix UI or Arize AX dashboard under the project name
 - Mention `ARIZE_DRY_RUN=true` to test without sending data (set as env var before launching Copilot)
 - Mention `ARIZE_VERBOSE=true` for debug output
-- Hook logs are written to `~/.arize/harness/logs/copilot.log`
+- Errors are always written to `~/.arize/harness/logs/copilot.log`; set `ARIZE_VERBOSE=true` in the shell before launching VS Code / Copilot CLI to also capture routine hook activity
 
 ## Hook Events
 

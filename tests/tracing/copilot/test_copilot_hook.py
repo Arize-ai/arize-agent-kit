@@ -165,6 +165,7 @@ class TestSessionStart:
         from tracing.copilot.hooks import adapter as _adapter
 
         monkeypatch.setattr(_adapter, "STATE_DIR", tmp_path)
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
 
         payload = {
             "cwd": "/some/repo",

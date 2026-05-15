@@ -83,6 +83,8 @@ kiro-cli chat
 kiro-cli chat --agent arize-traced
 ```
 
+Errors land in `~/.arize/harness/logs/kiro.log` always; set `export ARIZE_VERBOSE=true` before launching Kiro to also see routine hook activity. See the [main README's Environment variables section](../../README.md#environment-variables) for the full list of runtime overrides (`ARIZE_TRACE_ENABLED`, `ARIZE_DRY_RUN`, `ARIZE_USER_ID`, etc.).
+
 ## Span shape
 
 ### LLM span

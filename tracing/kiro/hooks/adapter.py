@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from core.common import StateManager, env, get_timestamp_ms, log
+from core.common import StateManager, env, get_timestamp_ms, log, redirect_stderr_to_log_file
 from core.constants import STATE_BASE_DIR
 from tracing.kiro.constants import HARNESS_NAME, KIRO_SESSIONS_DIR
 
@@ -32,6 +32,7 @@ os.environ.setdefault(
     "ARIZE_LOG_FILE",
     str(Path.home() / ".arize" / "harness" / "logs" / "kiro.log"),
 )
+redirect_stderr_to_log_file()
 
 
 def check_requirements() -> bool:

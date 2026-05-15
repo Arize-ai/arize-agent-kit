@@ -908,18 +908,11 @@ def main():
 
     Input contract: JSON on stdin, all 15 events (IDE + CLI) routed here.
     stdout: MUST print permissive JSON response, even on error.
-    stderr: redirected to ARIZE_LOG_FILE before dispatch.
+    stderr: redirected to ARIZE_LOG_FILE at adapter import time via
+        core.common.redirect_stderr_to_log_file().
     """
     event = ""
     try:
-        # Redirect stderr to log file BEFORE any processing
-        # (matches bash: { ... } 2>>"$ARIZE_LOG_FILE" || true at line 471)
-        try:
-            _log_fd = open(env.log_file, "a")
-            sys.stderr = _log_fd
-        except OSError:
-            pass
-
         if not check_requirements():
             return
 

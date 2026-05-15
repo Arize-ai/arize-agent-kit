@@ -209,7 +209,7 @@ Tell the user:
 - Traces will appear in their Phoenix UI or Arize AX dashboard under the project name
 - Mention `ARIZE_DRY_RUN=true` to test without sending data (set as env var before launching Kiro)
 - Mention `ARIZE_VERBOSE=true` for debug output
-- Hook logs are written to `~/.arize/harness/logs/kiro.log`
+- Errors are always written to `~/.arize/harness/logs/kiro.log`; set `ARIZE_VERBOSE=true` in the shell before launching Kiro to also capture routine hook activity
 
 ## Hook Events
 

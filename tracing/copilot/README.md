@@ -75,6 +75,8 @@ install.bat uninstall copilot
 
 Use GitHub Copilot Chat in VS Code (or the Copilot CLI) inside the workspace that contains `.github/hooks/hooks.json`. The hooks fire on `SessionStart`, `UserPromptSubmit`, tool invocations, and `Stop`.
 
-- Check `~/.arize/harness/logs/copilot.log` to confirm events are being processed.
+- Errors land in `~/.arize/harness/logs/copilot.log` always; set `export ARIZE_VERBOSE=true` before launching VS Code / Copilot CLI to also see routine hook activity.
 - Confirm spans appear in your configured project in Arize AX or Phoenix.
 - The hooks file is per-workspace — repeat the install in each repo where you want Copilot tracing.
+
+See the [main README's Environment variables section](../../README.md#environment-variables) for the full list of runtime overrides (`ARIZE_TRACE_ENABLED`, `ARIZE_DRY_RUN`, `ARIZE_USER_ID`, etc.).

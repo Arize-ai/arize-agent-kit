@@ -167,7 +167,7 @@ Tell the user:
 - After saving, open a new Cursor session and traces will appear in their Phoenix UI or Arize AX dashboard under the project name
 - Mention `ARIZE_DRY_RUN=true` to test without sending data (set as env var before launching Cursor)
 - Mention `ARIZE_VERBOSE=true` for debug output
-- Hook logs are written to `~/.arize/harness/logs/cursor.log`
+- Errors are always written to `~/.arize/harness/logs/cursor.log`; set `ARIZE_VERBOSE=true` in the shell before launching Cursor to also capture routine hook activity
 
 ## Hook Events
 

@@ -176,7 +176,7 @@ Tell the user:
 - After restarting, traces will appear in their Phoenix UI or Arize AX dashboard under the project name
 - Mention `ARIZE_DRY_RUN=true` to test without sending data
 - Mention `ARIZE_VERBOSE=true` for debug output
-- Hook logs are written to `~/.arize/harness/logs/claude-code.log`
+- Errors are always written to `~/.arize/harness/logs/claude-code.log`; set `ARIZE_VERBOSE` to `"true"` under `env` in `~/.claude/settings.json` to also capture routine hook activity (session_start, span emits, state transitions)
 
 **Note**: Project-local settings override global settings for the same variables.
 

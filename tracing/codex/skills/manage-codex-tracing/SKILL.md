@@ -303,7 +303,7 @@ Tell the user:
 - If the buffer service has no buffered events, tracing still works with flat Turn spans (graceful degradation)
 - Mention `ARIZE_DRY_RUN=true` to test without sending data
 - Mention `ARIZE_VERBOSE=true` and `ARIZE_TRACE_DEBUG=true` for debug output
-- Logs: buffer service at `~/.arize/harness/logs/codex-buffer.log`, harness at `~/.arize/harness/logs/codex.log`
+- Logs: buffer service at `~/.arize/harness/logs/codex-buffer.log`, harness at `~/.arize/harness/logs/codex.log` (errors always; routine activity requires `ARIZE_VERBOSE=true` in `~/.codex/arize-env.sh` or the shell)
 
 ### Environment Variables Reference
 

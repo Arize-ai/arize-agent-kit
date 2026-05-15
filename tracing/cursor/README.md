@@ -76,6 +76,8 @@ install.bat uninstall cursor
 
 Use Cursor (IDE or `agent` CLI) as normal. The hooks fire on agent activity within the workspace that contains `.cursor/hooks.json`.
 
-- Check `~/.arize/harness/logs/cursor.log` to confirm events are being processed.
+- Errors land in `~/.arize/harness/logs/cursor.log` always; set `export ARIZE_VERBOSE=true` before launching Cursor to also see routine hook activity.
 - Confirm spans appear in your configured project in Arize AX or Phoenix.
 - IDE-only events (e.g. `beforeReadFile`, `beforeMCPExecution`, `afterAgentResponse`) only fire when running through the Cursor IDE; the CLI emits the subset listed in **Events emitted by Cursor CLI** above.
+
+See the [main README's Environment variables section](../../README.md#environment-variables) for the full list of runtime overrides (`ARIZE_TRACE_ENABLED`, `ARIZE_DRY_RUN`, `ARIZE_USER_ID`, etc.).

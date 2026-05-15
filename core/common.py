@@ -180,6 +180,32 @@ def error(msg: str) -> None:
     print(f"[arize:error] {msg}", file=sys.stderr, flush=True)
 
 
+def redirect_stderr_to_log_file() -> None:
+    """Tee ``sys.stderr`` to ``ARIZE_LOG_FILE`` (append, line-buffered).
+
+    Each hook invocation is a separate process. Adapters should call this
+    once at module import time so every entry point in the harness benefits
+    without needing to wrap every function. With the redirect in place:
+
+      - ``error(...)`` always writes → always lands in the log file.
+      - ``log(...)`` writes only when ``ARIZE_VERBOSE=true`` → verbose
+        noise lands in the file only when explicitly opted in.
+
+    Fail-soft: if the path can't be opened, stderr is left untouched and
+    output falls back to whatever the host CLI does with hook stderr.
+    No-op when ``ARIZE_LOG_FILE`` is unset.
+    """
+    log_file = os.environ.get("ARIZE_LOG_FILE")
+    if not log_file:
+        return
+    try:
+        path = Path(log_file)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        sys.stderr = open(path, "a", buffering=1, encoding="utf-8")
+    except OSError:
+        pass
+
+
 def debug_dump(label: str, data: object) -> None:
     """Trace-level debug dump — only when ARIZE_TRACE_DEBUG=true.
 

@@ -104,6 +104,8 @@ install.bat uninstall claude
 
 Run any Claude Code session as you normally would (e.g. `claude` or `claude -p "hello"`). The installed hooks fire on every `SessionStart`, `UserPromptSubmit`, `PreToolUse`, etc.
 
-- Check the hook log at `~/.arize/harness/logs/claude-code.log` to confirm events are being processed.
+- Errors and `ARIZE_VERBOSE=true` activity land in `~/.arize/harness/logs/claude-code.log`. To see routine hook activity (`session_start fired`, `emitted LLM span`, etc.), add `"ARIZE_VERBOSE": "true"` under `env` in `~/.claude/settings.json` and re-run a session.
 - Confirm spans appear in your configured project in Arize AX or Phoenix.
-- Set `ARIZE_TRACE_ENABLED=false` in `~/.claude/settings.json` under `env` to temporarily disable tracing without uninstalling.
+- Set `"ARIZE_TRACE_ENABLED": "false"` under `env` to temporarily disable tracing without uninstalling, or `"ARIZE_DRY_RUN": "true"` to build spans without sending them.
+
+See the [main README's Environment variables section](../../README.md#environment-variables) for the full list of runtime overrides.

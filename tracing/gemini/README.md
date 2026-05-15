@@ -75,6 +75,8 @@ install.bat uninstall gemini
 
 Run any Gemini CLI session as you normally would (e.g. `gemini` or `gemini -p "hello"`). The installed hooks fire on `SessionStart`, model and tool boundaries, and `SessionEnd`.
 
-- Check `~/.arize/harness/logs/gemini.log` to confirm events are being processed.
+- Errors land in `~/.arize/harness/logs/gemini.log` always; set `export ARIZE_VERBOSE=true` before launching Gemini to also see routine hook activity.
 - Confirm spans appear in your configured project in Arize AX or Phoenix.
 - Each hook has a 30-second timeout (Gemini's default is 60s) — see `HOOK_TIMEOUT_MS` in `constants.py` if you need to adjust.
+
+See the [main README's Environment variables section](../../README.md#environment-variables) for the full list of runtime overrides (`ARIZE_TRACE_ENABLED`, `ARIZE_DRY_RUN`, `ARIZE_USER_ID`, etc.).

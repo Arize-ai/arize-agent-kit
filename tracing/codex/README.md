@@ -91,6 +91,8 @@ Then check:
 - Hook activity in `~/.arize/harness/logs/codex.log` and buffer activity in `~/.arize/harness/logs/codex-buffer.log`.
 - Spans appear in your configured project in Arize AX or Phoenix.
 
+Errors are always logged. For routine hook activity, add `export ARIZE_VERBOSE=true` to `~/.codex/arize-env.sh` (or your shell) and re-run. See the [main README's Environment variables section](../../README.md#environment-variables) for the full list of runtime overrides (`ARIZE_TRACE_ENABLED`, `ARIZE_DRY_RUN`, `ARIZE_TRACE_DEBUG`, etc.).
+
 ## Troubleshooting
 
 **`codex` is not running through the shim.** Confirm `which codex` returns `~/.arize/harness/bin/codex`. If a system Codex install is shadowing the shim, ensure `~/.arize/harness/bin` is earlier on your `PATH`, or open a new shell so the installer-applied PATH update takes effect.

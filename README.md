@@ -184,6 +184,29 @@ All configuration lives in `~/.arize/harness/config.yaml`, written by the instal
 
 Each harness owns its full backend configuration directly — there is no shared global backend block. This allows different harnesses to use different backends or credentials.
 
+### Environment variables
+
+Most settings live in `config.yaml`, but a small set of env vars affect runtime behavior on every harness. The installers wire most of these for you; set them yourself when you want to override behavior for a single session or debug locally.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ARIZE_TRACE_ENABLED` | `true` | Master toggle. Set to `false` to disable hooks without uninstalling. |
+| `ARIZE_VERBOSE` | `false` | Enables `[arize] ...` log lines in `~/.arize/harness/logs/<harness>.log`. Errors are always logged; verbose adds routine activity (hook fires, span emits, state transitions). |
+| `ARIZE_DRY_RUN` | `false` | Build spans but skip the backend send. Useful for confirming hook wiring without writing data. |
+| `ARIZE_USER_ID` | — | Attached to every span as `user.id`. Mirrors the `user_id` field in `config.yaml`; env wins if both are set. |
+| `ARIZE_PROJECT_NAME` | per-harness | Overrides `harnesses.<name>.project_name` from `config.yaml` for a single session. |
+| `ARIZE_LOG_FILE` | per-harness | Path the harness writes its log to. Adapters default to `~/.arize/harness/logs/<harness>.log`. |
+| `ARIZE_TRACE_DEBUG` | `false` | Dump raw hook payloads as YAML under `~/.arize/harness/state/<harness>/debug/`. Codex hooks use this for span-tree inspection. |
+
+**Backend overrides** (set if you want env to take priority over `config.yaml` for a single run):
+
+| Variable | Description |
+|----------|-------------|
+| `ARIZE_API_KEY`, `ARIZE_SPACE_ID`, `ARIZE_OTLP_ENDPOINT` | Arize AX credentials and endpoint. |
+| `PHOENIX_ENDPOINT`, `PHOENIX_API_KEY` | Phoenix endpoint and (optional) API key. |
+
+Claude Code reads env vars from `~/.claude/settings.json` under the `env` block; Codex from `~/.codex/arize-env.sh`; Cursor / Copilot / Gemini / Kiro pick up host shell env. See the per-harness READMEs for details.
+
 ## Links
 
 - [Arize AX](https://arize.com)
